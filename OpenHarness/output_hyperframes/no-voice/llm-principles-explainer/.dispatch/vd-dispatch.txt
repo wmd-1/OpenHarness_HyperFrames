@@ -1,0 +1,808 @@
+## Design chunks
+{
+  "generated_at": "2026-06-16T09:04:09.221Z",
+  "source_url": "Style",
+  "preset": "block-frame",
+  "tokens_file": "chunks/tokens.css",
+  "easings_file": "chunks/easings.js",
+  "voice_file": "chunks/voice.md",
+  "hints_file": "chunks/composition-hints.md",
+  "type_roles_file": "chunks/type-roles.md",
+  "caption_skin_file": "chunks/caption-skin.html",
+  "components": [
+    {
+      "id": "button",
+      "file": "chunks/components/button.html"
+    },
+    {
+      "id": "chip",
+      "file": "chunks/components/chip.html"
+    },
+    {
+      "id": "corner-pins",
+      "file": "chunks/components/corner-pins.html"
+    },
+    {
+      "id": "dot-grid-bg",
+      "file": "chunks/components/dot-grid-bg.html"
+    },
+    {
+      "id": "feature-card",
+      "file": "chunks/components/feature-card.html"
+    },
+    {
+      "id": "hero",
+      "file": "chunks/components/hero.html"
+    },
+    {
+      "id": "quote-frame",
+      "file": "chunks/components/quote-frame.html"
+    },
+    {
+      "id": "star-burst",
+      "file": "chunks/components/star-burst.html"
+    },
+    {
+      "id": "stat-counter",
+      "file": "chunks/components/stat-counter.html"
+    },
+    {
+      "id": "timeline-step",
+      "file": "chunks/components/timeline-step.html"
+    }
+  ]
+}
+# Composition hints — Block Frame
+
+_(preset declared no §H — plan agent picks components by id alone)_
+# Voice register: block-frame
+
+## From the site (DNA)
+- Tone: neutral
+- Heading style: Sentence case
+
+## Transform recipe
+
+1. Strip articles and connectives (the / a / of / and / with / to).
+2. Break into 2-4 word noun-verb-noun fragments or single dominant nouns.
+3. UPPERCASE all on-screen text that lands in display, chip, or button
+   slots — sentence body stays sentence case.
+4. Join fragments with `.` + linebreak for stacked impact, or em-dash
+   `—` for a single beat of emphasis.
+5. End headlines on a noun, not a verb — the brutalist stamp lands on the
+   thing, not the action.
+6. Brand name appears as the final clause, punctuated standalone.
+
+**Example:**
+
+- IN: `Higgsfield is the AI platform that helps creators generate stunning visuals in seconds`
+- OUT: `CREATORS. GENERATE. STUNNING VISUALS — IN SECONDS. HIGGSFIELD.`
+
+> Phase 4b scene workers: apply to DOM text only (headline / chip / button copy).
+> Phase 2 narrator scripts are TTS-bound — do NOT uppercase or strip articles.
+:root {
+  --brand-primary:   #FE90E8;
+  --brand-secondary: #C0F7FE;
+  --brand-tertiary:  #000000;
+  --brand-accent:    #F7CB46;
+  --brand-costume:   #FFFFFF;
+  --ink:             #000000;
+  --canvas:          #FFFDF5;
+  --brand-gradient:  linear-gradient(135deg, #FE90E8 0%, #C0F7FE 50%, #F7CB46 100%);
+  --deco-1:          #F7CB46;
+  --deco-2:          #99E885;
+  --deco-3:          #C0F7FE;
+  --deco-4:          #FE90E8;
+  --font-display:    'Inter', system-ui, sans-serif;
+  --font-body:       'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono:       'Space Grotesk', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bf-border-bold: 4px solid var(--ink);
+  --bf-border-mid: 3px solid var(--ink);
+  --bf-border-thin: 2px solid var(--ink);
+  --bf-shadow: 8px 8px 0 var(--ink);
+  --bf-shadow-sm: 4px 4px 0 var(--ink);
+  --bf-shadow-hover: 6px 6px 0 var(--ink);
+  --bf-shadow-close: 12px 12px 0 var(--brand-secondary);
+  --bf-shadow-close-btn: 6px 6px 0 var(--canvas);
+  --bf-tilt-sm-l: -2deg;
+  --bf-tilt-sm-r: 2deg;
+  --bf-tilt-md-l: -8deg;
+  --bf-tilt-md-r: 8deg;
+  --bf-tilt-loud: 12deg;
+  --bf-pad-card: 36px;
+  --bf-pad-card-sm: 28px;
+  --bf-pad-card-xs: 22px;
+  --bf-pad-card-lg: 60px;
+  --bf-gap-lg: 48px;
+  --bf-gap-md: 32px;
+  --bf-gap-sm: 24px;
+  --bf-gap-xs: 16px;
+  --bf-dot-size: 24px;
+  --bf-dot-radius: 1.2px;
+}
+// RULE: motion is snap-and-hit, never slow ease-in-out for primary entrances.
+// RULE: cards "punch in" — translate from -8/-8 offset with shadow growing
+//       from 0 to var(--bf-shadow). Mirrors the hover lift-up signature.
+// RULE: tilts are baked at rest; do NOT tween rotation during entry.
+//       Tilt-then-pop reads as wobble; tilt-at-rest reads as deliberate.
+// RULE: emphasis on chrome (label-pills, buttons) uses back.out(1.6) to
+//       echo the hard-shadow "stamp" feel.
+// RULE: never blur shadows during motion — toggle box-shadow values, do
+//       not interpolate filter() or use shadow-blur tweens.
+
+const EASE = {
+  entry: "expo.out", // cards hit and stick — template uses 0.15s ease but punchier on video scale
+  emphasis: "back.out(1.6)", // chrome pops (pills, buttons, stat cards) — echoes the brutalist stamp
+  exit: "power2.in", // sharp exits — never linger
+  drift: "sine.inOut", // ambient (dot-grid fade-in, tilt micro-sway) only
+};
+
+const DUR = {
+  snap: 0.16, // chrome hover, label-pill in, button settle — mirrors template's 0.15s
+  med: 0.42, // card entry, headline reveal
+  slow: 0.9, // hero entry, close-frame reveal — the loudest moments
+};
+## Effects catalog
+Reference these effects in `section_plan.md` by **name** (wrapped in backticks). The build agent (Phase 4) translates each name into the corresponding `hyperframes-animation/rules/<name>.md` recipe.
+
+The actual source of truth checked by Phase 3 `validate-section.mjs` is the set of `.md` files that exist under **`hyperframes-animation/rules/`** (the validator builds a set from `readdirSync` on that directory), not this catalog. This catalog is the curated subset that planners should cite. Two differences: the rules directory contains two rules missing frontmatter (`css-marker-patterns`, `gsap-effects`, listed in the "Skipped" section at the end of this file). They pass validator because files exist under rules/, but they are not in this catalog, so **do not cite them**. They still resolve as real recipes in Phase 4, so validator intentionally does not block them. Normally, choose only from this catalog.
+
+## SVG & Icons
+
+| Effect                | Description                                                                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `svg-icon-enrichment` | Animate internal SVG elements (rotating needles, opening leaves, pulsing dots, dashed-line flow), making icons feel alive without replacing them. |
+| `svg-path-draw`       | Use stroke-dasharray and stroke-dashoffset to progressively draw SVG paths.                                                                       |
+
+## Camera & Viewport
+
+| Effect                   | Description                                                                                                                                    |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `camera-cursor-tracking` | Two-stage virtual camera that locks the viewport onto a moving focus point, with configurable initial position.                                |
+| `coordinate-target-zoom` | Zoom into an off-center element by combining scale with counter-translation, so the target ends centered in the viewport.                      |
+| `multi-phase-camera`     | Sequential camera zoom with 2-3 distinct phases (pull back / focus / push in) plus continuous micro-drift for organic cinematic feel.          |
+| `viewport-change`        | Virtual camera: transform a wrapper around all scene content to simulate zoom / pan / focus lock. Camera moves right -> world translates left. |
+
+## Interaction & Click
+
+| Effect                   | Description                                                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `cursor-click-ripple`    | Animate a mouse cursor moving to a target, with scale-down press feedback and an outward ripple ring on click.                                                                             |
+| `physics-press-reaction` | Cursor + element press together through subtractive spring force: the cursor lands on the element, both compress, then release. Different from press-release-spring (which has no cursor). |
+| `press-release-spring`   | Tactile button press: linear compression, spring-based recovery, and layered feedback (shadow compression + release burst + background glow).                                              |
+
+## Text & Typography
+
+| Effect                     | Description                                                                                                                                                                          |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `3d-text-depth-layers`     | Stack multiple offset text layers to create a 3D shadow / extrusion effect on large type - more impactful than CSS text-shadow because each layer is a full DOM element.             |
+| `asr-keyword-glow`         | Keywords glow and scale when "spoken" - attack/sustain/release envelopes sync to each word timestamp. Even without real audio, hard-coded timing creates a narrator-emphasis effect. |
+| `context-sensitive-cursor` | Cursor color and style change with the currently typed text segment - accent color on highlighted segments, dimmed on placeholders, etc.                                             |
+| `counting-dynamic-scale`   | During count animation, font size grows with the count value, giving numbers increasing visual weight.                                                                               |
+| `discrete-text-sequence`   | Replace whole text states at frame thresholds for nonlinear typing effects - typos, bulk add, pauses, backspace, simulated thinking.                                                 |
+| `hacker-flip-3d`           | Character-level 3D rotation plus random glyph substitution for a decrypted-reveal effect.                                                                                            |
+| `vertical-spring-ticker`   | Slot-machine-style vertical scrolling inside a masked container using additive spring physics - each spring contributes one scroll "step."                                           |
+
+## Layout & 3D
+
+| Effect                     | Description                                                                                                                                     |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `3d-page-scroll`           | Render an entire webpage as a tilted 3D card, then scroll it to reveal a specific region.                                                       |
+| `ai-tracking-box`          | Animated bounding box with L-shaped corners follows an oscillating path, simulating AI object detection / tracking.                             |
+| `avatar-cloud-network`     | Avatars distributed on an elliptical ring, connected to a central hub with SVG dashed lines - staggered social-proof "community" reveal.        |
+| `center-outward-expansion` | Elements start clustered at screen center, then expand outward to final positions driven by a shared progress value.                            |
+| `orbit-3d-entry`           | Elements flip in from 3D space, then settle into continuous elliptical orbits around a focal point.                                             |
+| `split-tilt-cards`         | Two cards placed side by side with opposite Y-axis rotations, creating a symmetrical 3D split-screen layout for comparisons or paired features. |
+
+## Transition & Motion
+
+| Effect                       | Description                                                                                                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `card-morph-anchor`          | Container morphs size and border radius across shots, acting as a visual transition anchor.                                                            |
+| `dynamic-content-sequencing` | Automatically computes timeline start/end times from content length + per-item duration; longer content receives more time without hard-coded numbers. |
+| `reactive-displacement`      | Physical collision: incoming element's spring drives outgoing element displacement - one source of truth creates causal motion.                        |
+| `scale-swap-transition`      | Coordinated shrink-out + spring-in between two elements, creating a morph-like transition without SVG path interpolation.                              |
+| `sine-wave-loop`             | Continuous breathing / idle ambient motion using trigonometry - keeps elements alive after entry. Pairs well with almost any entry rule.               |
+## Design rules
+--- typography ---
+---
+name: video-typography
+description: "Typography design decisions for HyperFrames videos — roles, hierarchy intent, pairing logic. Implementation values (px, letter-spacing em, CJK fallback chains, OpenType CSS) live in build agent territory."
+category: visual-design
+---
+
+# Video Typography - Design-Judgment Layer
+
+Video typography ≠ web typography: no scrolling, no reflow. Every text element must read at a glance in a 1-5s window and do emotional work — text is usually the emotional anchor, not decoration.
+
+**Plan-layer judgment only** — roles, hierarchy intent, pairing logic, negative constraints. Concrete values (px, letter-spacing em, CJK fallback, `tabular-nums`) are build-agent territory (`/hyperframes-core` + `chunks/tokens.css`); plan does not copy them.
+
+## Font Source
+
+**Font families come from `chunks/tokens.css`** (`--font-display` / `--font-body` / `--font-mono`, already inlined into Phase 3 dispatch `## Design chunks`). Name fonts by **use** ("display for hero headline", "mono for eyebrow / metadata"); do not invent or copy concrete font names — the build agent reads them from `chunks/tokens.css` (not design.html).
+
+A **second font** used for contrast (serif italic emphasis, mono labels) must be named as a design decision. Homogeneous pairing (two geometric sans faces) is not allowed — tension without hierarchy benefit.
+
+## Type Scale (by role, not px)
+
+Video type is much larger than web type. Plan references by **role**; build agent picks px from these ranges:
+
+| Role               | Use                                   | Relative feel                               |
+| ------------------ | ------------------------------------- | ------------------------------------------- |
+| **Mega / climax**  | single-word hero, counter peak        | 50%+ of canvas height                       |
+| **Hero / display** | main headline, scene core word        | 25-40% of canvas height                     |
+| **Display**        | secondary title, section marker       | 10-20% of canvas height                     |
+| **Heading**        | paragraph title                       | 5-10% of canvas height                      |
+| **Body**           | supporting copy, captions             | minimum readable video scale                |
+| **Eyebrow / UI**   | metadata, chapter mark, command panel | ~50-70% of body, often uppercase + tracking |
+| **Data / counter** | standalone numeric statement          | huge range, body to mega                    |
+
+Phrase by tier ("hero word uses display tier, eyebrow uses mono uppercase"); do not write "hero 220px".
+
+**Avoid adjacent role sizes too close:** 48/52/56 does not read as hierarchy. Lean toward 2-3x jumps (display 220 → heading 92 → eyebrow 30 = 7.3x). Hierarchy must be legible in <1s.
+
+## Build Hierarchy Across Multiple Dimensions
+
+Size alone is insufficient. Stack at least 2-3 dimensions per scene:
+
+| Dimension     | Strong contrast                   | Decision point                                |
+| ------------- | --------------------------------- | --------------------------------------------- |
+| **Size**      | 3:1 or larger                     | hero word far larger than surroundings        |
+| **Weight**    | 800-900 vs 300-400                | extreme weights in one family beat two fonts  |
+| **Color**     | high contrast against background  | see `color-system.md`                         |
+| **Spacing**   | tight display + wide eyebrow      | tight = confidence; wide uppercase = metadata |
+| **Case**      | eyebrow UPPERCASE + body Sentence | all one case = monotone                       |
+| **Style mix** | italic serif inside heavy sans    | word-level emphasis (archive signature)       |
+
+Plan names tiers/tracking by intent; do not write `-0.045em` / `0.08em` (build work).
+
+## Font Pairing Principles
+
+- **One family + multiple weights** is usually enough — cleaner than two competing fonts.
+- **Second font only for real contrast:** serif display + sans body, sans hero + mono label.
+- **Three-voice system** (strongest archive pattern): display + body + mono, each with clear semantic work (mono = metadata → "real tool feel").
+- **Switching font universes scene by scene is valid** when the emotional arc demands it; do not force uniformity.
+
+## Forbidden Patterns
+
+- **Inter / Roboto / Open Sans / Lato / Montserrat regular weight as display** — an AI tell. If using Inter, use 900 + tight tracking, else not as display.
+- **Similar-but-not-identical pairing** (two geometric sans, two humanist serifs) — noise without hierarchy.
+- **Wide letter-spacing on long body sentences** — hurts readability.
+- **Tight tracking on mono code** — loses rhythm.
+- **Display at 0 letter-spacing** — a 200px title feels soft and corporate.
+
+## CJK Note
+
+If the narrator script contains Chinese, the plan must say "this scene contains CJK text." Build agent handles fallback chains (render-env config). In mixed CJK + Latin, CJK is denser, so display-tier CJK is usually one tier smaller than Latin.
+
+## Plan Reference Example
+
+> "Hero word: display tier + tight tracking. Eyebrow: mono uppercase wide tracking ('BEAT 02'). Body: supporting copy. Hero vs eyebrow = four-dimensional contrast (size + weight + case + style)."
+
+Do not write concrete px / em / font names.
+--- color-system ---
+---
+name: video-color-system
+description: "Color design decisions for HyperFrames videos — palette roles, 60-30-10 allocation logic, cross-scene consistency, dangerous combos. Hex values and contrast math live in build agent territory."
+category: visual-design
+---
+
+# Video Color System - Design-Judgment Layer
+
+**This file only covers plan-layer design judgment** - roles, 60-30-10 allocation logic, cross-scene consistency, and dangerous combinations. Concrete hex values, contrast ratio 4.5:1 math, dark-scene saturation compensation, and double-layer glow recipes belong to the build agent when writing CSS and consulting `chunks/tokens.css` plus `/hyperframes-core`; plan does not copy them.
+
+## Palette Source
+
+**Hex values come from `tokens.css` in `## Design chunks`** (named tokens in `:root`, varying by brand: `--brand-primary` / `--brand-accent` / `--canvas` / `--ink`, etc.; already inlined into Phase 3 dispatch). Plan references by **role**; **do not** copy concrete hex values - the build agent reads them from `chunks/tokens.css`.
+
+> **Preset rules take priority over this file's generic rules.** Preset name is in `## Design chunks` `index.json.preset`; its color discipline is in `composition-hints.md` (§H surface contract / accent budget) - for example, editorial explicitly says "accent <= 5% frame area, primary is not a background fill, canvas is the hero." If a generic rule (such as "use dual-radial swell background") conflicts with the preset's §H color discipline, **the preset wins**. Plan gets preset name from `index.json.preset` and its rules from `composition-hints.md` to constrain palette use for this film (**do not read design.html**; chunks have replaced it).
+
+### Pain / Serious Scenes
+
+If a scene's `emotionalBeat` needs an intentional palette shift:
+
+- If `chunks/tokens.css` / `composition-hints.md` **has** a `[data-theme="dark"]` block or dark surface -> use it (invert canvas / ink), without introducing an external palette.
+- If there is **no** dark theme block (common in bright presets like editorial) -> **do not invent dark colors**. Instead use: desaturated accent + lower contrast (use `--paper-warm` instead of `--canvas` to darken the scene by one step) + tighter whitespace + stillness to carry the serious mood.
+
+### When `--ink` / `--canvas` Are Pure Black / Pure White
+
+For some presets (editorial / Swiss / brutalist / newspaper styles), `--ink: #000` / `--canvas: #fff` is a **style choice**, not a defect - "black ink on white paper" is core to those aesthetics.
+
+- **`--ink: #000`** - OK in these presets; preserve as ink.
+- **`--canvas: #fff`** - pure white blooms at video viewing distance; **prefer the preset-provided `--paper-warm`** (the editorial preset explicitly notes "fallback if canvas is pure white"). If no fallback token exists, the build agent synthesizes one step of warm white.
+- Other presets (saas / material, etc.) should follow the generic off-black/off-white rules if pure black/white appears.
+
+Decision path: read preset name first -> if editorial / brutalist family, accept pure black as ink + prefer `--paper-warm` as canvas; otherwise follow generic off-black/off-white guidance.
+
+## Role Mapping
+
+Each token plays a role in 60-30-10:
+
+| Role                            | Typical token names (brand-dependent)                                                                | Visual weight                                     |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| **Neutral background (canvas)** | `--canvas` / `--paper` / lightest neutral                                                            | **60%** - dominant, does not compete with content |
+| **Neutral surface**             | `--paper-2` / `--surface` / second-lightest neutral; **if absent, layer with hairline rule instead** | **~20%** - panels, cards, boundaries              |
+| **Foreground text (ink)**       | `--ink` / `--ink-soft` / off-black or off-white                                                      | **~10%**                                          |
+| **Primary accent**              | `--brand-primary` / `--brand-accent`                                                                 | **~10%** - **only on the current focal element**  |
+| **Secondary accent**            | `--brand-secondary` (if present)                                                                     | **~5%** - bound to a different semantic role      |
+| **Restrained third color**      | neutral or paper tone                                                                                | **<2%** - occasional                              |
+| **Semantic colors**             | success/error/warning derived from brand hue                                                         | use sparingly                                     |
+
+> **When `chunks/tokens.css` lacks a `--surface` tier** - this preset layers with hairline rules rather than a surface color - plan should explicitly say "30% uses hairline + repeated canvas," instead of inventing a fake middle color.
+
+## 60-30-10 Is **Visual Weight**, Not Pixel Count
+
+- 60% canvas - dominant, not attention-grabbing
+- 30% surface + text - panels, borders, supporting copy
+- 10% accent - used only on the **current focal element**
+
+**Top mistake:** applying brand color everywhere because it is "the brand identifier." Accent works because it is **rare**. In the strongest archive example (codex-plugin), each accent is bound to a **semantic role**: cyan = HyperFrames moment, lime = render, amber = Codex - three accents, each appearing only in its own beat, never overlapping.
+
+Even more restrained: vercel-intro uses one brand red + one RGB aberration moment, then immediately returns to clean black-ground white text. **One color, one effect, maximal restraint.**
+
+## Tinted Neutrals
+
+Pure gray has no personality. Neutrals should shift subtly toward the brand hue:
+
+- warm brands (red / orange / yellow) -> gray with a subtle warm cast
+- cool brands (blue / purple / green / cyan) -> gray with a subtle cool cast
+
+The cast should be nearly invisible, but it creates subconscious cohesion. This is usually already encoded in `chunks/tokens.css` `--canvas` / `--paper-2` tokens; plan only references roles and does not calculate OKLCH.
+
+## Four-Layer Palette Structure
+
+A complete video palette has four layers (skip layers you do not need; **do not** add extras):
+
+1. **Primary accent** - 1-2 colors, semantically bound, 10-15% weight
+2. **Neutral ladder** - canvas -> surface -> surface-raised, three tiers (light or dark), 60% + 20%
+3. **Foreground** - 1-2 off-white or off-ink text colors, 10%
+4. **Semantic colors** - success / error / warning, derived from brand hue
+
+**Per-beat palette isolation is also valid** (fadeglow-v4 uses completely different color moods in Beat 2 / 4 / 7) - emotional arc decides; consistency is not mandatory.
+
+## Cross-Scene Consistency
+
+Every scene in a video should feel like it belongs to the same visual system (unless explicitly doing "one universe per scene").
+
+- Background palette is defined once at project level (`:root` / shared `<style>`); do not hard-code hex per scene.
+- Scenes may vary in **lightness** (dark -> bright rhythm), while sharing the same **hue family**.
+- Accent purpose must stay consistent: if cyan is the HyperFrames moment color in scene 1, it cannot become a background gradient in scene 5.
+- Data visualization colors derive from the brand palette; do not pick arbitrary colors.
+
+**Variation within limits is OK:** dark/light alternation for rhythm, desaturated (calm) <-> saturated (emphasis), gradients between neighboring brand hues.
+
+## Never Pure Black / Pure White
+
+Pure `#000` / `#fff` does not exist in nature - contrast is harsh, feels synthetic, and compression destroys detail. Always use off-black / off-white tokens from `chunks/tokens.css` (typical names `--ink` / `--canvas`).
+
+Exception: pure white `text-shadow` / `drop-shadow` halos at emphasis moments (click-ripple peak) are OK - build agent uses low-opacity overlays, not direct text color.
+
+## Dangerous Combinations (Forbidden Patterns)
+
+- **Light gray text on white** - contrast collapses, small screens fail.
+- **Gray on colored background** - reads faded / dirty; use a darker tone of the background hue instead.
+--- composition ---
+---
+name: video-composition
+description: "Composition design decisions for HyperFrames videos (1920x1080 landscape by default; also 1080x1920 portrait / 1080x1080 square) — canvas zones, 7 layout templates, density rules, hierarchy logic, depth principles. Specific px / scale / shadow values live in build agent territory."
+category: visual-design
+---
+
+# Composition for Video - Design-Judgment Layer
+
+Video composition is closer to film and poster design than webpage layout. There is no scrolling and no responsive reflow. Every frame is a fixed canvas; every pixel matters. The default canvas is **1920×1080 (16:9 landscape)**; for **portrait (1080×1920)** and **square (1080×1080)** see "Portrait & Square" below — the principles are identical, the aspect ratio is not.
+
+**Most of this file is plan-layer design judgment** - conceptual canvas zones, 7 composition templates, density rules, hierarchy logic, and depth-layering principles. Concrete px (safe margins 96-150), scale values (1.05 / 0.92), three-layer `box-shadow` recipes, `perspective` 800-1400px, etc. belong to the build agent; plan does not write code.
+
+Composition is one of the highest-value parts of the plan - which layout to choose, how much frame the primary element occupies, and how many depth layers to use **are director decisions**.
+
+## Squint Test
+
+Squint your eyes (or blur the screenshot). Can you still identify:
+
+- the most important element?
+- the second most important element?
+- clear spatial groups?
+
+If everything has equal weight after blur, hierarchy is broken - redesign before writing the plan. The strongest archive beats all pass this test: one dominant block + one supporting structural element, with everything else demoted.
+
+## Canvas Zones (conceptual)
+
+The canvas (shown here as 1920×1080 landscape) has four zones:
+
+```
++--------------------------------------------------+
+|         Optional top chrome                       |
+|  +----------------------------------------------+ |
+|  |         Safe margin                          | |
+|  |  +----------------------------------------+  | |
+|  |  |                                        |  | |
+|  |  |       Primary content area             |  | |
+|  |  |    (center 65-75% of frame)            |  | |
+|  |  |                                        |  | |
+|  |  +----------------------------------------+  | |
+|  |  | Caption band (bottom ~17%, HARD when captions) | | |
+|  |  +----------------------------------------+  | |
+|  +----------------------------------------------+ |
++--------------------------------------------------+
+```
+
+- **Top chrome** - only for workspace mockup scenes; otherwise skip.
+- **Safe margin** - key content stays away from edges; hero / editorial scenes need more air.
+- **Primary content area** - the center 65-75% of the frame is where the eye naturally rests; body text blocks should **never** press against the edge.
+- **Caption band (bottom ~17%, HARD reserved when captions are enabled)** - when this film has captions enabled (`group_spec.captions_enabled`), the bottom ~17% of **canvas height** is a **HARD reserved zone** (landscape 1080h -> bottom 180px, y 900-1080; portrait 1920h -> bottom 320px, y 1600-1920): primary content area and all key visuals **must cap at the caption-band top y**, and vertical centering should anchor at **y ≈ 0.42 × height** (landscape ≈454, portrait ≈806), not the canvas midpoint. BACKGROUND / ambient / surface decoration layers are exempt and may remain full-bleed. When captions are disabled, this zone can be used normally. Plan example: "captions enabled - hero block centered in upper ~83%, stat card bottom edge sits at y≈880 just above the caption band; background mesh stays full-bleed."
+
+Plan writes "hero word centered with generous safe margins"; it does not write `padding: 150px 120px 92px`.
+
+## Portrait & Square (non-16:9 canvases)
+
+The canvas is **1920×1080 (16:9 landscape) by default**, but the dispatch `Canvas:` line may be **1080×1920 (9:16 portrait — reels / shorts / TikTok)** or **1080×1080 (1:1 square — feed)**. The zones, density rules, hierarchy logic, and depth principles above all still apply; what changes is the **aspect ratio**, and a layout designed for a wide frame does not transplant into a tall one. Read the dispatched `Canvas:` and design for that shape from the start — do not plan landscape and "crop".
+
+- **Stack vertically, not side-by-side.** Portrait has little horizontal room: split-screen / triptych / asymmetric 60-40 become **top/bottom stacks**, vertical step lists, and stacked bands. A wide marquee strip becomes a centered stack. Square tolerates side-by-side only for two compact items.
+- **Vertical center moves with the canvas.** Anchor a centered hero around **y ≈ 0.42 × canvas height** (portrait ≈ 806, square ≈ 454), not a fixed 540. The caption band is still the bottom ~17% of **height** (portrait → y1600–1920; square → y900–1080) and is HARD-reserved when captions are enabled.
+- **Type runs larger, fewer words per line.** A narrow frame wraps long headlines badly — prefer short kinetic lines, bigger type, and more vertical rhythm. Treat the tall axis as the primary reading flow.
+- **Templates that travel well to portrait:** Centered (hero/climax), Layered Depth, Full-Width Strip (now a stacked band), vertical Rule-of-Thirds. **Avoid** wide Split Screen and Triptych in portrait; reach for stacked equivalents.
+- **Density still rules.** Primary visual ≥ 40% of canvas, ≥ 3 depth layers — but measured against the tall frame; an empty top or bottom third reads as placeholder just like dead center does on landscape.
+
+## 7 Composition Templates
+
+Use at least 3 different templates in a single video (5 scenes -> 3+ templates, 9 scenes -> 4+ templates). **Do not default every scene to centered.** The strongest archive plans never use the same layout class twice in a row.
+
+### 1. Centered (hero / climax)
+
+One dominant element centered with generous breathing room. Use for: brand reveal, key metric, CTA, climax beat.
+
+### 2. Rule of Thirds
+
+Visual anchor placed on thirds intersections. Remaining space carries supporting elements or negative space. Use for: concept showcase, diagram with annotation.
+
+### 3. Split Screen (comparison / dual focus)
+
+Left and right halves carry separate elements. Use for: before/after, feature comparison, problem/solution, palette-switch moments.
+
+### 4. Layered Depth (immersive)
+
+Foreground / midground / background use different scale + opacity to create depth. Use for: opening hooks, atmosphere-heavy scenes, workbench beats.
+
+### 5. Asymmetric (editorial)
+
+Primary content is pushed to one side (60/40 or 70/30). Intentional imbalance -> visual tension + sophistication. Use for: feature focus, dense text information, editorial proof beats.
+
+### 6. Triptych (three-panel)
+
+Three equal-width zones, often used to show three capabilities / three feature beats simultaneously.
+
+### 7. Full-Width Strip
+
+One horizontal band (ticker, logo chain, marquee). Usually only 20% of canvas height.
+
+## Frame Density - Avoid Empty Frames
+
+Common failure: small elements floating in the center of 1920x1080 with empty space around them. Every scene must feel **intentionally filled**, not sparse.
+
+**Density rules:**
+
+--- motion-language ---
+---
+name: video-motion-language
+description: "Motion design decisions for HyperFrames videos — spring intents, beat structure, hold times, stillness-before-climax, transition vocabulary. GSAP eases, exact ms/frames, ease curves, and JS code live in build agent territory (/hyperframes-animation)."
+category: visual-design
+---
+
+# Video Motion Language - Design-Judgment Layer
+
+A good promo video feels like one continuous whole, not a pile of unrelated animated slides. That requires a consistent motion language: the same ease intent, the same rhythmic timing, and the same spring feel.
+
+**This file only covers plan-layer design judgment** - spring intent, beat structure, holds, silent beats, and transition vocabulary. Concrete GSAP ease names (`back.out(1.4)`), ms/frame mapping, stagger formulas, exact cut-the-curve JS, and multiplicative breathing formulas are build-agent territory when writing timelines and consulting `/hyperframes-animation` plus `chunks/easings.js`; plan does not write code.
+
+> **`EASE` / `DUR` JS constants come from `chunks/easings.js`** (already inlined into Phase 3 dispatch `## Design chunks`; do not read design.html). Plan references by **intent role** (`EASE.entry` / `EASE.emphasis` / `EASE.exit`, `DUR.fast` / `DUR.med` / `DUR.slow`, though actual keys may vary by preset - e.g. editorial uses `DUR.snap` instead of `DUR.fast`). Plan writes "use entry spring" or "reference `EASE.entry`"; build agent maps it to the concrete curve.
+
+## Spring Intent (by role, not curve)
+
+HyperFrames uses GSAP. The table below is the **intent** vocabulary for plans; the build agent uses `/hyperframes-animation` to translate intent into concrete GSAP ease + duration:
+
+| Intent     | Feel                                        | Use case                                        |
+| ---------- | ------------------------------------------- | ----------------------------------------------- |
+| **entry**  | confident slight overshoot, settles quickly | primary element entry (default)                 |
+| **gentle** | soft slide-in, no overshoot                 | background elements, subtle motion              |
+| **snappy** | tight overshoot, nearly instant             | UI elements, small icons, buttons               |
+| **heavy**  | weighted deceleration                       | large type blocks, diagram panels, hero visuals |
+| **slam**   | bouncy overshoot, intentionally loud        | logo / bell / impact moments                    |
+
+**Consistency rule:** similar elements share the same intent. In one scene, all icons are `snappy`, all hero images are `heavy`. **Do not** invent a unique ease + duration for every element.
+
+## Forbidden
+
+- **`bounce.out` / `elastic.out`** - feels dated and pulls attention away from content. Real objects decelerate smoothly; they do not bounce. Low overshoot for `entry` intent (archive typical back.out 1.4-1.7) is OK; higher overshoot is reserved for clearly playful moments.
+- **Unique ease + duration per element** - visual noise.
+
+## Duration Intent (100 / 300 / 500 / 800 concepts)
+
+Plan references by **intent tier** ("instant feedback", "state change", "layout change", "entry animation"); the build agent maps concrete ms / frames at 30fps using `/hyperframes-animation`.
+
+- **Instant feedback** - micro-interaction, state flash
+- **State change** - element entry, icon swap
+- **Layout change** - scene entry, major transition
+- **Entry animation** - hero reveal, opening sequence
+
+**A single entry should not exceed ~800ms.** If you need a longer buildup, use multi-element stagger instead of lengthening one element.
+
+## Exit = 75% of Entry
+
+Exit animation is about 75% of entry duration (not 50%, not 100%). Arrival is deliberate; departure is swift but not abrupt.
+
+- Exit too fast -> flash
+- Exit = entry -> sluggish, blocks the next scene
+
+This is a rule the plan can name in prose; the build agent computes concrete frames.
+
+> Cut-the-curve deliberately reverses the ratio (entry ~127% of exit length) - entry takes longer to clear blur. This is the signature transition exception; plan only needs to cite the transition name.
+
+## Stagger Total Cap
+
+When staggering N elements, **total stagger duration <= 500ms** (much longer feels dragged out). Concrete formula (`(N-1) × per-item delay`) and the strategy "stagger the first 6-8, enter the rest with the last item" are build work; plan only needs to know:
+
+- **3-7 elements** - normal stagger, total 300-700ms
+- **8+ elements** - tighten per-item delay, or stagger only the first few
+- **Never let stagger continue past 500ms**
+
+## Beat Structure (core plan tool)
+
+Rhythmic videos have beats: tension -> release -> tension -> release. The cleanest archive reference is playground-launch's 46-second plan:
+
+| Phase              | Duration | Rhythm               | Scene type                         |
+| ------------------ | -------- | -------------------- | ---------------------------------- |
+| **Slow setup**     | 6-10s    | slow build           | hero establish, VO not yet present |
+| **Fast montage**   | 6-10s    | ~2s each             | cut-the-curve every 1.5-2s         |
+| **Process reveal** | 12-18s   | continuous no cut    | screen recording, real workflow    |
+| **Closure**        | 3-5s     | still and breathable | logo, URL, CTA                     |
+
+**Allocate motion by energy inside each scene:**
+
+- **High-energy scenes** (hook, CTA) - faster entry, tighter stagger, `snappy` spring
+- **Breathable scenes** (brand reveal, emotional beat) - slower entry, `gentle` spring, longer hold
+- **Data scenes** (statistic, feature) - medium rhythm, clean stagger, count-up
+
+## Hold Time
+
+After an element enters, it must hold long enough to be read. Plan references minimum hold by **content type** (build maps concrete frames):
+
+| Content                              | Minimum hold intent |
+| ------------------------------------ | ------------------- |
+| display text (1-3 words)             | ~1s                 |
+| short sentence                       | ~1.5s               |
+| data / statistic                     | ~1.5s               |
+| hero graphic / chart                 | ~2s                 |
+| complex visual (diagram, comparison) | ~2.5s               |
+| hero / climax word                   | ~1-1.4s             |
+
+Narration duration shorter than needed hold -> extend the scene to fill time.
+
+## "Stillness Before Climax" Beat
+
+Archive signature: leave a **0.3-0.75s pause** between the major action and confirmation/result. This silence creates narrative tension before the landing. **Allocate it to 2-3 scenes per film (named in `## Film Direction`), where the narration lands a payoff** - stamped on every scene it stops being a comma and becomes a tic, and the film's rhythm flattens.
+
+- Icons collapse at 2.2s, but demo does not pop out until 2.95s (0.75s gap)
+## SFX library
+{
+  "chime": {
+    "file": "chime.mp3",
+    "duration": 2.5,
+    "description": "Soft melodic chime — gentle positive beat: success/confirmation or a lighthearted transition. Sync to the visual moment."
+  },
+  "click-soft": {
+    "file": "click-soft.mp3",
+    "duration": 0.37,
+    "description": "Quiet short click — low-key UI tap / soft selection. Short accent, sync exactly to the on-screen action."
+  },
+  "click": {
+    "file": "click.mp3",
+    "duration": 0.37,
+    "description": "Crisp UI click — button press, toggle, selection. Short accent, sync exactly to the on-screen action."
+  },
+  "error": {
+    "file": "error.mp3",
+    "duration": 1.62,
+    "description": "Negative / error tone — failure state, a 'wrong' beat, or a glitchy interruption."
+  },
+  "glitch-1": {
+    "file": "glitch-1.mp3",
+    "duration": 2.64,
+    "description": "Punchy digital glitch — hard-cut accent or sudden reveal. Trigger on the hit; let the decay bleed into the next shot (J-cut)."
+  },
+  "glitch-2": {
+    "file": "glitch-2.mp3",
+    "duration": 3.5,
+    "description": "Harsh, longer glitch — chaotic / jarring transition or a distorted reveal."
+  },
+  "glitch-3": {
+    "file": "glitch-3.mp3",
+    "duration": 3.1,
+    "description": "Low-key glitch texture — subtle digital shift, minimal transition that sits under other audio."
+  },
+  "impact-bass-1": {
+    "file": "impact-bass-1.mp3",
+    "duration": 2.12,
+    "description": "Bass impact hit — logo/hero snap, headline slam. Trigger on the visual landing; decay carries into the next shot (J-cut)."
+  },
+  "impact-bass-2": {
+    "file": "impact-bass-2.mp3",
+    "duration": 2.59,
+    "description": "Bass impact with a short swell — brief anticipation then a deep hit. Place so the peak lands on the reveal."
+  },
+  "key-press": {
+    "file": "key-press.mp3",
+    "duration": 0.4,
+    "description": "Single key press — one keystroke / terminal-input beat. Short accent, sync to the typed character."
+  },
+  "notification": {
+    "file": "notification.mp3",
+    "duration": 2.46,
+    "description": "Notification chime — alert, message-in, toast/badge appears. Sync to the element entering."
+  },
+  "ping": {
+    "file": "ping.mp3",
+    "duration": 1.32,
+    "description": "Sharp electronic ping — punchy accent on a key reveal or data point. Sync to the beat."
+  },
+  "pop": {
+    "file": "pop.mp3",
+    "duration": 0.72,
+    "description": "Quick pop — element appear/spawn, chip/tag/badge in. Small precise accent, sync to the pop-in."
+  },
+  "riser": {
+    "file": "riser.mp3",
+    "duration": 10.03,
+    "description": "Long cinematic riser (~10s build, peak at the end). Trigger at (climax_time − 10.03s) so it crests exactly on the reveal."
+  },
+  "sparkle": {
+    "file": "sparkle.mp3",
+    "duration": 1.8,
+    "description": "Bright sparkle / shimmer — magical reveal or 'shine' highlight on a hero element. Sync to the highlight."
+  },
+  "typing": {
+    "file": "typing.mp3",
+    "duration": 1.5,
+    "description": "Typing burst (~1.5s of keys) — keyboard / code typing reveal, text-being-typed beat. Start as the text begins typing."
+  },
+  "whoosh-cinematic": {
+    "file": "whoosh-cinematic.mp3",
+    "duration": 5.54,
+    "description": "Cinematic whoosh build (~5.5s) — sweeping scene transition. Align so the swell peaks on the cut."
+  },
+  "whoosh-short": {
+    "file": "whoosh-short.mp3",
+    "duration": 0.57,
+    "description": "Short whoosh — quick swipe/slide accent, fast element move, snappy transition. Sync to the motion."
+  },
+  "whoosh": {
+    "file": "whoosh.mp3",
+    "duration": 0.57,
+    "description": "Punchy whoosh/impact — fast reveal or hard transition accent. Sync to the motion."
+  }
+}
+## Narrator scripts
+{
+  "project": "大模型技术原理解密",
+  "narrativeArchetype": "concept-explainer",
+  "stylePreset": "block-frame",
+  "orientation": "landscape",
+  "emotionalArc": "从好奇大模型是什么，到理解Transformer、预训练、对齐、推理的完整技术链条，最后感叹Scaling Law的宏伟图景",
+  "scenes": [
+    {
+      "sceneNumber": 1,
+      "sceneName": "什么是大模型",
+      "transition": {
+        "continuity": "break",
+        "intent": "cut",
+        "description": "开场：大模型是什么？震撼标题登场"
+      },
+      "narrativeIntent": {
+        "type": "hook",
+        "narrativeRole": "吸引注意力，建立观看动机",
+        "keyMessage": "大模型（LLM）是基于深度学习的超大规模神经网络",
+        "persuasion": "contrast-before-after",
+        "emotionalBeat": "curiosity"
+      },
+      "assetCandidates": [],
+      "script": "大模型（LLM），是当今AI的核心引擎。它基于深度学习，构建了超大规模的神经网络，让机器真正理解人类语言。",
+      "estimatedDuration": "5s"
+    },
+    {
+      "sceneNumber": 2,
+      "sceneName": "Transformer架构",
+      "transition": {
+        "continuity": "break",
+        "intent": "morph",
+        "sharedMotif": "神经网络的连接线",
+        "description": "从神经网络过渡到Transformer架构的核心——自注意力机制可视化"
+      },
+      "narrativeIntent": {
+        "type": "feature_showcase",
+        "narrativeRole": "解释核心技术原理",
+        "keyMessage": "Self-Attention让模型捕捉文本中任意位置的关联关系",
+        "persuasion": "analogy",
+        "emotionalBeat": "clarity"
+      },
+      "assetCandidates": [],
+      "script": "2017年，Google提出Transformer架构。核心是自注意力机制，让模型同时关注文本中所有词的关系。多头注意力从不同角度理解语义。",
+      "estimatedDuration": "6s"
+    },
+    {
+      "sceneNumber": 3,
+      "sceneName": "大规模预训练",
+      "transition": {
+        "continuity": "break",
+        "intent": "zoom",
+        "description": "画面从模型结构缩放到海量数据——预训练的宏观视角"
+      },
+      "narrativeIntent": {
+        "type": "feature_showcase",
+        "narrativeRole": "解释模型如何从数据中学习",
+        "keyMessage": "海量无标注数据上的自监督学习让模型掌握知识基础",
+        "persuasion": "scale",
+        "emotionalBeat": "awe"
+      },
+      "assetCandidates": [],
+      "script": "预训练：在海量无标注数据上进行自监督学习。下一个词预测和掩码语言模型是核心任务。模型在此阶段掌握了语法、知识和推理基础。",
+      "estimatedDuration": "6s"
+    },
+    {
+      "sceneNumber": 4,
+      "sceneName": "对齐与微调",
+      "transition": {
+        "continuity": "break",
+        "intent": "slide",
+        "description": "从数据海洋滑动到人类反馈的精调阶段"
+      },
+      "narrativeIntent": {
+        "type": "benefit_highlight",
+        "narrativeRole": "解释如何让模型输出符合人类偏好",
+        "keyMessage": "指令微调+RLHF让模型对齐人类意图",
+        "persuasion": "step-by-step",
+        "emotionalBeat": "understanding"
+      },
+      "assetCandidates": [],
+      "script": "指令微调让模型理解人类指令。RLHF（基于人类反馈的强化学习）通过奖励模型引导输出更符合人类偏好的回答。",
+      "estimatedDuration": "6s"
+    },
+    {
+      "sceneNumber": 5,
+      "sceneName": "推理与思维链",
+      "transition": {
+        "continuity": "break",
+        "intent": "dissolve",
+        "description": "微调画面淡出，推理过程的逐词生成动画"
+      },
+      "narrativeIntent": {
+        "type": "feature_showcase",
+        "narrativeRole": "解释模型如何生成回答",
+        "keyMessage": "自回归解码+思维链提示大幅提升推理准确率",
+        "persuasion": "demonstration",
+        "emotionalBeat": "insight"
+      },
+      "assetCandidates": [],
+      "script": "推理时，模型逐词自回归生成。思维链提示引导分步骤推理，大幅提升复杂问题准确率。KV-Cache技术优化推理效率。",
+      "estimatedDuration": "5s"
+    },
+    {
+      "sceneNumber": 6,
+      "sceneName": "Scaling Law与未来",
+      "transition": {
+        "continuity": "break",
+        "intent": "zoom",
+        "description": "从推理细节缩放到Scaling Law宏观曲线，展望AGI未来"
+      },
+      "narrativeIntent": {
+        "type": "branding",
+        "narrativeRole": "总结升华，建立对AI未来的期待",
+        "keyMessage": "规模定律是通往通用人工智能的重要路径",
+        "persuasion": "vision",
+        "emotionalBeat": "inspiration"
+      },
+      "assetCandidates": [],
+      "script": "Scaling Law告诉我们：模型规模、数据量和计算量按比例增长，能力持续提升。这是通往通用人工智能的重要路径。",
+      "estimatedDuration": "4s"
+    }
+  ]
+}

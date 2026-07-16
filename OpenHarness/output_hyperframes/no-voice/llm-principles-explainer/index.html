@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: #000; }
+      body { font-family: 'Inter', system-ui, sans-serif; }
+      code, pre, .mono { font-family: 'Space Grotesk', ui-monospace, monospace; }
+
+      :root {
+        --brand-primary:   #FE90E8;
+        --brand-secondary: #C0F7FE;
+        --brand-tertiary:  #000000;
+        --brand-accent:    #F7CB46;
+        --brand-costume:   #FFFFFF;
+        --ink:             #000000;
+        --canvas:          #FFFDF5;
+        --deco-1:          #F7CB46;
+        --deco-2:          #99E885;
+        --deco-3:          #C0F7FE;
+        --deco-4:          #FE90E8;
+        --font-display:    'Inter', system-ui, sans-serif;
+        --font-body:       'Inter', -apple-system, sans-serif;
+        --font-mono:       'Space Grotesk', ui-monospace, monospace;
+        --bf-border-bold:  4px solid var(--ink);
+        --bf-border-mid:   3px solid var(--ink);
+        --bf-shadow:       8px 8px 0 var(--ink);
+        --bf-shadow-sm:    4px 4px 0 var(--ink);
+        --bf-pad-card:     36px;
+        --bf-gap-lg:       48px;
+        --bf-gap-md:       32px;
+        --bf-gap-sm:       24px;
+        --bf-dot-size:     24px;
+      }
+
+      .scene { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 80px 120px; }
+      .scene-center { justify-content: center; align-items: center; text-align: center; }
+
+      /* Block-frame card */
+      .card { background: var(--brand-costume); border: var(--bf-border-bold); box-shadow: var(--bf-shadow-sm); padding: var(--bf-pad-card); }
+      .card-primary { background: var(--brand-primary); border: var(--bf-border-bold); box-shadow: var(--bf-shadow-sm); padding: var(--bf-pad-card); }
+      .card-accent { background: var(--brand-accent); border: var(--bf-border-bold); box-shadow: var(--bf-shadow-sm); padding: var(--bf-pad-card); }
+      .card-dark { background: var(--brand-tertiary); border: 4px solid #333; box-shadow: var(--bf-shadow-sm); padding: var(--bf-pad-card); }
+
+      /* Chip */
+      .chip { display: inline-flex; align-items: center; padding: 10px 24px; border: 3px solid var(--ink); box-shadow: var(--bf-shadow-sm); font-family: var(--font-mono); font-weight: 600; font-size: 20px; background: var(--brand-accent); color: var(--ink); }
+      .chip-secondary { background: var(--brand-secondary); }
+      .chip-primary { background: var(--brand-primary); color: var(--ink); }
+
+      /* Dot grid background */
+      .dot-grid { position: absolute; inset: 0; background-image: radial-gradient(circle, var(--ink) 1.2px, transparent 1.2px); background-size: var(--bf-dot-size) var(--bf-dot-size); opacity: 0.08; pointer-events: none; }
+
+      /* Corner pins decoration */
+      .corner-pins { position: absolute; inset: 0; pointer-events: none; }
+      .corner-pins::before, .corner-pins::after { content: ''; position: absolute; width: 32px; height: 32px; border-color: var(--ink); border-style: solid; }
+      .corner-pins::before { top: 20px; left: 20px; border-width: 4px 0 0 4px; }
+      .corner-pins::after { bottom: 20px; right: 20px; border-width: 0 4px 4px 0; }
+
+      /* Star burst */
+      .star-burst { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; background: var(--brand-accent); border: 3px solid var(--ink); box-shadow: var(--bf-shadow-sm); font-size: 24px; transform: rotate(12deg); }
+
+      /* Timeline step */
+      .timeline-step { display: flex; align-items: center; gap: 20px; padding: 16px 24px; background: var(--brand-costume); border: 3px solid var(--ink); box-shadow: var(--bf-shadow-sm); }
+      .timeline-step .step-num { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: var(--brand-primary); border: 3px solid var(--ink); font-weight: 800; font-size: 20px; flex-shrink: 0; }
+      .timeline-connector { width: 4px; height: 40px; background: var(--ink); margin-left: 20px; }
+
+      /* Typography */
+      .display-xl { font-family: var(--font-display); font-weight: 900; font-size: 72px; line-height: 1.1; color: var(--ink); }
+      .display-lg { font-family: var(--font-display); font-weight: 800; font-size: 60px; line-height: 1.15; color: var(--ink); }
+      .display-md { font-family: var(--font-display); font-weight: 700; font-size: 48px; line-height: 1.2; color: var(--ink); }
+      .body-lg { font-family: var(--font-body); font-weight: 500; font-size: 32px; line-height: 1.4; color: var(--ink); }
+      .body-md { font-family: var(--font-body); font-weight: 400; font-size: 26px; line-height: 1.5; color: var(--ink); }
+      .mono-lg { font-family: var(--font-mono); font-weight: 600; font-size: 22px; }
+      .mono-md { font-family: var(--font-mono); font-weight: 500; font-size: 18px; }
+      .text-white { color: #FFFFFF; }
+      .text-primary { color: var(--brand-primary); }
+      .text-accent { color: var(--brand-accent); }
+
+      /* Layout helpers */
+      .flex-row { display: flex; flex-direction: row; gap: var(--bf-gap-md); }
+      .flex-col { display: flex; flex-direction: column; gap: var(--bf-gap-sm); }
+      .gap-lg { gap: var(--bf-gap-lg); }
+      .gap-md { gap: var(--bf-gap-md); }
+      .gap-sm { gap: var(--bf-gap-sm); }
+      .mt-sm { margin-top: 16px; }
+      .mt-md { margin-top: 32px; }
+      .mt-lg { margin-top: 48px; }
+      .w-full { width: 100%; }
+      .flex-1 { flex: 1; }
+      .items-center { align-items: center; }
+      .justify-center { justify-content: center; }
+
+      /* Node link diagram */
+      .node-col { display: flex; flex-direction: column; gap: 16px; align-items: center; }
+      .node-circle { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--ink); background: var(--brand-costume); box-shadow: var(--bf-shadow-sm); }
+      .node-circle.active { background: var(--brand-primary); }
+      .node-circle.secondary { background: var(--brand-secondary); }
+      .node-circle.accent { background: var(--brand-accent); }
+
+      /* Data stream - scene 3 */
+      .data-stream { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; }
+      .data-col { position: absolute; top: 0; display: flex; flex-direction: column; gap: 20px; }
+      .data-item { font-family: var(--font-mono); font-size: 14px; color: #666; padding: 4px 12px; background: rgba(255,255,255,0.05); border: 1px solid #333; white-space: nowrap; }
+
+      /* Token generation - scene 5 */
+      .token-pill { display: inline-flex; align-items: center; padding: 8px 18px; background: var(--brand-secondary); border: 3px solid var(--ink); box-shadow: var(--bf-shadow-sm); font-family: var(--font-mono); font-weight: 600; font-size: 20px; margin: 0 4px; }
+
+      /* Path chart - scene 6 */
+      .chart-container { position: relative; width: 80%; height: 200px; }
+      .chart-dot { position: absolute; width: 20px; height: 20px; border-radius: 50%; border: 3px solid var(--ink); background: var(--brand-costume); box-shadow: var(--bf-shadow-sm); }
+
+      /* Queued animation visibility helpers */
+      .hide-init { opacity: 0; }
+      .hide-init-y { opacity: 0; transform: translateY(40px); }
+      .hide-init-x { opacity: 0; transform: translateX(60px); }
+      .hide-init-scale { opacity: 0; transform: scale(0.6); }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="33"
+      data-width="1920"
+      data-height="1080"
+      style="position: relative; width: 1920px; height: 1080px; overflow: hidden"
+    >
+
+      <!-- ============================================================ -->
+      <!-- SCENE 1: 什么是大模型 (0s - 5.5s)                             -->
+      <!-- ============================================================ -->
+      <div id="scene-1" class="clip scene scene-center"
+           data-start="0" data-duration="6" data-track-index="1"
+           style="background: var(--brand-secondary);">
+        <div class="dot-grid"></div>
+        <div class="corner-pins"></div>
+
+        <!-- Pulsing rings -->
+        <div id="s1-ring1" style="position:absolute; width:500px; height:500px; border-radius:50%; border:4px solid var(--ink); opacity:0.15; top:50%; left:50%; transform:translate(-50%,-50%);"></div>
+        <div id="s1-ring2" style="position:absolute; width:380px; height:380px; border-radius:50%; border:4px solid var(--ink); opacity:0.2; top:50%; left:50%; transform:translate(-50%,-50%);"></div>
+        <div id="s1-ring3" style="position:absolute; width:260px; height:260px; border-radius:50%; border:4px solid var(--brand-primary); opacity:0.3; top:50%; left:50%; transform:translate(-50%,-50%);"></div>
+
+        <div class="flex-col items-center" style="z-index:2; position:relative; max-width:80%;">
+          <h1 id="s1-headline" class="display-xl hide-init">大模型 <span style="color:var(--brand-primary);">(LLM)</span></h1>
+          <p id="s1-subtitle" class="body-lg hide-init-y mt-sm" style="font-weight:600;">AI 的核心引擎</p>
+          <div id="s1-chip" class="chip hide-init-y mt-lg" style="background:var(--brand-accent);">
+            基于深度学习的超大规模神经网络
+          </div>
+          <p id="s1-tagline" class="body-md hide-init-y mt-md" style="opacity:0.7; max-width:70%;">
+            让机器真正理解人类语言
+          </p>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- SCENE 2: Transformer架构 (6s - 12.5s)                        -->
+      <!-- ============================================================ -->
+      <div id="scene-2" class="clip scene"
+           data-start="6" data-duration="6.5" data-track-index="2"
+           style="background: var(--brand-costume);">
+        <div class="dot-grid"></div>
+        <div class="corner-pins"></div>
+
+        <h1 id="s2-headline" class="display-md hide-init-y" style="margin-bottom:20px;">
+          <span style="color:var(--brand-primary);">Transformer</span> 架构
+        </h1>
+        <p id="s2-meta" class="mono-md hide-init-y" style="color:#888; margin-bottom:30px;">
+          2017 · Google · 自注意力机制
+        </p>
+
+        <div class="flex-row flex-1 items-center justify-center" style="gap:60px;">
+          <!-- Node-link diagram: 3 columns -->
+          <div id="s2-diagram" class="flex-row hide-init-y items-center" style="gap:0;">
+            <div class="node-col" style="gap:12px;">
+              <div class="node-circle" id="n2-1"></div>
+              <div class="node-circle" id="n2-2"></div>
+              <div class="node-circle" id="n2-3"></div>
+            </div>
+            <!-- SVG connecting arrows -->
+            <svg width="120" height="140" style="margin:0 -10px;">
+              <path id="path-a1" d="M10,20 Q60,20 80,70" stroke="var(--ink)" stroke-width="2" fill="none" stroke-dasharray="8 4" opacity="0.5"/>
+              <path id="path-a2" d="M10,70 Q60,70 80,70" stroke="var(--brand-primary)" stroke-width="3" fill="none" stroke-dasharray="6 4"/>
+              <path id="path-a3" d="M10,120 Q60,120 80,70" stroke="var(--ink)" stroke-width="2" fill="none" stroke-dasharray="8 4" opacity="0.5"/>
+            </svg>
+            <div class="node-col" style="gap:12px;">
+              <div class="node-circle secondary" id="n2-4"></div>
+              <div class="node-circle secondary" id="n2-5"></div>
+              <div class="node-circle secondary" id="n2-6"></div>
+            </div>
+            <svg width="120" height="140" style="margin:0 -10px;">
+              <path id="path-b1" d="M10,20 Q60,20 80,70" stroke="var(--ink)" stroke-width="2" fill="none" stroke-dasharray="8 4" opacity="0.5"/>
+              <path id="path-b2" d="M10,70 Q60,70 80,70" stroke="var(--brand-accent)" stroke-width="3" fill="none" stroke-dasharray="6 4"/>
+              <path id="path-b3" d="M10,120 Q60,120 80,70" stroke="var(--ink)" stroke-width="2" fill="none" stroke-dasharray="8 4" opacity="0.5"/>
+            </svg>
+            <div class="node-col" style="gap:12px;">
+              <div class="node-circle active" id="n2-7"></div>
+              <div class="node-circle active" id="n2-8"></div>
+              <div class="node-circle active" id="n2-9"></div>
+            </div>
+          </div>
+
+          <!-- Text content cards -->
+          <div id="s2-cards" class="flex-col hide-init-y" style="max-width:500px;">
+            <div class="card" style="border-color:var(--brand-primary); margin-bottom:16px;">
+              <p class="mono-lg" style="color:var(--brand-primary);">Self-Attention</p>
+              <p class="body-md mt-sm">捕捉文本中任意位置之间的关联关系</p>
+            </div>
+            <div class="flex-row" style="gap:12px;">
+              <div class="chip chip-secondary" style="font-size:16px; padding:6px 16px;">多头注意力</div>
+              <div class="chip chip-primary" style="font-size:16px; padding:6px 16px;">位置编码</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- SCENE 3: 大规模预训练 (12.5s - 19s)                          -->
+      <!-- ============================================================ -->
+      <div id="scene-3" class="clip scene scene-center"
+           data-start="12.5" data-duration="6.5" data-track-index="1"
+           style="background: var(--brand-tertiary);">
+        <!-- Data stream background -->
+        <div class="data-stream" id="s3-stream">
+          <div class="data-col" id="s3-col1" style="left:5%;">
+            <div class="data-item">GPT-4 训练数据</div>
+            <div class="data-item">13万亿 tokens</div>
+            <div class="data-item">网页文本</div>
+            <div class="data-item">书籍语料</div>
+            <div class="data-item">代码仓库</div>
+          </div>
+          <div class="data-col" id="s3-col2" style="left:25%;">
+            <div class="data-item">Wikipedia</div>
+            <div class="data-item">arXiv论文</div>
+            <div class="data-item">多语言语料</div>
+            <div class="data-item">对话数据</div>
+          </div>
+          <div class="data-col" id="s3-col3" style="left:75%;">
+            <div class="data-item">图像描述</div>
+            <div class="data-item">对齐数据</div>
+            <div class="data-item">指令数据</div>
+          </div>
+        </div>
+
+        <div style="z-index:2; position:relative; max-width:85%;">
+          <h1 id="s3-headline" class="display-lg text-white hide-init-y">大规模预训练</h1>
+          <p id="s3-sub" class="body-lg mt-sm hide-init-y" style="color:#aaa; max-width:70%; margin:16px auto 0;">
+            从海量无标注数据中自监督学习
+          </p>
+
+          <div id="s3-cards" class="flex-row mt-lg justify-center hide-init-y" style="gap:20px;">
+            <div class="card-dark" style="padding:24px; flex:1; max-width:300px;">
+              <div class="chip chip-secondary" style="font-size:14px; padding:4px 12px; margin-bottom:12px;">核心任务一</div>
+              <p class="mono-md text-white">Next Token<br/>Prediction</p>
+              <p class="body-md mt-sm" style="font-size:18px; color:#aaa;">预测下一个词</p>
+            </div>
+            <div class="card-dark" style="padding:24px; flex:1; max-width:300px;">
+              <div class="chip chip-secondary" style="font-size:14px; padding:4px 12px; margin-bottom:12px;">核心任务二</div>
+              <p class="mono-md text-white">Masked Language<br/>Model</p>
+              <p class="body-md mt-sm" style="font-size:18px; color:#aaa;">掩码语言模型</p>
+            </div>
+            <div class="card-dark" style="padding:24px; flex:1; max-width:300px;">
+              <div class="chip chip-accent" style="font-size:14px; padding:4px 12px; margin-bottom:12px; background:var(--brand-accent); color:var(--ink);">学习成果</div>
+              <p class="mono-md text-white">语法·知识·推理</p>
+              <p class="body-md mt-sm" style="font-size:18px; color:#aaa;">语言底层规律</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- SCENE 4: 对齐与微调 (19s - 25.5s)                            -->
+      <!-- ============================================================ -->
+      <div id="scene-4" class="clip scene"
+           data-start="19" data-duration="6.5" data-track-index="2"
+           style="background: var(--brand-costume);">
+        <div class="corner-pins"></div>
+
+        <h1 id="s4-headline" class="display-md hide-init-y">
+          对齐与 <span style="color:var(--brand-primary);">微调</span>
+        </h1>
+        <p id="s4-sub" class="body-md hide-init-y mt-sm" style="color:#666; max-width:60%;">
+          让模型输出符合人类意图与偏好
+        </p>
+
+        <div class="flex-row flex-1 items-center" style="gap:60px; margin-top:20px;">
+          <!-- Left: Timeline -->
+          <div id="s4-timeline" class="flex-col hide-init-y" style="flex:1;">
+            <div class="timeline-step" id="step-1">
+              <div class="step-num">1</div>
+              <div>
+                <p class="mono-lg">指令微调</p>
+                <p class="body-md" style="font-size:18px; color:#555;">Instruction Tuning · 理解人类指令</p>
+              </div>
+            </div>
+            <div class="timeline-connector"></div>
+            <div class="timeline-step" id="step-2">
+              <div class="step-num">2</div>
+              <div>
+                <p class="mono-lg">奖励模型</p>
+                <p class="body-md" style="font-size:18px; color:#555;">Reward Model · 学习偏好排序</p>
+              </div>
+            </div>
+            <div class="timeline-connector"></div>
+            <div class="timeline-step" id="step-3">
+              <div class="step-num">3</div>
+              <div>
+                <p class="mono-lg">RLHF</p>
+                <p class="body-md" style="font-size:18px; color:#555;">强化学习 · 优化生成策略</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Quote card -->
+          <div id="s4-quote" class="card-primary hide-init-y" style="flex:1; max-width:420px; text-align:center; padding:48px 36px;">
+            <div class="star-burst" style="margin:0 auto 20px;">❝</div>
+            <p class="display-md text-white" style="font-size:36px;">让模型输出</p>
+            <p class="display-md text-white" style="font-size:36px; margin-top:4px;">符合人类偏好的回答</p>
+            <div class="chip mt-lg" style="background:var(--brand-costume); font-size:14px;">基于人类反馈的强化学习</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- SCENE 5: 推理与思维链 (25.5s - 31s)                          -->
+      <!-- ============================================================ -->
+      <div id="scene-5" class="clip scene"
+           data-start="25.5" data-duration="5.5" data-track-index="1"
+           style="background: var(--brand-secondary);">
+        <div class="dot-grid"></div>
+        <div class="corner-pins"></div>
+
+        <h1 id="s5-headline" class="display-md hide-init-y">
+          推理与 <span style="color:var(--brand-primary);">思维链</span>
+        </h1>
+
+        <!-- Phase 1: Auto-regressive Decoding -->
+        <div id="s5-phase1" class="flex-col hide-init" style="margin-top:24px;">
+          <p class="mono-lg" style="color:#666; margin-bottom:12px;">Auto-regressive Decoding</p>
+          <div class="flex-row items-center" style="gap:4px; flex-wrap:wrap;">
+            <span class="token-pill" id="tok-1">大</span>
+            <span class="token-pill" id="tok-2">模型</span>
+            <span class="token-pill" id="tok-3">正在</span>
+            <span class="token-pill" id="tok-4">生成</span>
+            <span class="token-pill" id="tok-5">回答</span>
+          </div>
+        </div>
+
+        <!-- Phase 2: Chain-of-Thought -->
+        <div id="s5-phase2" class="flex-col hide-init-y" style="margin-top:30px;">
+          <p class="mono-lg" style="color:var(--brand-primary); margin-bottom:12px;">Chain-of-Thought 思维链</p>
+          <div class="flex-row items-center" style="gap:12px;">
+            <div class="card" style="padding:16px 24px; text-align:center;">
+              <p class="mono-lg">步骤 1</p>
+              <p class="body-md" style="font-size:18px;">分析问题</p>
+            </div>
+            <svg width="40" height="4">
+              <line x1="0" y1="2" x2="40" y2="2" stroke="var(--ink)" stroke-width="3" stroke-dasharray="4 3"/>
+            </svg>
+            <div class="card" style="padding:16px 24px; text-align:center;">
+              <p class="mono-lg">步骤 2</p>
+              <p class="body-md" style="font-size:18px;">分步推理</p>
+            </div>
+            <svg width="40" height="4">
+              <line x1="0" y1="2" x2="40" y2="2" stroke="var(--ink)" stroke-width="3" stroke-dasharray="4 3"/>
+            </svg>
+            <div class="card" style="padding:16px 24px; text-align:center; border-color:var(--brand-primary);">
+              <p class="mono-lg">结论</p>
+              <p class="body-md" style="font-size:18px;">准确答案</p>
+            </div>
+          </div>
+          <div class="chip mt-md" style="background:var(--brand-accent); align-self:center;">
+            KV-Cache · 推理效率优化
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- SCENE 6: Scaling Law与未来 (31s - 35s)                       -->
+      <!-- ============================================================ -->
+      <div id="scene-6" class="clip scene scene-center"
+           data-start="31" data-duration="4" data-track-index="2"
+           style="background: var(--brand-primary);">
+        <div class="corner-pins" style="border-color:#fff;"></div>
+
+        <div style="z-index:2; position:relative; max-width:85%;">
+          <h1 id="s6-headline" class="display-lg text-white hide-init-y">
+            Scaling Law
+          </h1>
+          <p id="s6-sub" class="body-lg text-white hide-init-y mt-sm" style="opacity:0.85;">
+            规模定律 —— 通往 AGI 的路径
+          </p>
+
+          <!-- Chart -->
+          <div id="s6-chart" class="hide-init-y" style="position:relative; width:70%; height:160px; margin:30px auto 0;">
+            <svg width="100%" height="160" viewBox="0 0 800 200" preserveAspectRatio="none">
+              <path id="s6-curve" d="M50,180 Q200,160 350,120 Q500,60 700,20" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round"/>
+              <path id="s6-fill" d="M50,180 Q200,160 350,120 Q500,60 700,20 L700,200 L50,200 Z" fill="rgba(255,255,255,0.1)"/>
+            </svg>
+            <!-- Chart dots with labels -->
+            <div class="chart-dot" id="dot-1" style="left:12%; bottom:70%;">📈 模型</div>
+            <div class="chart-dot" id="dot-2" style="left:45%; bottom:42%;">📊 数据</div>
+            <div class="chart-dot" id="dot-3" style="left:78%; bottom:18%;">⚡ 计算</div>
+          </div>
+
+          <div id="s6-tagline" class="chip hide-init-y mt-lg" style="background:var(--brand-costume); font-size:24px; padding:16px 40px;">
+            模型 · 数据 · 计算 —— 按比例增长，能力持续提升
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <script>
+      // Build the hyperframes timeline
+      (function() {
+        var tl = gsap.timeline({ paused: true });
+        var S = function(s) { return document.querySelector(s); };
+        var A = function(s) { return document.querySelectorAll(s); };
+
+        // ===== SCENE 1: 0s-5s =====
+        // Headline letters stagger
+        tl.fromTo('#s1-headline', { opacity: 0, y: -30 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, 0.3);
+        // Subtitle
+        tl.fromTo('#s1-subtitle', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 0.8);
+        // Chip
+        tl.fromTo('#s1-chip', { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.4, ease: 'back.out(1.5)' }, 1.4);
+        // Tagline
+        tl.fromTo('#s1-tagline', { opacity: 0, y: 20 }, { opacity: 0.7, y: 0, duration: 0.4, ease: 'power2.out' }, 2.0);
+
+        // Pulsing rings
+        tl.to('#s1-ring1', { scale: 1.3, opacity: 0, duration: 2, ease: 'power1.out' }, 0.5);
+        tl.to('#s1-ring1', { scale: 1, opacity: 0.15, duration: 0, ease: 'power1.out' }, 2.5);
+        tl.to('#s1-ring2', { scale: 1.2, opacity: 0, duration: 2, ease: 'power1.out' }, 1.0);
+        tl.to('#s1-ring2', { scale: 1, opacity: 0.2, duration: 0, ease: 'power1.out' }, 3.0);
+        tl.to('#s1-ring3', { scale: 1.15, opacity: 0, duration: 2, ease: 'power1.out' }, 1.5);
+        tl.to('#s1-ring3', { scale: 1, opacity: 0.3, duration: 0, ease: 'power1.out' }, 3.5);
+
+        // ===== SCENE 1→2 TRANSITION: push-slide LEFT 0.5s =====
+        tl.to('#scene-1', { x: -1920, duration: 0.5, ease: 'power3.inOut' }, 5.5);
+        tl.fromTo('#scene-2', { x: 1920 }, { x: 0, duration: 0.5, ease: 'power3.inOut' }, 5.5);
+
+        // ===== SCENE 2: 6s-12s =====
+        tl.fromTo('#s2-headline', { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 6.3);
+        tl.fromTo('#s2-meta', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.3, ease: 'power2.out' }, 6.8);
+        tl.fromTo('#s2-diagram', { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.6, ease: 'back.out(1.4)' }, 7.2);
+        tl.fromTo('#s2-cards', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, 8.5);
+
+        // Draw SVG paths
+        tl.fromTo('#path-a2', { strokeDashoffset: 100 }, { strokeDashoffset: 0, duration: 0.8, ease: 'power1.inOut' }, 7.5);
+        tl.fromTo('#path-b2', { strokeDashoffset: 100 }, { strokeDashoffset: 0, duration: 0.8, ease: 'power1.inOut' }, 7.8);
+
+        // Node pulses
+        tl.to('#n2-4, #n2-5, #n2-6', { scale: 1.15, duration: 0.3, ease: 'power1.out', overwrite: 'auto' }, 8.0);
+        tl.to('#n2-4, #n2-5, #n2-6', { scale: 1, duration: 0.3, ease: 'power1.out', overwrite: 'auto' }, 8.3);
+        tl.to('#n2-7, #n2-8, #n2-9', { scale: 1.15, duration: 0.3, ease: 'power1.out', overwrite: 'auto' }, 8.8);
+        tl.to('#n2-7, #n2-8, #n2-9', { scale: 1, duration: 0.3, ease: 'power1.out', overwrite: 'auto' }, 9.1);
+
+        // ===== SCENE 2→3 TRANSITION: zoom-through 0.6s =====
+        tl.to('#scene-2', { scale: 1.5, filter: 'blur(10px)', opacity: 0, duration: 0.6, ease: 'power2.inOut' }, 12.0);
+        tl.fromTo('#scene-3', { scale: 0.7, filter: 'blur(10px)', opacity: 0 },
+          { scale: 1, filter: 'blur(0px)', opacity: 1, duration: 0.6, ease: 'power2.inOut' }, 12.0);
+
+        // ===== SCENE 3: 12.5s-18.5s =====
+        tl.fromTo('#s3-headline', { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 12.8);
+        tl.fromTo('#s3-sub', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 13.3);
+        tl.fromTo('#s3-cards', { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' }, 14.0);
+
+        // Data stream scroll
+        tl.to('#s3-col1', { y: -200, duration: 5, ease: 'none' }, 12.5);
+        tl.to('#s3-col2', { y: -150, duration: 5, ease: 'none' }, 12.5);
+        tl.to('#s3-col3', { y: -120, duration: 5, ease: 'none' }, 12.8);
+
+        // ===== SCENE 3→4 TRANSITION: push-slide RIGHT 0.5s =====
+        tl.to('#scene-3', { x: 1920, duration: 0.5, ease: 'power3.inOut' }, 18.5);
+        tl.fromTo('#scene-4', { x: -1920 }, { x: 0, duration: 0.5, ease: 'power3.inOut' }, 18.5);
+
+        // ===== SCENE 4: 19s-25s =====
+        tl.fromTo('#s4-headline', { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 19.3);
+        tl.fromTo('#s4-sub', { opacity: 0, y: 15 }, { opacity: 1, y: 0, duration: 0.3, ease: 'power2.out' }, 19.8);
+        // Timeline steps stagger
+        tl.fromTo('#step-1', { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.4, ease: 'power2.out' }, 20.3);
+        tl.fromTo('#step-2', { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.4, ease: 'power2.out' }, 21.0);
+        tl.fromTo('#step-3', { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.4, ease: 'power2.out' }, 21.7);
+        tl.fromTo('#s4-quote', { opacity: 0, x: 40 }, { opacity: 1, x: 0, duration: 0.5, ease: 'back.out(1.3)' }, 22.5);
+
+        // ===== SCENE 4→5 TRANSITION: crossfade 0.4s =====
+        tl.to('#scene-4', { opacity: 0, duration: 0.4, ease: 'power2.inOut' }, 25.1);
+        tl.set('#scene-4', { opacity: 0 }, 25.5);
+        tl.fromTo('#scene-5', { opacity: 0 }, { opacity: 1, duration: 0.4, ease: 'power2.inOut' }, 25.1);
+
+        // ===== SCENE 5: 25.5s-30.5s =====
+        tl.fromTo('#s5-headline', { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 25.8);
+        // Phase 1 - tokens stagger
+        tl.set('#s5-phase1', { opacity: 1 }, 26.3);
+        tl.fromTo('#tok-1', { opacity: 0, scale: 0 }, { opacity: 1, scale: 1, duration: 0.3, ease: 'back.out(2)' }, 26.3);
+        tl.fromTo('#tok-2', { opacity: 0, scale: 0 }, { opacity: 1, scale: 1, duration: 0.3, ease: 'back.out(2)' }, 26.6);
+        tl.fromTo('#tok-3', { opacity: 0, scale: 0 }, { opacity: 1, scale: 1, duration: 0.3, ease: 'back.out(2)' }, 26.9);
+        tl.fromTo('#tok-4', { opacity: 0, scale: 0 }, { opacity: 1, scale: 1, duration: 0.3, ease: 'back.out(2)' }, 27.2);
+        tl.fromTo('#tok-5', { opacity: 0, scale: 0 }, { opacity: 1, scale: 1, duration: 0.3, ease: 'back.out(2)' }, 27.5);
+        // Phase 2
+        tl.set('#s5-phase2', { opacity: 1 }, 28.0);
+        tl.fromTo('#s5-phase2 .card', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.3, ease: 'power2.out', stagger: 0.15 }, 28.0);
+        tl.fromTo('#s5-phase2 .chip', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.3, ease: 'back.out(1.5)' }, 28.8);
+
+        // ===== SCENE 5→6 TRANSITION: zoom-through 0.5s =====
+        tl.to('#scene-5', { scale: 1.5, filter: 'blur(8px)', opacity: 0, duration: 0.5, ease: 'power2.inOut' }, 30.5);
+        tl.set('#scene-5', { opacity: 0 }, 31.0);
+        tl.fromTo('#scene-6', { scale: 0.7, filter: 'blur(8px)', opacity: 0 },
+          { scale: 1, filter: 'blur(0px)', opacity: 1, duration: 0.5, ease: 'power2.inOut' }, 30.5);
+
+        // ===== SCENE 6: 31s-34.5s =====
+        tl.fromTo('#s6-headline', { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, 31.3);
+        tl.fromTo('#s6-sub', { opacity: 0, y: 15 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 31.9);
+        tl.fromTo('#s6-chart', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' }, 32.4);
+        // Draw chart curve
+        tl.fromTo('#s6-curve', { strokeDashoffset: 2000 }, { strokeDashoffset: 0, duration: 1.2, ease: 'power1.inOut' }, 32.4);
+        // Chart dots stagger
+        tl.fromTo('#dot-1', { opacity: 0, scale: 0 }, { opacity: 1, scale: 1, duration: 0.3, ease: 'back.out(2)' }, 32.8);
+        tl.fromTo('#dot-2', { opacity: 0, scale: 0 }, { opacity: 1, scale: 1, duration: 0.3, ease: 'back.out(2)' }, 33.1);
+        tl.fromTo('#dot-3', { opacity: 0, scale: 0 }, { opacity: 1, scale: 1, duration: 0.3, ease: 'back.out(2)' }, 33.4);
+        tl.fromTo('#s6-tagline', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.4, ease: 'back.out(1.5)' }, 33.8);
+
+        // Register timeline
+        window.__timelines = window.__timelines || {};
+        window.__timelines['main'] = tl;
+      })();
+    </script>
+  </body>
+</html>

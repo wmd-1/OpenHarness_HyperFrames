@@ -1,0 +1,56 @@
+{
+  "title": "大模型技术原理",
+  "subtitle": "从Transformer到智能涌现",
+  "stylePreset": "pin-and-paper",
+  "duration": 30,
+  "scripts": [
+    {
+      "scene_id": "intro",
+      "start_s": 0,
+      "duration_s": 5,
+      "speaker": "narrator",
+      "text": "大模型技术正在深刻改变人工智能的边界。但它的核心原理其实并不复杂——一切始于Transformer架构。",
+      "visual_cue": "标题动画，神经网络连接动效，科技感背景"
+    },
+    {
+      "scene_id": "transformer",
+      "start_s": 5,
+      "duration_s": 5,
+      "speaker": "narrator",
+      "text": "2017年，Google提出了Transformer架构，其核心创新是自注意力机制。它让模型能同时关注输入序列中所有位置，计算每个词之间的相关性。",
+      "visual_cue": "Transformer架构图解，注意力权重可视化，词与词之间的连线动效"
+    },
+    {
+      "scene_id": "training",
+      "start_s": 10,
+      "duration_s": 6,
+      "speaker": "narrator",
+      "text": "训练分为两阶段。首先是预训练，使用海量文本数据，通过预测下一个词来学习语言规律。GPT系列模型采用自回归方式，逐个预测下一个token。",
+      "visual_cue": "数据流从文本入库到模型训练，next token prediction 示意"
+    },
+    {
+      "scene_id": "finetune",
+      "start_s": 16,
+      "duration_s": 5,
+      "speaker": "narrator",
+      "text": "然后是微调阶段。通过指令微调和人类反馈强化学习，让模型对齐人类偏好，具备真正的对话能力。",
+      "visual_cue": "人类标注反馈回路，RLHF流程示意，模型从粗糙到精细"
+    },
+    {
+      "scene_id": "inference",
+      "start_s": 21,
+      "duration_s": 5,
+      "speaker": "narrator",
+      "text": "推理时，模型根据输入序列逐步生成最可能的后续token。每一次预测都基于全部已生成的上下文，这就是自回归生成的本质。",
+      "visual_cue": "token逐个生成动画，上下文窗口示意，概率分布可视化"
+    },
+    {
+      "scene_id": "outro",
+      "start_s": 26,
+      "duration_s": 4,
+      "speaker": "narrator",
+      "text": "从涌现能力到通用人工智能，大模型的潜力才刚刚开始释放。未来已来。",
+      "visual_cue": "涌现能力图示，AGI愿景，科技感结尾"
+    }
+  ]
+}

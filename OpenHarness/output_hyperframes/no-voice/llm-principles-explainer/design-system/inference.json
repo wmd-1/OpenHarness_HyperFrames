@@ -1,0 +1,193 @@
+{
+  "mode": "forced",
+  "selected": {
+    "name": "block-frame",
+    "label": "Block Frame"
+  },
+  "confidence": "forced",
+  "brand": {
+    "primary": "#000000",
+    "secondary": "#000000",
+    "accent": "#000000",
+    "source": "legacy",
+    "confidence": "legacy",
+    "needs_review": false,
+    "screenshot": null,
+    "candidates": []
+  },
+  "baseline_winner": {
+    "name": "scatterbrain",
+    "combined": 0.371
+  },
+  "top_candidates": [
+    {
+      "name": "scatterbrain",
+      "label": "Scatterbrain",
+      "raw": 0.2,
+      "normalized": 0.444,
+      "combined": 0.371,
+      "combined_pre_capability": 0.371,
+      "matched_signals": [
+        "low_saturation",
+        "minimal_decoration"
+      ],
+      "capabilities_missing": [],
+      "fingerprint": {
+        "shadow": "soft-blur-paper-lift",
+        "border": "none-on-stickies",
+        "motion": "hand-placed-tilt",
+        "density": "casually-clustered",
+        "contrast": "warm-pastel-on-paper",
+        "palette-mode": "brand-tinted-with-anchors"
+      },
+      "best_for": [
+        "creative agencies",
+        "education",
+        "indie tools",
+        "workshop products",
+        "warm friendly brands",
+        "workshop / brainstorm decks"
+      ],
+      "avoid_for": [
+        "cold corporate",
+        "formal enterprise",
+        "regulated industries",
+        "high-polish premium"
+      ],
+      "sectionA_excerpt": "Designer's whiteboard at 11am. Sticky notes pinned to cork, masking tape across the corner, marker doodles in the margins. Shrikhand display reads as chunky marker-pen lettering; Zilla Slab body sits like a printed handout; Caveat is the moment something got jotted down.\n\nDepth is **soft blurred drop-shadow** (`2px 3px 15px shadow, 0 1px 3px shadow-deep`) on every post-it — the rare preset that embraces blur because the visual depends on paper lifting off cork. Every sticky carries a small rotation (±1° to ±15°) and a thumbtack pin via `::before`; hero stickies add a translucent tape strip via `::after`.\n\n**Brand DNA tints the stickies; preset anchors keep the register playful.** Three site colors (`--brand-primary` / `--brand-secondary` / `--brand-accent`) mix with named pastel anchors (`",
+      "delta_from_winner": 0
+    },
+    {
+      "name": "claude",
+      "label": "Claude",
+      "raw": 0.15,
+      "normalized": 0.214,
+      "combined": 0.195,
+      "combined_pre_capability": 0.195,
+      "matched_signals": [
+        "low_saturation"
+      ],
+      "capabilities_missing": [],
+      "fingerprint": {
+        "surface": "warm-cream-editorial",
+        "shadow": "hairline-elevation-no-blur",
+        "border": "hairline-ink",
+        "voice": "serif-that-thinks",
+        "accent": "scarce-coral-voltage",
+        "motion": "quiet-considered"
+      },
+      "best_for": [
+        "editorial explainers",
+        "research narratives",
+        "considered product stories",
+        "long-form concept pieces",
+        "developer-facing walkthroughs"
+      ],
+      "avoid_for": [
+        "high-energy hype promos",
+        "neon / maximalist decks",
+        "playful children's content",
+        "dense real-time dashboards"
+      ],
+      "sectionA_excerpt": "An editorial brand book come to life: warm cream paper, a serif that thinks, and a single coral that earns its place. The thesis is three colors held with discipline — **cream is the floor, ink is the voice, coral is the voltage** — and a fourth (navy) only where the product shows itself. The whole system reads as considered, literary, unhurried: it reasons in paragraphs, not slogans.\n\nEvery surface is **warm cream** (`var(--canvas)`), never pure white and never cool gray. Content gathers on a **tile** surface half a step darker (`var(--cl-tile)`) — the demarcation is a half-step, never a hard contrast. Elevation is a **1px hairline** ink border at low alpha, optionally a single soft 1px shadow; there are no heavy drop shadows, no glows, no gradients on content. The restraint is the materi",
+      "delta_from_winner": 0.176
+    },
+    {
+      "name": "pin-and-paper",
+      "label": "Pin & Paper",
+      "raw": 0.1,
+      "normalized": 0.154,
+      "combined": 0.138,
+      "combined_pre_capability": 0.138,
+      "matched_signals": [
+        "low_saturation"
+      ],
+      "capabilities_missing": [],
+      "fingerprint": {
+        "surface": "yellow-paper-with-grain",
+        "shadow": "hard-offset-ink-zero-blur",
+        "border": "hairline-ink",
+        "voice": "field-notebook-handwritten",
+        "motion": "quiet-considered",
+        "density": "populated-card-grid"
+      },
+      "best_for": [
+        "qualitative research",
+        "founder reflections",
+        "longform brand stories",
+        "hand-crafted decks",
+        "literary brands"
+      ],
+      "avoid_for": [
+        "digital-native polished",
+        "rigorously data-driven",
+        "corporate fintech",
+        "high-energy launches"
+      ],
+      "sectionA_excerpt": "Field notebook pinned to a corkboard, not a polished deck. Every surface is **yellow legal-pad paper** with a non-optional fractal-noise grain — without the texture the system collapses into flat cartoon-yellow. Cards are **cream paper pinned to the page** with a 1.5px hairline ink border, 4px micro-radius, and a hard ink-blue offset shadow (5–8px, zero blur). The shadow is the only depth language.\n\nThree editorial voices, each in its own face: **Space Grotesk 700** carries every printed headline (negative letter-spacing, mixed case); **Caveat** carries every handwritten moment — marginal notes, step numerals, \"me\" voice annotations; **DM Mono uppercase** carries every archival tag — top-chrome lockup, footer meta, date strips. Switching a voice's face collapses the register.\n\n**Brand DNA ",
+      "delta_from_winner": 0.233
+    },
+    {
+      "name": "block-frame",
+      "label": "Block Frame",
+      "raw": 0.05,
+      "normalized": 0.063,
+      "combined": 0.059,
+      "combined_pre_capability": 0.059,
+      "matched_signals": [
+        "minimal_decoration"
+      ],
+      "capabilities_missing": [],
+      "fingerprint": {
+        "shadow": "hard-offset-black",
+        "border": "4px-solid-ink",
+        "palette": "saturated-pastel-cycle",
+        "motion": "tilt-and-snap",
+        "decoration": "tilted-puncture"
+      },
+      "best_for": [
+        "indie SaaS launches",
+        "agency credentials",
+        "creative reviews",
+        "brand redesigns",
+        "design-led product talks"
+      ],
+      "avoid_for": [
+        "regulated disclosures",
+        "formal legal briefs",
+        "institutional restraint",
+        "enterprise compliance"
+      ],
+      "sectionA_excerpt": "Block Frame is maximalist neobrutalism: every region wears a 4px solid ink\nborder, every elevated card carries an 8px hard offset shadow (zero blur,\nsolid ink), every corner is square, and the canvas cycles through five\nsaturated pastels — pink, blue, green, yellow, cream — plus off-white and\nink. Display is heavy uppercase Inter with negative tracking; chrome is\nwide-tracked Space Grotesk in caps. Decorative tilts (±2° to ±12°),\nstar-bursts, stripe blocks, and dot grids puncture the grid intentionally.\nDensity is the rule, not the exception.\n\nBrand-aware color contract: `--brand-primary` is the dominant pastel\nground, `--brand-secondary` is the colored-shadow accent (replaces the\ntemplate's signature yellow shadow on the close-frame), `--brand-accent`\nis the CTA fill. Class prefix is `bf-",
+      "delta_from_winner": 0.312
+    }
+  ],
+  "capability_gated_presets": [],
+  "site_features": {
+    "shadow_zero_blur": false,
+    "thick_solid_border": false,
+    "medium_solid_border": false,
+    "hairline_border": false,
+    "condensed_display": false,
+    "serif_display": false,
+    "high_sat_accent": false,
+    "low_saturation": true,
+    "rotated_transform": false,
+    "bouncy_easing": false,
+    "generous_padding": false,
+    "minimal_decoration": true
+  },
+  "site_dna": {
+    "source": null,
+    "brand_name": "capture",
+    "material": "flat",
+    "imagery": "mixed",
+    "background_patterns": [],
+    "page_intent": "landing",
+    "section_role_counts": {},
+    "voice_tone": "neutral",
+    "voice_heading_style": "Sentence case",
+    "voice_heading_length": "tight"
+  },
+  "generated_at": "2026-06-16T09:04:09.191Z"
+}

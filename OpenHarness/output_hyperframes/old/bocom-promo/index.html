@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #000;
+      }
+      body {
+        font-family: system-ui, sans-serif;
+      }
+
+      .clip { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+
+      /* Scene 1: Opening */
+      #scene1 {
+        background: linear-gradient(135deg, #0a1f3d 0%, #0d2b5e 30%, #003d8c 60%, #0a1f3d 100%);
+        flex-direction: column;
+      }
+      .bocom-logo {
+        width: 160px; height: 160px; border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, #1a6bcc, #003d8c);
+        display: flex; align-items: center; justify-content: center;
+        position: relative; box-shadow: 0 0 60px rgba(0, 100, 200, 0.4);
+      }
+      .bocom-logo-inner {
+        width: 120px; height: 120px; border-radius: 50%;
+        border: 3px solid rgba(255, 255, 255, 0.85);
+        display: flex; align-items: center; justify-content: center; position: relative;
+      }
+      .bocom-logo-inner::before, .bocom-logo-inner::after {
+        content: ''; position: absolute; background: rgba(255, 255, 255, 0.85);
+      }
+      .bocom-logo-inner::before { width: 56px; height: 3px; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+      .bocom-logo-inner::after { width: 3px; height: 56px; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+      .bocom-logo-ring {
+        position: absolute; width: 148px; height: 148px; border-radius: 50%;
+        border: 1.5px solid rgba(100, 180, 255, 0.3);
+      }
+      .bocom-title {
+        color: #fff; font-size: 72px; font-weight: 700; letter-spacing: 12px;
+        margin-top: 30px; text-shadow: 0 2px 20px rgba(0, 100, 200, 0.5);
+      }
+      .bocom-subtitle {
+        color: rgba(150, 200, 255, 0.8); font-size: 28px; letter-spacing: 6px;
+        margin-top: 12px; font-weight: 300;
+      }
+      .accent-line {
+        width: 80px; height: 3px;
+        background: linear-gradient(90deg, transparent, #4a9eff, transparent);
+        margin-top: 20px; border-radius: 2px;
+      }
+
+      /* Scene 2: History */
+      #scene2 {
+        background: linear-gradient(135deg, #0d2b5e 0%, #0a1f3d 50%, #06204a 100%);
+        flex-direction: column; padding: 80px 120px; opacity: 0;
+      }
+      .scene2-content { display: flex; flex-direction: column; align-items: center; max-width: 1400px; }
+      .history-year {
+        font-size: 96px; font-weight: 800;
+        background: linear-gradient(135deg, #4a9eff, #87ceeb);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+        margin-bottom: 10px;
+      }
+      .history-text { color: #fff; font-size: 48px; font-weight: 600; letter-spacing: 4px; margin-bottom: 8px; }
+      .history-sub { color: rgba(180, 210, 240, 0.85); font-size: 32px; font-weight: 300; letter-spacing: 3px; }
+      .scene2-divider {
+        width: 120px; height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(74, 158, 255, 0.6), transparent);
+        margin: 20px 0;
+      }
+
+      /* Scene 3: Services */
+      #scene3 {
+        background: linear-gradient(135deg, #06204a 0%, #0d2b5e 50%, #0a1f3d 100%);
+        flex-direction: column; padding: 80px 120px; opacity: 0;
+      }
+      .services-title { font-size: 42px; color: #4a9eff; font-weight: 500; letter-spacing: 3px; margin-bottom: 30px; }
+      .services-grid { display: flex; gap: 30px; justify-content: center; flex-wrap: wrap; max-width: 1400px; }
+      .service-card {
+        background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(74, 158, 255, 0.2);
+        border-radius: 16px; padding: 28px 36px; text-align: center;
+        backdrop-filter: blur(10px); width: 240px;
+      }
+      .service-icon { font-size: 40px; margin-bottom: 12px; }
+      .service-label { color: #fff; font-size: 22px; font-weight: 500; letter-spacing: 2px; }
+      .service-desc { color: rgba(180, 210, 240, 0.7); font-size: 16px; margin-top: 6px; }
+
+      /* Scene 4: Closing */
+      #scene4 {
+        background: linear-gradient(135deg, #0a1f3d 0%, #003d8c 50%, #0a1f3d 100%);
+        flex-direction: column; opacity: 0;
+      }
+      .closing-title {
+        font-size: 60px; font-weight: 700; color: #fff; letter-spacing: 8px;
+        text-shadow: 0 2px 30px rgba(0, 100, 200, 0.4);
+      }
+      .closing-sub { font-size: 28px; color: rgba(74, 158, 255, 0.9); letter-spacing: 4px; margin-top: 16px; font-weight: 300; }
+      .closing-line { width: 60px; height: 3px; background: #4a9eff; margin-top: 24px; border-radius: 2px; }
+
+      /* Background particles */
+      .particle { position: absolute; width: 4px; height: 4px; background: rgba(74, 158, 255, 0.3); border-radius: 50%; }
+      #particle-container { position: absolute; inset: 0; pointer-events: none; }
+
+      /* Captions */
+      #captions {
+        position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+        z-index: 100; text-align: center; pointer-events: none; min-height: 64px;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .caption-word {
+        display: inline-block; font-size: 36px; font-weight: 600;
+        color: rgba(255, 255, 255, 0.6); text-shadow: 0 2px 12px rgba(0, 0, 0, 0.7);
+        padding: 0 4px; font-family: system-ui, sans-serif;
+      }
+      .caption-word.active { color: #fff; text-shadow: 0 2px 12px rgba(0, 0, 0, 0.7), 0 0 40px rgba(74, 158, 255, 0.3); }
+      .caption-word.punct { opacity: 0.4; }
+
+      /* Audio */
+      #narration { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="10"
+      data-width="1920"
+      data-height="1080"
+    >
+      <!-- Narration audio -->
+      <audio
+        id="narration"
+        src="assets/narration.wav"
+        data-start="0"
+        data-duration="10"
+        data-track-index="0"
+        data-media-start="0"
+      ></audio>
+
+      <!-- Background particles (set by seeded PRNG) -->
+      <div id="particle-container"></div>
+
+      <!-- Scene 1: Opening (0s - 2.8s) -->
+      <div id="scene1" class="clip" data-start="0" data-duration="2.8" data-track-index="1">
+        <div style="display:flex;flex-direction:column;align-items:center;z-index:2">
+          <div class="bocom-logo" id="logo-el">
+            <div class="bocom-logo-ring"></div>
+            <div class="bocom-logo-inner"></div>
+          </div>
+          <div class="bocom-title" id="title-el">交通银行</div>
+          <div class="accent-line" id="accent-line-el"></div>
+          <div class="bocom-subtitle" id="subtitle-el">BANK OF COMMUNICATIONS</div>
+        </div>
+      </div>
+
+      <!-- Scene 2: History (2.8s - 5.5s) -->
+      <div id="scene2" class="clip" data-start="2.8" data-duration="2.7" data-track-index="2">
+        <div class="scene2-content">
+          <div class="history-year" id="year-el">1908</div>
+          <div class="scene2-divider"></div>
+          <div class="history-text" id="heritage-el">百年传承</div>
+          <div class="history-sub" id="innovation-el">创新不息</div>
+        </div>
+      </div>
+
+      <!-- Scene 3: Services (5.5s - 8.2s) -->
+      <div id="scene3" class="clip" data-start="5.5" data-duration="2.7" data-track-index="3">
+        <div style="display:flex;flex-direction:column;align-items:center;z-index:2">
+          <div class="services-title" id="services-title-el">全方位金融服务</div>
+          <div class="services-grid">
+            <div class="service-card" id="card-1">
+              <div class="service-icon">🏦</div>
+              <div class="service-label">个人银行</div>
+              <div class="service-desc">存款·理财·贷款</div>
+            </div>
+            <div class="service-card" id="card-2">
+              <div class="service-icon">💼</div>
+              <div class="service-label">企业金融</div>
+              <div class="service-desc">结算·融资·供应链</div>
+            </div>
+            <div class="service-card" id="card-3">
+              <div class="service-icon">🌐</div>
+              <div class="service-label">财富管理</div>
+              <div class="service-desc">投资·传承·规划</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scene 4: Closing (8.2s - 10s) -->
+      <div id="scene4" class="clip" data-start="8.2" data-duration="1.8" data-track-index="4">
+        <div style="display:flex;flex-direction:column;align-items:center;z-index:2">
+          <div class="closing-title" id="closing-title-el">交通银行</div>
+          <div class="closing-line" id="closing-line-el"></div>
+          <div class="closing-sub" id="closing-sub-el">您的财富伙伴</div>
+        </div>
+      </div>
+
+      <!-- Captions -->
+      <div id="captions"></div>
+    </div>
+
+    <script>
+      // ── Seeded PRNG (mulberry32) ──
+      function mulberry32(a) {
+        return function() {
+          a |= 0; a = a + 0x6D2B79F5 | 0;
+          var t = Math.imul(a ^ a >>> 15, 1 | a);
+          t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+          return ((t ^ t >>> 14) >>> 0) / 4294967296;
+        };
+      }
+      var rng = mulberry32(42);
+
+      // ── Particles ──
+      (function createParticles() {
+        var container = document.getElementById("particle-container");
+        for (var i = 0; i < 40; i++) {
+          var p = document.createElement("div");
+          p.className = "particle";
+          p.style.left = (rng() * 1920) + "px";
+          p.style.top = (rng() * 1080) + "px";
+          var size = 2 + rng() * 3;
+          p.style.width = size + "px";
+          p.style.height = size + "px";
+          p.style.opacity = 0.15 + rng() * 0.25;
+          container.appendChild(p);
+        }
+      })();
+
+      // ── Load transcript and build ──
+      var transcriptWords = [];
+      fetch("assets/transcript.json")
+        .then(function(r) { return r.json(); })
+        .then(function(words) {
+          transcriptWords = words;
+          buildCaptions(words);
+          setupTimeline(words);
+        })
+        .catch(function(e) {
+          console.warn("No transcript found", e);
+          setupTimeline([]);
+        });
+
+      function buildCaptions(words) {
+        var container = document.getElementById("captions");
+        var line = document.createElement("div");
+        line.style.cssText = "white-space:pre-wrap;line-height:1.5";
+        line.id = "caption-line";
+
+        for (var i = 0; i < words.length; i++) {
+          var span = document.createElement("span");
+          span.className = "caption-word" + (
+            words[i].text.trim() && /[，。、！？]/.test(words[i].text) ? " punct" : ""
+          );
+          span.textContent = words[i].text;
+          span.dataset.index = i;
+          line.appendChild(span);
+        }
+        container.appendChild(line);
+      }
+
+      function updateCaptions(time, words) {
+        var spans = document.querySelectorAll(".caption-word");
+        if (!spans.length) return;
+
+        for (var j = 0; j < spans.length; j++) {
+          spans[j].classList.remove("active");
+        }
+
+        var activeIdx = -1;
+        for (var i = 0; i < words.length; i++) {
+          if (time >= words[i].start && time < words[i].end) {
+            activeIdx = i;
+            break;
+          }
+        }
+
+        if (activeIdx >= 0) {
+          var start = Math.max(0, activeIdx - 1);
+          var end = Math.min(words.length - 1, activeIdx + 1);
+          for (var k = start; k <= end; k++) {
+            spans[k].classList.add("active");
+          }
+        }
+      }
+
+      // ── Timeline ──
+      function setupTimeline(words) {
+        window.__timelines = window.__timelines || {};
+        var tl = gsap.timeline({ paused: true });
+
+        // Scene 1: Opening (0 - 2.8s)
+        tl.from("#logo-el", { scale: 0, opacity: 0, duration: 0.8, ease: "back.out(1.7)" }, 0.0);
+        tl.from(".bocom-logo-ring", { scale: 0.5, opacity: 0, duration: 0.6 }, 0.1);
+        tl.from("#title-el", { y: 40, opacity: 0, duration: 0.6, ease: "power2.out" }, 0.6);
+        tl.from("#accent-line-el", { scaleX: 0, duration: 0.5, ease: "power2.out", transformOrigin: "center center" }, 1.1);
+        tl.from("#subtitle-el", { y: 20, opacity: 0, duration: 0.5, ease: "power2.out" }, 1.3);
+        tl.to("#scene1", { opacity: 0, duration: 0.4 }, 2.4);
+        // Hard kill (opacity only - framework manages clip visibility)
+        tl.set("#scene1", { opacity: 0 }, 2.8);
+
+        // Scene 2: History (2.8 - 5.5s)
+        tl.set("#scene2", { opacity: 1 }, 2.8);
+        tl.from("#year-el", { y: 50, opacity: 0, duration: 0.7, ease: "power3.out" }, 3.0);
+        tl.from(".scene2-divider", { scaleX: 0, duration: 0.5, ease: "power2.out", transformOrigin: "center center" }, 3.5);
+        tl.from("#heritage-el", { y: 30, opacity: 0, duration: 0.5, ease: "power2.out" }, 3.7);
+        tl.from("#innovation-el", { y: 30, opacity: 0, duration: 0.5, ease: "power2.out" }, 4.2);
+        tl.to("#scene2", { opacity: 0, duration: 0.4 }, 5.1);
+        // Hard kill (opacity only)
+        tl.set("#scene2", { opacity: 0 }, 5.5);
+
+        // Scene 3: Services (5.5 - 8.2s)
+        tl.set("#scene3", { opacity: 1 }, 5.5);
+        tl.from("#services-title-el", { y: 30, opacity: 0, duration: 0.5, ease: "power2.out" }, 5.7);
+        tl.from("#card-1", { y: 40, opacity: 0, duration: 0.4, ease: "power2.out" }, 6.1);
+        tl.from("#card-2", { y: 40, opacity: 0, duration: 0.4, ease: "power2.out" }, 6.3);
+        tl.from("#card-3", { y: 40, opacity: 0, duration: 0.4, ease: "power2.out" }, 6.5);
+        tl.to("#scene3", { opacity: 0, duration: 0.4 }, 7.8);
+        // Hard kill (opacity only)
+        tl.set("#scene3", { opacity: 0 }, 8.2);
+
+        // Scene 4: Closing (8.2 - 10s)
+        tl.set("#scene4", { opacity: 1 }, 8.2);
+        tl.from("#closing-title-el", { y: 40, opacity: 0, duration: 0.6, ease: "power2.out" }, 8.4);
+        tl.from("#closing-line-el", { scaleX: 0, duration: 0.5, ease: "power2.out", transformOrigin: "center center" }, 8.8);
+        tl.from("#closing-sub-el", { y: 30, opacity: 0, duration: 0.5, ease: "power2.out" }, 9.1);
+        // Hard kill at end (opacity only)
+        tl.set("#scene4", { opacity: 0 }, 10.0);
+
+        // Caption hard kill at end
+        tl.set("#caption-line", { opacity: 0, visibility: "hidden" }, 10.0);
+
+        window.__timelines["main"] = tl;
+
+        // ── Caption ticker ──
+        if (words && words.length) {
+          var lastCaptionTime = -1;
+          gsap.ticker.add(function() {
+            var t = tl.time ? tl.time() : (window.__hfSeekTime || 0);
+            if (Math.abs(t - lastCaptionTime) > 0.03) {
+              updateCaptions(t, words);
+              lastCaptionTime = t;
+            }
+          });
+        }
+
+        // Expose for HyperFrames seek events
+        window.__hfSeekCb = window.__hfSeekCb || [];
+        window.__hfSeekCb.push(function(time) {
+          if (words && words.length) {
+            updateCaptions(time, words);
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

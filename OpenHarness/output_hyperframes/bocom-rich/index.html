@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 1920px; height: 1080px; overflow: hidden;
+        background: #000d26;
+        font-family: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+      }
+
+      /* ========== Background ========== */
+      #bg-gradient {
+        position: absolute; inset: 0;
+        background: radial-gradient(ellipse 140% 100% at 30% 0%, #0047ab 0%, #002b7a 35%, #001a4d 70%, #000d26 100%);
+        z-index: 0;
+      }
+      #bg-grid {
+        position: absolute; inset: 0; opacity: 0.04; z-index: 1;
+        background-image:
+          linear-gradient(rgba(255,255,255,0.3) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.3) 1px, transparent 1px);
+        background-size: 60px 60px;
+      }
+      #glow-orb-1 {
+        position: absolute; top: 10%; left: 8%; width: 700px; height: 700px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(0,120,255,0.12) 0%, transparent 70%);
+        filter: blur(80px); z-index: 1;
+      }
+      #glow-orb-2 {
+        position: absolute; bottom: 5%; right: 3%; width: 550px; height: 550px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(0,180,255,0.08) 0%, transparent 70%);
+        filter: blur(100px); z-index: 1;
+      }
+
+      /* ========== Top accent line ========== */
+      #accent-line {
+        position: absolute; top: 0; left: 0; width: 100%; height: 4px; z-index: 20;
+        background: linear-gradient(90deg, transparent, #4da6ff, #0088ff, #4da6ff, transparent);
+        transform-origin: left center;
+        transform: scaleX(0);
+      }
+      #accent-line-sub {
+        position: absolute; top: 4px; left: 0; width: 100%; height: 1px; z-index: 20;
+        background: linear-gradient(90deg, transparent, rgba(77,166,255,0.15), transparent);
+        transform-origin: left center;
+        transform: scaleX(0);
+      }
+
+      /* ========== Brand Logo (persistent) ========== */
+      #brand-logo {
+        position: absolute; top: 28px; left: 60px; display: flex; align-items: center; gap: 16px; z-index: 20;
+        opacity: 0; pointer-events: none; visibility: hidden;
+      }
+      #logo-circle {
+        width: 44px; height: 44px; border: 2.5px solid #4da6ff; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 18px; font-weight: 700; color: #fff;
+        background: rgba(0,80,180,0.25);
+      }
+      #logo-circle-inner {
+        width: 32px; height: 32px; border-radius: 50%;
+        border: 1.5px solid rgba(77,166,255,0.5);
+        display: flex; align-items: center; justify-content: center;
+      }
+      #brand-name {
+        font-size: 22px; font-weight: 700; color: #fff; letter-spacing: 3px; opacity: 0;
+      }
+      #brand-eng {
+        font-size: 11px; font-weight: 300; color: rgba(255,255,255,0.5); letter-spacing: 2px;
+        margin-top: 2px; text-align: left; opacity: 0;
+      }
+
+      /* ========== Decorative corner flair ========== */
+      .corner-bracket {
+        position: absolute; width: 40px; height: 40px; z-index: 3; opacity: 0;
+      }
+      #cb-tl { top: 80px; left: 40px; border-top: 2px solid rgba(77,166,255,0.2); border-left: 2px solid rgba(77,166,255,0.2); }
+      #cb-tr { top: 80px; right: 40px; border-top: 2px solid rgba(77,166,255,0.2); border-right: 2px solid rgba(77,166,255,0.2); }
+      #cb-bl { bottom: 140px; left: 40px; border-bottom: 2px solid rgba(77,166,255,0.2); border-left: 2px solid rgba(77,166,255,0.2); }
+      #cb-br { bottom: 140px; right: 40px; border-bottom: 2px solid rgba(77,166,255,0.2); border-right: 2px solid rgba(77,166,255,0.2); }
+
+      /* ========== Scene containers (all hidden initially — NO overlap) ========== */
+      .scene {
+        position: absolute; inset: 0; display: flex; z-index: 5;
+        opacity: 0; pointer-events: none; visibility: hidden;
+      }
+
+      /* ===== Scene 1: 百年底蕴 (0s - 3.5s) ===== */
+      #scene-1 {
+        flex-direction: column; align-items: center; justify-content: center;
+      }
+      #s1-subtitle-top {
+        font-size: 16px; font-weight: 300; color: rgba(77,166,255,0.6);
+        letter-spacing: 8px; text-transform: uppercase; margin-bottom: 16px;
+        opacity: 0;
+      }
+      #s1-brand {
+        font-size: 96px; font-weight: 900; color: #fff;
+        letter-spacing: 16px; text-shadow: 0 4px 30px rgba(0,80,200,0.3);
+        opacity: 0;
+      }
+      #s1-eng {
+        font-size: 28px; font-weight: 300; color: rgba(255,255,255,0.5);
+        letter-spacing: 8px; margin-top: 8px;
+        opacity: 0;
+      }
+      #s1-theme {
+        font-size: 22px; font-weight: 400; color: rgba(77,166,255,0.8);
+        letter-spacing: 6px; margin-top: 28px; padding: 0 40px;
+        opacity: 0;
+      }
+      #s1-theme::before, #s1-theme::after {
+        content: ''; display: inline-block; width: 40px; height: 1px;
+        background: rgba(77,166,255,0.3); vertical-align: middle; margin: 0 16px;
+      }
+      #s1-year {
+        margin-top: 36px; padding: 10px 32px;
+        border: 1px solid rgba(77,166,255,0.25);
+        border-radius: 30px;
+        font-size: 16px; color: rgba(255,255,255,0.5);
+        letter-spacing: 4px;
+        opacity: 0;
+      }
+      #s1-divider {
+        width: 60px; height: 2px; background: #4da6ff;
+        margin-top: 24px; border-radius: 2px;
+        opacity: 0;
+      }
+
+      /* ===== Scene 2: 现代金融与科技 (3.5s - 7.5s) ===== */
+      #scene-2 {
+        flex-direction: row; align-items: center; justify-content: center;
+        gap: 60px; padding: 0 120px;
+      }
+      #s2-left { display: flex; flex-direction: column; align-items: flex-start; flex: 1; opacity: 0; }
+      #s2-tag {
+        font-size: 14px; font-weight: 300; color: rgba(77,166,255,0.6);
+        letter-spacing: 4px; margin-bottom: 8px; opacity: 0;
+      }
+      #s2-main-title {
+        font-size: 56px; font-weight: 700; color: #fff;
+        letter-spacing: 6px; line-height: 1.35; opacity: 0;
+      }
+      #s2-main-title .highlight-blue { color: #4da6ff; }
+      #s2-desc {
+        font-size: 18px; font-weight: 300; color: rgba(255,255,255,0.55);
+        letter-spacing: 2px; margin-top: 12px; line-height: 1.6; opacity: 0;
+      }
+      #s2-divider-v {
+        width: 2px; height: 180px;
+        background: linear-gradient(180deg, transparent, rgba(77,166,255,0.3), transparent);
+        opacity: 0;
+      }
+      #s2-right { display: flex; flex-direction: column; gap: 16px; flex: 1; opacity: 0; }
+      .s2-card {
+        display: flex; align-items: center; gap: 16px;
+        padding: 14px 24px;
+        border: 1px solid rgba(77,166,255,0.15);
+        border-radius: 8px;
+        background: rgba(0,50,120,0.12);
+        opacity: 0;
+      }
+      .s2-card-icon {
+        width: 36px; height: 36px; border-radius: 50%;
+        background: rgba(77,166,255,0.15);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 16px;
+      }
+      .s2-card-text { font-size: 18px; font-weight: 500; color: #fff; letter-spacing: 2px; }
+      .s2-card-sub { font-size: 12px; font-weight: 300; color: rgba(255,255,255,0.4); letter-spacing: 1px; margin-left: auto; }
+      #s2-data-bar {
+        margin-top: 24px; display: flex; align-items: center; gap: 12px; opacity: 0;
+      }
+      #s2-data-bar .bar-track {
+        width: 120px; height: 3px; background: rgba(255,255,255,0.08);
+        border-radius: 2px; overflow: hidden;
+      }
+      #s2-data-bar .bar-fill {
+        width: 0%; height: 100%;
+        background: linear-gradient(90deg, #4da6ff, #0088ff);
+        border-radius: 2px;
+      }
+      #s2-data-bar .bar-label {
+        font-size: 12px; color: rgba(255,255,255,0.4); letter-spacing: 1px;
+      }
+
+      /* ===== Scene 3: 时代愿景 (7.5s - 10s) ===== */
+      #scene-3 { flex-direction: column; align-items: center; justify-content: center; }
+      #s3-cta {
+        font-size: 80px; font-weight: 900; color: #fff;
+        letter-spacing: 12px; text-shadow: 0 4px 30px rgba(0,80,200,0.3);
+        opacity: 0;
+      }
+      #s3-cta .cta-accent { color: #4da6ff; }
+      #s3-brand-line {
+        font-size: 28px; font-weight: 500; color: rgba(255,255,255,0.7);
+        letter-spacing: 6px; margin-top: 20px; opacity: 0;
+      }
+      #s3-tagline {
+        margin-top: 16px; padding: 8px 28px;
+        border: 1px solid rgba(77,166,255,0.2);
+        border-radius: 20px;
+        font-size: 14px; font-weight: 300; color: rgba(77,166,255,0.6);
+        letter-spacing: 4px; opacity: 0;
+      }
+      #s3-footer-info {
+        position: absolute; bottom: 100px;
+        display: flex; align-items: center; gap: 24px; opacity: 0;
+      }
+      #s3-footer-info .info-item {
+        font-size: 13px; font-weight: 300; color: rgba(255,255,255,0.3);
+        letter-spacing: 2px;
+      }
+      #s3-footer-info .info-divider {
+        width: 1px; height: 12px; background: rgba(255,255,255,0.15);
+      }
+
+      /* ========== Caption ========== */
+      #caption-container {
+        position: absolute; bottom: 60px; left: 0; width: 1920px; height: 70px; z-index: 20;
+        display: flex; align-items: center; justify-content: center; pointer-events: none;
+      }
+      .caption-group {
+        position: absolute; display: flex; align-items: center; justify-content: center; gap: 3px;
+        font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
+        opacity: 0; pointer-events: none; visibility: hidden;
+      }
+      .caption-word {
+        font-size: 36px; font-weight: 500; color: #ffffff;
+        text-shadow: 0 2px 12px rgba(0,0,0,0.5), 0 0 20px rgba(0,50,120,0.3);
+        letter-spacing: 1px;
+      }
+      .caption-word.punct { color: rgba(255,255,255,0.3); font-weight: 300; }
+
+      /* ========== Bottom line ========== */
+      #bottom-line {
+        position: absolute; bottom: 44px; left: 0; width: 100%; height: 1px; z-index: 19;
+        background: linear-gradient(90deg, transparent, rgba(77,166,255,0.15), transparent);
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="10"
+      data-width="1920"
+      data-height="1080"
+    >
+      <!-- Audio -->
+      <audio id="narration-audio" src="assets/narration.wav"
+        preload="auto" data-start="0" data-duration="10" data-track-index="0"
+        muted playsinline></audio>
+
+      <!-- Background -->
+      <div id="bg-gradient"></div>
+      <div id="bg-grid"></div>
+      <div id="glow-orb-1"></div>
+      <div id="glow-orb-2"></div>
+
+      <!-- Corner brackets -->
+      <div id="cb-tl" class="corner-bracket"></div>
+      <div id="cb-tr" class="corner-bracket"></div>
+      <div id="cb-bl" class="corner-bracket"></div>
+      <div id="cb-br" class="corner-bracket"></div>
+
+      <!-- Accent lines -->
+      <div id="accent-line"></div>
+      <div id="accent-line-sub"></div>
+
+      <!-- Persistent brand logo -->
+      <div id="brand-logo">
+        <div id="logo-circle"><div id="logo-circle-inner">交</div></div>
+        <div>
+          <div id="brand-name">交通银行</div>
+          <div id="brand-eng">BANK OF COMMUNICATIONS</div>
+        </div>
+      </div>
+
+      <!-- Scene 1: 百年底蕴 (0s - 3.5s) -->
+      <div id="scene-1" class="scene">
+        <div id="s1-subtitle-top">—— 百年民族金融品牌 ——</div>
+        <div id="s1-brand">交通银行</div>
+        <div id="s1-eng">BANK OF COMMUNICATIONS</div>
+        <div id="s1-theme">百年交行 · 丰盛传承</div>
+        <div id="s1-year">✦ 始创于 1908 年 ✦</div>
+        <div id="s1-divider"></div>
+      </div>
+
+      <!-- Scene 2: 现代金融与科技 (3.5s - 7.5s) -->
+      <div id="scene-2" class="scene">
+        <div id="s2-left">
+          <div id="s2-tag">— 核心业务板块 —</div>
+          <div id="s2-main-title">专业<br><span class="highlight-blue">金融</span>服务</div>
+          <div id="s2-desc">以数字科技为驱动<br>伴您迈向高质量发展之路</div>
+        </div>
+        <div id="s2-divider-v"></div>
+        <div id="s2-right">
+          <div class="s2-card">
+            <div class="s2-card-icon">🏦</div>
+            <span class="s2-card-text">普惠金融</span>
+            <span class="s2-card-sub">服务民生</span>
+          </div>
+          <div class="s2-card">
+            <div class="s2-card-icon">⚙️</div>
+            <span class="s2-card-text">科技金融</span>
+            <span class="s2-card-sub">创新引领</span>
+          </div>
+          <div class="s2-card">
+            <div class="s2-card-icon">📊</div>
+            <span class="s2-card-text">财富管理</span>
+            <span class="s2-card-sub">专业护航</span>
+          </div>
+          <div id="s2-data-bar">
+            <div class="bar-track"><div class="bar-fill"></div></div>
+            <span class="bar-label">服务网络覆盖全国 · 稳健前行</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scene 3: 时代愿景 (7.5s - 10s) -->
+      <div id="scene-3" class="scene">
+        <div id="s3-cta">与您<span class="cta-accent">共创未来</span></div>
+        <div id="s3-brand-line">交通银行</div>
+        <div id="s3-tagline">— 您的首选银行 —</div>
+        <div id="s3-footer-info">
+          <span class="info-item">服务热线 95559</span>
+          <span class="info-divider"></span>
+          <span class="info-item">www.bankcomm.com</span>
+          <span class="info-divider"></span>
+          <span class="info-item">交通银行 © 版权所有</span>
+        </div>
+      </div>
+
+      <!-- Bottom -->
+      <div id="bottom-line"></div>
+      <div id="caption-container"></div>
+    </div>
+
+    <script>
+      // ============================================================
+      // TRANSCRIPT — 逐词时间戳
+      // ============================================================
+      var TRANSCRIPT = [
+        {"id":"w0","text":"交","start":0.000,"end":0.146},{"id":"w1","text":"通","start":0.146,"end":0.292},
+        {"id":"w2","text":"银","start":0.292,"end":0.438},{"id":"w3","text":"行","start":0.438,"end":0.583},
+        {"id":"w4","text":"，","start":0.583,"end":0.729},{"id":"w5","text":"始","start":0.729,"end":0.875},
+        {"id":"w6","text":"创","start":0.875,"end":1.021},{"id":"w7","text":"于","start":1.021,"end":1.167},
+        {"id":"w8","text":"一","start":1.167,"end":1.312},{"id":"w9","text":"九","start":1.312,"end":1.458},
+        {"id":"w10","text":"零","start":1.458,"end":1.604},{"id":"w11","text":"八","start":1.604,"end":1.750},
+        {"id":"w12","text":"年","start":1.750,"end":1.896},{"id":"w13","text":"。","start":1.896,"end":2.042},
+        {"id":"w14","text":"百","start":2.042,"end":2.188},{"id":"w15","text":"年","start":2.188,"end":2.333},
+        {"id":"w16","text":"基","start":2.333,"end":2.479},{"id":"w17","text":"业","start":2.479,"end":2.625},
+        {"id":"w18","text":"，","start":2.625,"end":2.771},{"id":"w19","text":"时","start":2.771,"end":2.917},
+        {"id":"w20","text":"代","start":2.917,"end":3.062},{"id":"w21","text":"荣","start":3.062,"end":3.208},
+        {"id":"w22","text":"光","start":3.208,"end":3.354},{"id":"w23","text":"。","start":3.354,"end":3.500},
+        {"id":"w24","text":"普","start":3.500,"end":3.643},{"id":"w25","text":"惠","start":3.643,"end":3.786},
+        {"id":"w26","text":"金","start":3.786,"end":3.929},{"id":"w27","text":"融","start":3.929,"end":4.071},
+        {"id":"w28","text":"，","start":4.071,"end":4.214},{"id":"w29","text":"科","start":4.214,"end":4.357},
+        {"id":"w30","text":"技","start":4.357,"end":4.500},{"id":"w31","text":"赋","start":4.500,"end":4.643},
+        {"id":"w32","text":"能","start":4.643,"end":4.786},{"id":"w33","text":"。","start":4.786,"end":4.929},
+        {"id":"w34","text":"财","start":4.929,"end":5.071},{"id":"w35","text":"富","start":5.071,"end":5.214},
+        {"id":"w36","text":"管","start":5.214,"end":5.357},{"id":"w37","text":"理","start":5.357,"end":5.500},
+        {"id":"w38","text":"，","start":5.500,"end":5.643},{"id":"w39","text":"专","start":5.643,"end":5.786},
+        {"id":"w40","text":"业","start":5.786,"end":5.929},{"id":"w41","text":"护","start":5.929,"end":6.071},
+        {"id":"w42","text":"航","start":6.071,"end":6.214},{"id":"w43","text":"。","start":6.214,"end":6.357},
+        {"id":"w44","text":"数","start":6.357,"end":6.500},{"id":"w45","text":"字","start":6.500,"end":6.643},
+        {"id":"w46","text":"伴","start":6.643,"end":6.786},{"id":"w47","text":"您","start":6.786,"end":6.929},
+        {"id":"w48","text":"每","start":6.929,"end":7.071},{"id":"w49","text":"一","start":7.071,"end":7.214},
+        {"id":"w50","text":"步","start":7.214,"end":7.357},{"id":"w51","text":"。","start":7.357,"end":7.500},
+        {"id":"w52","text":"与","start":7.500,"end":7.630},{"id":"w53","text":"您","start":7.630,"end":7.760},
+        {"id":"w54","text":"共","start":7.760,"end":7.890},{"id":"w55","text":"创","start":7.890,"end":8.030},
+        {"id":"w56","text":"未","start":8.030,"end":8.160},{"id":"w57","text":"来","start":8.160,"end":8.290},
+        {"id":"w58","text":"，","start":8.290,"end":8.420},{"id":"w59","text":"交","start":8.420,"end":8.550},
+        {"id":"w60","text":"通","start":8.550,"end":8.680},{"id":"w61","text":"银","start":8.680,"end":8.820},
+        {"id":"w62","text":"行","start":8.820,"end":8.950},{"id":"w63","text":"。","start":8.950,"end":9.080},
+        {"id":"w64","text":"您","start":9.080,"end":9.210},{"id":"w65","text":"的","start":9.210,"end":9.340},
+        {"id":"w66","text":"首","start":9.340,"end":9.470},{"id":"w67","text":"选","start":9.470,"end":9.610},
+        {"id":"w68","text":"银","start":9.610,"end":9.740},{"id":"w69","text":"行","start":9.740,"end":9.870},
+        {"id":"w70","text":"。","start":9.870,"end":10.000}
+      ];
+
+      // ============================================================
+      // Phrase definitions for caption groups
+      // ============================================================
+      var phraseDefs = [
+        { label: "cg-0", texts: ["交","通","银","行","，","始","创","于","一","九","零","八","年","。"] },
+        { label: "cg-1", texts: ["百","年","基","业","，","时","代","荣","光","。"] },
+        { label: "cg-2", texts: ["普","惠","金","融","，","科","技","赋","能","。"] },
+        { label: "cg-3", texts: ["财","富","管","理","，","专","业","护","航","。"] },
+        { label: "cg-4", texts: ["数","字","伴","您","每","一","步","。"] },
+        { label: "cg-5", texts: ["与","您","共","创","未","来","，","交","通","银","行","。"] },
+        { label: "cg-6", texts: ["您","的","首","选","银","行","。"] }
+      ];
+
+      var groups = [];
+      var wi = 0;
+      for (var p = 0; p < phraseDefs.length; p++) {
+        var phrase = phraseDefs[p];
+        var gWords = [];
+        for (var w = 0; w < phrase.texts.length; w++) {
+          if (wi < TRANSCRIPT.length) { gWords.push(TRANSCRIPT[wi]); wi++; }
+        }
+        groups.push({
+          label: phrase.label, words: gWords,
+          start: gWords[0].start, end: gWords[gWords.length - 1].end
+        });
+      }
+
+      // Render caption DOM elements
+      var captionContainer = document.getElementById("caption-container");
+      var wordEls = [];
+      for (var g = 0; g < groups.length; g++) {
+        var group = groups[g];
+        var el = document.createElement("div");
+        el.id = group.label; el.className = "caption-group";
+        for (var w = 0; w < group.words.length; w++) {
+          var word = group.words[w];
+          var span = document.createElement("span");
+          var isPunct = !!(word.text.match(/[，。、！？]/));
+          span.className = "caption-word" + (isPunct ? " punct" : "");
+          span.id = group.label + "-w" + w;
+          span.textContent = word.text;
+          el.appendChild(span);
+          wordEls.push({ el: span, word: word, isPunct: isPunct });
+        }
+        captionContainer.appendChild(el);
+      }
+
+      // ============================================================
+      // GSAP Timeline — HyperFrames seeks via this
+      // ============================================================
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+
+      // ============================================================
+      // 1. Persistent elements
+      // ============================================================
+      tl.to("#accent-line", { scaleX: 1, duration: 0.9, ease: "power2.out" }, 0.1);
+      tl.to("#accent-line-sub", { scaleX: 1, duration: 0.7, ease: "power2.out" }, 0.2);
+      tl.to("#brand-logo", { autoAlpha: 1, duration: 0.4 }, 0.2);
+      tl.to("#brand-name", { autoAlpha: 1, duration: 0.4, ease: "power2.out" }, 0.35);
+      tl.to("#brand-eng", { autoAlpha: 1, duration: 0.4, ease: "power2.out" }, 0.45);
+
+      // Corner brackets
+      tl.to("#cb-tl", { autoAlpha: 1, duration: 0.4 }, 0.6);
+      tl.to("#cb-tr", { autoAlpha: 1, duration: 0.4 }, 0.7);
+      tl.to("#cb-bl", { autoAlpha: 1, duration: 0.4 }, 0.8);
+      tl.to("#cb-br", { autoAlpha: 1, duration: 0.4 }, 0.9);
+
+      // Bottom line
+      tl.to("#bottom-line", { autoAlpha: 1, duration: 0.4 }, 0.6);
+      tl.to("#bottom-line", { autoAlpha: 0, duration: 0.3 }, 9.7);
+
+      // Glow orb pulse
+      tl.to("#glow-orb-1", { scale: 1.25, opacity: 0.8, duration: 2.5, ease: "sine.inOut" }, 0);
+      tl.to("#glow-orb-1", { scale: 1, opacity: 0.5, duration: 2.5, ease: "sine.inOut" }, 2.5);
+      tl.to("#glow-orb-1", { scale: 1.25, opacity: 0.8, duration: 2.5, ease: "sine.inOut" }, 5);
+      tl.to("#glow-orb-1", { scale: 1, opacity: 0.5, duration: 2.5, ease: "sine.inOut" }, 7.5);
+
+      // ============================================================
+      // 2. Scene 1: 百年底蕴 (0s - 3.5s)
+      // ============================================================
+      tl.to("#scene-1", { autoAlpha: 1, duration: 0.3 }, 0.1);
+      tl.to("#scene-1", { autoAlpha: 0, duration: 0.4 }, 3.1);
+      tl.to("#s1-subtitle-top", { y: 0, autoAlpha: 1, duration: 0.5, ease: "power2.out" }, 0.4);
+      tl.to("#s1-brand", { y: 0, autoAlpha: 1, duration: 0.7, ease: "power3.out" }, 0.5);
+      tl.to("#s1-brand", { autoAlpha: 0, duration: 0.3 }, 3.2);
+      tl.to("#s1-eng", { y: 0, autoAlpha: 1, duration: 0.5, ease: "power2.out" }, 0.9);
+      tl.to("#s1-eng", { autoAlpha: 0, duration: 0.3 }, 3.2);
+      tl.to("#s1-theme", { y: 0, autoAlpha: 1, duration: 0.5, ease: "power2.out" }, 1.3);
+      tl.to("#s1-theme", { autoAlpha: 0, duration: 0.3 }, 3.2);
+      tl.to("#s1-year", { y: 0, autoAlpha: 1, duration: 0.4, ease: "power2.out" }, 1.7);
+      tl.to("#s1-year", { autoAlpha: 0, duration: 0.3 }, 3.2);
+      tl.to("#s1-divider", { scaleX: 1, autoAlpha: 1, duration: 0.4, ease: "back.out(1.5)" }, 2.0);
+      tl.to("#s1-divider", { autoAlpha: 0, duration: 0.3 }, 3.2);
+
+      // ============================================================
+      // 3. Scene 2: 现代金融与科技 (3.5s - 7.5s)
+      // ============================================================
+      tl.to("#scene-2", { autoAlpha: 1, duration: 0.3 }, 3.5);
+      tl.to("#scene-2", { autoAlpha: 0, duration: 0.4 }, 7.1);
+      tl.to("#s2-tag", { autoAlpha: 1, duration: 0.3 }, 3.7);
+      tl.to("#s2-main-title", { y: 0, autoAlpha: 1, duration: 0.5, ease: "power3.out" }, 3.9);
+      tl.to("#s2-desc", { y: 0, autoAlpha: 1, duration: 0.4, ease: "power2.out" }, 4.3);
+      tl.to("#s2-divider-v", { autoAlpha: 1, duration: 0.3 }, 3.8);
+
+      // Right cards staggered
+      tl.to("#s2-right", { autoAlpha: 1, duration: 0.01 }, 4.1);
+      var s2Cards = document.querySelectorAll("#scene-2 .s2-card");
+      s2Cards.forEach(function(card, idx) {
+        tl.to(card, { x: 0, autoAlpha: 1, duration: 0.4, ease: "power3.out" }, 4.1 + idx * 0.15);
+      });
+
+      tl.to("#s2-data-bar", { autoAlpha: 1, duration: 0.4 }, 4.7);
+      tl.to("#s2-data-bar .bar-fill", { width: "85%", duration: 1.2, ease: "power2.out" }, 4.8);
+
+      // ============================================================
+      // 4. Scene 3: 时代愿景 (7.5s - 10s)
+      // ============================================================
+      tl.to("#scene-3", { autoAlpha: 1, duration: 0.3 }, 7.5);
+      tl.to("#s3-cta", { y: 0, autoAlpha: 1, duration: 0.7, ease: "power3.out" }, 7.7);
+      tl.to("#s3-brand-line", { y: 0, autoAlpha: 1, duration: 0.5, ease: "power2.out" }, 8.3);
+      tl.to("#s3-tagline", { autoAlpha: 1, duration: 0.4, ease: "power2.out" }, 8.7);
+      tl.to("#s3-footer-info", { autoAlpha: 1, duration: 0.5, ease: "power2.out" }, 9.1);
+
+      // ============================================================
+      // 5. Caption phrase-level fade in/out
+      // ============================================================
+      for (var g = 0; g < groups.length; g++) {
+        var group = groups[g];
+        var sel = "#" + group.label;
+        tl.to(sel, { autoAlpha: 1, y: 0, duration: 0.12, ease: "power2.out" }, group.start);
+        tl.to(sel, { autoAlpha: 0, duration: 0.1, ease: "power2.in" }, group.end - 0.1);
+        tl.set(sel, { opacity: 0, visibility: "hidden" }, group.end);
+      }
+
+      // ============================================================
+      // 6. Word-level highlight breathing via GSAP color tweens
+      // ============================================================
+      for (var wi = 0; wi < wordEls.length; wi++) {
+        var we = wordEls[wi];
+        if (we.isPunct) continue;
+        var word = we.word;
+        var el = we.el;
+        // Turn ON highlight at word start
+        tl.to(el, { color: "#80c8ff", duration: 0.04, ease: "power2.in" }, word.start);
+        // Turn OFF at word end
+        tl.to(el, { color: "#ffffff", duration: 0.04, ease: "power2.out" }, word.end);
+      }
+
+      // ============================================================
+      // Register timeline
+      // ============================================================
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

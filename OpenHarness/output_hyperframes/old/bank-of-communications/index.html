@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #001a4d;
+      }
+      body {
+        font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+      }
+
+      /* ========== Background ========== */
+      #bg-gradient {
+        position: absolute; inset: 0;
+        background: radial-gradient(ellipse 140% 100% at 30% 0%, #0047ab 0%, #002b7a 35%, #001a4d 70%, #000d26 100%);
+        z-index: 0;
+      }
+      #bg-pattern {
+        position: absolute; inset: 0; opacity: 0.04; z-index: 1;
+        background-image: linear-gradient(rgba(255,255,255,0.3) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.3) 1px, transparent 1px);
+        background-size: 60px 60px;
+      }
+      #glow-1 {
+        position: absolute; top: 15%; left: 10%; width: 600px; height: 600px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(0,100,255,0.15) 0%, transparent 70%);
+        filter: blur(60px); z-index: 1;
+      }
+      #glow-2 {
+        position: absolute; bottom: 10%; right: 5%; width: 500px; height: 500px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(0,150,255,0.1) 0%, transparent 70%);
+        filter: blur(80px); z-index: 1;
+      }
+
+      /* ========== Accent line ========== */
+      #accent-line {
+        position: absolute; top: 0; left: 0; width: 100%; height: 4px; z-index: 10;
+        background: linear-gradient(90deg, transparent, #4da6ff, #0066cc, #4da6ff, transparent);
+        transform-origin: left center;
+        transform: scaleX(0);
+      }
+
+      /* ========== Logo ========== */
+      #logo-area {
+        position: absolute; top: 60px; left: 80px; display: flex; align-items: center; gap: 20px; z-index: 10;
+        opacity: 0; pointer-events: none;
+      }
+      #logo-circle {
+        width: 48px; height: 48px; border: 3px solid #4da6ff; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 20px; font-weight: 900; color: #fff;
+        background: rgba(0, 102, 204, 0.3);
+        opacity: 0;
+      }
+      #logo-text {
+        font-size: 28px; font-weight: 700; color: #fff; letter-spacing: 4px;
+        opacity: 0;
+      }
+
+      /* ========== Scene containers ========== */
+      .scene {
+        position: absolute; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; z-index: 5;
+        opacity: 0; pointer-events: none;
+      }
+
+      /* Scene 1 */
+      #scene-1 .bank-name {
+        font-size: 96px; font-weight: 900; color: #fff; letter-spacing: 12px;
+        text-shadow: 0 4px 20px rgba(0,100,255,0.3);
+      }
+      #scene-1 .tagline {
+        font-size: 36px; font-weight: 400; color: rgba(255,255,255,0.7);
+        letter-spacing: 6px; margin-top: 24px;
+      }
+      #scene-1 .year-badge {
+        margin-top: 40px; padding: 12px 36px;
+        border: 1px solid rgba(77, 166, 255, 0.4); border-radius: 50px;
+        font-size: 20px; color: rgba(255,255,255,0.6); letter-spacing: 3px;
+      }
+
+      /* Scene 1 child initial states */
+      #scene-1 .bank-name { opacity: 0; }
+      #scene-1 .tagline { opacity: 0; }
+      #scene-1 .year-badge { opacity: 0; }
+
+      /* Scene 2 */
+      #scene-2 .message-line {
+        font-size: 72px; font-weight: 700; color: #fff; text-align: center;
+        letter-spacing: 6px; text-shadow: 0 2px 10px rgba(0,100,255,0.2);
+      }
+      #scene-2 .message-sub {
+        font-size: 40px; font-weight: 400; color: rgba(255,255,255,0.75);
+        text-align: center; margin-top: 20px; letter-spacing: 4px;
+      }
+      #scene-2 .highlight-bar {
+        width: 80px; height: 3px; background: #4da6ff;
+        margin: 24px auto 0; border-radius: 2px;
+      }
+
+      /* Scene 2 child initial states */
+      #scene-2 .message-line { opacity: 0; }
+      #scene-2 .message-sub { opacity: 0; }
+      #scene-2 .highlight-bar { opacity: 0; transform: scaleX(0.5); }
+
+      /* Scene 3 */
+      #scene-3 .cta-line {
+        font-size: 80px; font-weight: 900; color: #fff; text-align: center;
+        letter-spacing: 8px; text-shadow: 0 2px 15px rgba(0,100,255,0.3);
+      }
+      #scene-3 .cta-sub {
+        font-size: 32px; font-weight: 300; color: rgba(255,255,255,0.5);
+        text-align: center; margin-top: 24px; letter-spacing: 4px;
+      }
+
+      /* Scene 3 child initial states */
+      #scene-3 .cta-line { opacity: 0; }
+      #scene-3 .cta-sub { opacity: 0; }
+
+      /* ========== Caption ========== */
+      #caption-container {
+        position: absolute; bottom: 120px; left: 0; width: 1920px; height: 100px; z-index: 10;
+        display: flex; align-items: center; justify-content: center; pointer-events: none;
+      }
+      .caption-group {
+        position: absolute; display: flex; align-items: center; justify-content: center; gap: 4px;
+        font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+        opacity: 0; pointer-events: none;
+      }
+      .caption-word {
+        font-size: 48px; font-weight: 600; color: #ffffff;
+        text-shadow: 0 2px 12px rgba(0,0,0,0.6), 0 0 30px rgba(0,50,120,0.4);
+        letter-spacing: 2px;
+      }
+      .caption-word.punct { opacity: 0.4; }
+
+      /* ========== Bottom bar ========== */
+      #bottom-bar {
+        position: absolute; bottom: 78px; left: 0; width: 100%; height: 1px; z-index: 10;
+        background: linear-gradient(90deg, transparent, rgba(77,166,255,0.3), transparent);
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="10"
+      data-width="1920"
+      data-height="1080"
+    >
+      <!-- Audio -->
+      <audio
+        id="narration-audio"
+        src="assets/narration.wav"
+        preload="auto"
+        data-start="0"
+        data-duration="10"
+        data-track-index="0"
+        muted
+        playsinline
+      ></audio>
+
+      <!-- Background -->
+      <div id="bg-gradient"></div>
+      <div id="bg-pattern"></div>
+      <div id="glow-1"></div>
+      <div id="glow-2"></div>
+      <div id="accent-line"></div>
+
+      <!-- Logo -->
+      <div id="logo-area">
+        <div id="logo-circle">交</div>
+        <div id="logo-text">交通银行</div>
+      </div>
+
+      <!-- Scene 1: 品牌亮相 (0.0s - 3.6s) -->
+      <div id="scene-1" class="scene">
+        <div class="bank-name">交通银行</div>
+        <div class="tagline">BANK OF COMMUNICATIONS</div>
+        <div class="year-badge">始创于 1908 年</div>
+      </div>
+
+      <!-- Scene 2: 核心价值 (3.6s - 8.4s) -->
+      <div id="scene-2" class="scene">
+        <div class="message-line">百年品牌 · 值得信赖</div>
+        <div class="message-sub">专业金融服务</div>
+        <div class="highlight-bar"></div>
+      </div>
+
+      <!-- Scene 3: 行动号召 (8.4s - 10.0s) -->
+      <div id="scene-3" class="scene">
+        <div class="cta-line">与您共创未来</div>
+        <div class="cta-sub">交通银行 · 您的首选银行</div>
+      </div>
+
+      <!-- Bottom bar -->
+      <div id="bottom-bar"></div>
+
+      <!-- Captions container -->
+      <div id="caption-container"></div>
+    </div>
+
+    <script>
+      // ============================================================
+      // TRANSCRIPT — 逐词时间戳 (JSON format for studio editor)
+      // ============================================================
+      var TRANSCRIPT = [
+        {"id":"w0","text":"交","start":0.00,"end":0.24},{"id":"w1","text":"通","start":0.24,"end":0.48},
+        {"id":"w2","text":"银","start":0.48,"end":0.72},{"id":"w3","text":"行","start":0.72,"end":0.96},
+        {"id":"w4","text":"，","start":0.96,"end":1.20},{"id":"w5","text":"始","start":1.30,"end":1.56},
+        {"id":"w6","text":"创","start":1.56,"end":1.81},{"id":"w7","text":"于","start":1.81,"end":2.07},
+        {"id":"w8","text":"1908","start":2.07,"end":3.09},{"id":"w9","text":"年","start":3.09,"end":3.34},
+        {"id":"w10","text":"。","start":3.34,"end":3.60},{"id":"w11","text":"百","start":3.60,"end":3.92},
+        {"id":"w12","text":"年","start":3.92,"end":4.24},{"id":"w13","text":"品","start":4.24,"end":4.56},
+        {"id":"w14","text":"牌","start":4.56,"end":4.88},{"id":"w15","text":"，","start":4.88,"end":5.20},
+        {"id":"w16","text":"值","start":5.40,"end":5.64},{"id":"w17","text":"得","start":5.64,"end":5.88},
+        {"id":"w18","text":"信","start":5.88,"end":6.12},{"id":"w19","text":"赖","start":6.12,"end":6.36},
+        {"id":"w20","text":"。","start":6.36,"end":6.60},{"id":"w21","text":"专","start":6.80,"end":7.03},
+        {"id":"w22","text":"业","start":7.03,"end":7.26},{"id":"w23","text":"金","start":7.26,"end":7.49},
+        {"id":"w24","text":"融","start":7.49,"end":7.71},{"id":"w25","text":"服","start":7.71,"end":7.94},
+        {"id":"w26","text":"务","start":7.94,"end":8.17},{"id":"w27","text":"，","start":8.17,"end":8.40},
+        {"id":"w28","text":"与","start":8.50,"end":8.71},{"id":"w29","text":"您","start":8.71,"end":8.93},
+        {"id":"w30","text":"共","start":8.93,"end":9.14},{"id":"w31","text":"创","start":9.14,"end":9.36},
+        {"id":"w32","text":"未","start":9.36,"end":9.57},{"id":"w33","text":"来","start":9.57,"end":9.79},
+        {"id":"w34","text":"。","start":9.79,"end":10.00}
+      ];
+
+      // ============================================================
+      // Phrase definitions (caption groups)
+      // ============================================================
+      var phraseDefs = [
+        ["交","通","银","行","，"],
+        ["始","创","于","1908","年","。"],
+        ["百","年","品","牌","，"],
+        ["值","得","信","赖","。"],
+        ["专","业","金","融","服","务","，"],
+        ["与","您","共","创","未","来","。"]
+      ];
+
+      var groups = [];
+      var wi = 0;
+      for (var p = 0; p < phraseDefs.length; p++) {
+        var phrase = phraseDefs[p];
+        var gWords = [];
+        for (var w = 0; w < phrase.length; w++) {
+          if (wi < TRANSCRIPT.length) { gWords.push(TRANSCRIPT[wi]); wi++; }
+        }
+        groups.push({
+          label: "cg-" + p,
+          words: gWords,
+          start: gWords[0].start,
+          end: gWords[gWords.length - 1].end
+        });
+      }
+
+      // ============================================================
+      // Render caption DOM elements
+      // ============================================================
+      var captionContainer = document.getElementById("caption-container");
+      var wordEls = [];
+
+      for (var g = 0; g < groups.length; g++) {
+        var group = groups[g];
+        var el = document.createElement("div");
+        el.id = group.label;
+        el.className = "caption-group";
+        for (var w = 0; w < group.words.length; w++) {
+          var word = group.words[w];
+          var span = document.createElement("span");
+          span.className = "caption-word" + (word.text.match(/[，。、！？]/) ? " punct" : "");
+          if (word.text.match(/[，。、！？]/)) {
+            span.style.color = "rgba(255,255,255,0.4)";
+          }
+          span.id = group.label + "-w" + w;
+          span.textContent = word.text;
+          el.appendChild(span);
+          wordEls.push({
+            el: span,
+            word: word,
+            isPunct: !!word.text.match(/[，。、！？]/)
+          });
+        }
+        captionContainer.appendChild(el);
+      }
+
+      // ============================================================
+      // GSAP Timeline (HyperFrames adapter seeks via this)
+      // ============================================================
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+
+      // ---- 1. Accent line ----
+      tl.to("#accent-line", { scaleX: 1, duration: 0.8, ease: "power2.out" }, 0);
+
+      // ---- 2. Glow pulse (2 full cycles over 10s) ----
+      tl.to("#glow-1", { scale: 1.2, opacity: 0.8, duration: 2.5, ease: "sine.inOut" }, 0);
+      tl.to("#glow-1", { scale: 1, opacity: 0.5, duration: 2.5, ease: "sine.inOut" }, 2.5);
+      tl.to("#glow-1", { scale: 1.2, opacity: 0.8, duration: 2.5, ease: "sine.inOut" }, 5);
+      tl.to("#glow-1", { scale: 1, opacity: 0.5, duration: 2.5, ease: "sine.inOut" }, 7.5);
+
+      // ---- 3. Logo reveal ----
+      tl.to("#logo-area", { autoAlpha: 1, duration: 0.4, ease: "power2.out" }, 0.3);
+      tl.fromTo("#logo-circle", { scale: 0 }, { scale: 1, opacity: 1, duration: 0.5, ease: "back.out(1.7)" }, 0.3);
+      tl.to("#logo-text", { autoAlpha: 1, duration: 0.4, ease: "power2.out" }, 0.5);
+
+      // ---- 4. Bottom bar ----
+      tl.to("#bottom-bar", { autoAlpha: 1, duration: 0.4, ease: "power2.out" }, 0.8);
+      tl.to("#bottom-bar", { autoAlpha: 0, duration: 0.3, ease: "power2.in" }, 9.7);
+
+      // ============================================================
+      // Scene 1: 品牌亮相 (0.0s - 3.6s)
+      // ============================================================
+      tl.to("#scene-1", { autoAlpha: 1, duration: 0.2, ease: "power2.out" }, 0.2);
+      tl.to("#scene-1 .bank-name", { y: 0, autoAlpha: 1, duration: 0.7, ease: "power3.out" }, 0.5);
+      tl.to("#scene-1 .tagline", { y: 0, autoAlpha: 1, duration: 0.6, ease: "power3.out" }, 1.0);
+      tl.to("#scene-1 .year-badge", { y: 0, autoAlpha: 1, duration: 0.5, ease: "power3.out" }, 1.5);
+      // Scene 1 exit
+      tl.to("#scene-1", { autoAlpha: 0, duration: 0.4, ease: "power2.in" }, 3.2);
+      tl.to("#scene-1 .bank-name", { autoAlpha: 0, duration: 0.3 }, 3.3);
+      tl.to("#scene-1 .tagline", { autoAlpha: 0, duration: 0.3 }, 3.3);
+      tl.to("#scene-1 .year-badge", { autoAlpha: 0, duration: 0.3 }, 3.3);
+
+      // ============================================================
+      // Scene 2: 核心价值 (3.6s - 8.4s)
+      // ============================================================
+      tl.to("#scene-2", { autoAlpha: 1, duration: 0.2, ease: "power2.out" }, 3.6);
+      tl.to("#scene-2 .message-line", { y: 0, autoAlpha: 1, duration: 0.6, ease: "power3.out" }, 3.8);
+      tl.to("#scene-2 .message-sub", { y: 0, autoAlpha: 1, duration: 0.5, ease: "power3.out" }, 4.3);
+      tl.to("#scene-2 .highlight-bar", { scaleX: 2, autoAlpha: 1, duration: 0.6, ease: "back.out(2)" }, 4.8);
+      // Scene 2 exit
+      tl.to("#scene-2", { autoAlpha: 0, duration: 0.4, ease: "power2.in" }, 8.0);
+      tl.to("#scene-2 .message-line", { autoAlpha: 0, duration: 0.3 }, 8.1);
+      tl.to("#scene-2 .message-sub", { autoAlpha: 0, duration: 0.3 }, 8.1);
+      tl.to("#scene-2 .highlight-bar", { autoAlpha: 0, duration: 0.3 }, 8.1);
+
+      // ============================================================
+      // Scene 3: 行动号召 (8.4s - 10.0s)
+      // ============================================================
+      tl.to("#scene-3", { autoAlpha: 1, duration: 0.2, ease: "power2.out" }, 8.4);
+      tl.to("#scene-3 .cta-line", { y: 0, autoAlpha: 1, duration: 0.7, ease: "power3.out" }, 8.6);
+      tl.to("#scene-3 .cta-sub", { y: 0, autoAlpha: 1, duration: 0.5, ease: "power3.out" }, 9.2);
+
+      // ============================================================
+      // Caption phrase-level fade in/out
+      // ============================================================
+      for (var g = 0; g < groups.length; g++) {
+        var group = groups[g];
+        var sel = "#" + group.label;
+
+        // Fade in
+        tl.to(sel, {
+          autoAlpha: 1, y: 0, duration: 0.15, ease: "power2.out"
+        }, group.start);
+
+        // Fade out
+        tl.to(sel, {
+          autoAlpha: 0, y: -10, duration: 0.12, ease: "power2.in"
+        }, group.end - 0.12);
+      }
+
+      // ============================================================
+      // Word-level highlight breathing effect
+      // Each word toggles color at its transcript start/end time
+      // ============================================================
+      for (var wi = 0; wi < wordEls.length; wi++) {
+        var we = wordEls[wi];
+        if (we.isPunct) continue;
+
+        var word = we.word;
+        var el = we.el;
+        var s = word.start;
+        var e = word.end;
+
+        // Turn ON highlight (blue) at word start (CSS already sets #ffffff)
+        tl.to(el, { color: "#80c8ff", duration: 0.04, ease: "power2.in" }, s);
+        // Turn OFF highlight (back to white) at word end
+        tl.to(el, { color: "#ffffff", duration: 0.04, ease: "power2.out" }, e);
+      }
+
+      // ============================================================
+      // Register timeline for HyperFrames seek adapter
+      // ============================================================
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

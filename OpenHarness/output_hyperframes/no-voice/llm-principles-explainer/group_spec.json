@@ -1,0 +1,476 @@
+{
+  "scenes_per_group_max": 3,
+  "total_scenes": 6,
+  "width": 1920,
+  "height": 1080,
+  "captions_enabled": false,
+  "film_direction": "**Palette system:** block-frame — #FE90E8 primary · #C0F7FE secondary · #000000 tertiary · #F7CB46 accent · #FFFFFF costume. Deco cycle: #F7CB46 · #99E885 · #C0F7FE · #FE90E8. Bold saturated backgrounds with 4px solid ink borders on cards. Hard black offset shadows (4px-6px). High contrast between light backgrounds and dark text.\n\n**Type roles:** Inter display for headlines (bold, 48-72px), Inter body for explanatory text (24-32px, medium weight), Space Grotesk mono for technical terms (18-24px). All text left-aligned or centered on hero screens. 70% frame coverage: generous padding (80-120px), large type fills available space.\n\n**Motion defaults + budget:** GSAP timeline, `power2.out` for entrances, `power1.inOut` for transitions. 30s total ÷ 6 scenes = ~5s each. Consistent stagger for multi-element reveals (0.12s between items). Background elements subtle pulse on entry (scale 1.02-1.00). 4px offset shadow lift on foreground cards.\n\n**Ambient system:** Full-bleed background fills with subtle dot-grid texture from design system. Deco corner pins on content cards (from components library). Occasional star-burst accent on key terms.\n\n**Film negative list:** No gradients that reduce contrast. No thin or light fonts below 300 weight. No muted/pastel backgrounds that wash out. No video clips or images (faceless). No decorative elements that exceed 20% of frame.\n\n**Transition vocabulary:** `crossfade` (default 0.4s) for dissolve moments; `zoom-through` for scale transitions emphasizing macro/micro shifts; `push-slide` directional (LEFT/RIGHT) for side-content entrances; `blur-crossfade` when background colors shift dramatically.\n\n**Visual register mix:** 70% typography-driven (large headlines + supporting body), 30% abstract visual diagrams (pulsing nodes for attention, expanding concentric rings for scale, chain-link visuals for sequential concepts). Bold infographic style throughout.\n\n**Stillness allocation:** 0.5s pause at scene start before first element animates in. Full-reset moment at scene 3 (pre-training) midpoint to emphasize shift in scale.\n\n---",
+  "total_duration_s": 32,
+  "bgm_path": "",
+  "font_face_css": "",
+  "brand_tokens_css": ":root {\n  --brand-primary:   #FE90E8;\n  --brand-secondary: #C0F7FE;\n  --brand-tertiary:  #000000;\n  --brand-accent:    #F7CB46;\n  --brand-costume:   #FFFFFF;\n  --ink:             #000000;\n  --canvas:          #FFFDF5;\n  --brand-gradient:  linear-gradient(135deg, #FE90E8 0%, #C0F7FE 50%, #F7CB46 100%);\n  --deco-1:          #F7CB46;\n  --deco-2:          #99E885;\n  --deco-3:          #C0F7FE;\n  --deco-4:          #FE90E8;\n  --font-display:    'Inter', system-ui, sans-serif;\n  --font-body:       'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;\n  --font-mono:       'Space Grotesk', ui-monospace, SFMono-Regular, Menlo, monospace;\n  --bf-border-bold: 4px solid var(--ink);\n  --bf-border-mid: 3px solid var(--ink);\n  --bf-border-thin: 2px solid var(--ink);\n  --bf-shadow: 8px 8px 0 var(--ink);\n  --bf-shadow-sm: 4px 4px 0 var(--ink);\n  --bf-shadow-hover: 6px 6px 0 var(--ink);\n  --bf-shadow-close: 12px 12px 0 var(--brand-secondary);\n  --bf-shadow-close-btn: 6px 6px 0 var(--canvas);\n  --bf-tilt-sm-l: -2deg;\n  --bf-tilt-sm-r: 2deg;\n  --bf-tilt-md-l: -8deg;\n  --bf-tilt-md-r: 8deg;\n  --bf-tilt-loud: 12deg;\n  --bf-pad-card: 36px;\n  --bf-pad-card-sm: 28px;\n  --bf-pad-card-xs: 22px;\n  --bf-pad-card-lg: 60px;\n  --bf-gap-lg: 48px;\n  --bf-gap-md: 32px;\n  --bf-gap-sm: 24px;\n  --bf-gap-xs: 16px;\n  --bf-dot-size: 24px;\n  --bf-dot-radius: 1.2px;\n}",
+  "groups": [
+    {
+      "worker_id": "w1",
+      "scene_ids": [
+        "scene_1"
+      ],
+      "scenes": {
+        "scene_1": {
+          "start_s": 0,
+          "effects": [
+            "kinetic-beat-slam",
+            "center-outward-expansion",
+            "sine-wave-loop"
+          ],
+          "rule_paths": [
+            "/root/.openharness/skills/hyperframes-animation/rules/kinetic-beat-slam.md",
+            "/root/.openharness/skills/hyperframes-animation/rules/center-outward-expansion.md",
+            "/root/.openharness/skills/hyperframes-animation/rules/sine-wave-loop.md"
+          ],
+          "assetCandidates": [],
+          "estimatedDuration_s": 5,
+          "voicePath": "",
+          "wordsPath": "",
+          "design_chunks": {
+            "tokens_file": "/app/videos/llm-principles-explainer/design-system/chunks/tokens.css",
+            "easings_file": "/app/videos/llm-principles-explainer/design-system/chunks/easings.js",
+            "voice_file": "/app/videos/llm-principles-explainer/design-system/chunks/voice.md",
+            "hints_file": "/app/videos/llm-principles-explainer/design-system/chunks/composition-hints.md",
+            "type_roles_file": "/app/videos/llm-principles-explainer/design-system/chunks/type-roles.md",
+            "components": [
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/button.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/chip.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/corner-pins.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/dot-grid-bg.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/feature-card.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/hero.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/quote-frame.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/star-burst.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/stat-counter.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/timeline-step.html"
+            ]
+          },
+          "creative_brief": "Hero opening. Centered bold headline \"大模型 (LLM)\" in large Inter display (72px, bold), with subtitle \"AI的核心引擎\" revealing 0.4s later in Inter body (36px). Background: full-bleed #C0F7FE with dot-grid pattern. A pulsing concentric circles motif radiates from behind the headline to convey \"scale\" — 3 circles animate opacity 0→0.3→0 in sequence (each 1.2s cycle). Below subtitle, a tagline \"基于深度学习的超大规模神经网络\" in Space Grotesk mono on a pill-shaped chip with #F7CB46 background. Chip slides up 0.8s after subtitle.\n\n---\n\n",
+          "local_start_s": 0,
+          "visual_id": "scene_1"
+        }
+      },
+      "start_s": 0,
+      "duration_s": 5,
+      "composition_id": "scene_1",
+      "composition_file": "compositions/scene_1.html",
+      "kind": "scene"
+    },
+    {
+      "worker_id": "w2",
+      "scene_ids": [
+        "scene_2"
+      ],
+      "scenes": {
+        "scene_2": {
+          "start_s": 5,
+          "effects": [
+            "svg-path-draw",
+            "scale-swap-transition",
+            "3d-text-depth-layers"
+          ],
+          "rule_paths": [
+            "/root/.openharness/skills/hyperframes-animation/rules/svg-path-draw.md",
+            "/root/.openharness/skills/hyperframes-animation/rules/scale-swap-transition.md",
+            "/root/.openharness/skills/hyperframes-animation/rules/3d-text-depth-layers.md"
+          ],
+          "assetCandidates": [],
+          "estimatedDuration_s": 6,
+          "voicePath": "",
+          "wordsPath": "",
+          "design_chunks": {
+            "tokens_file": "/app/videos/llm-principles-explainer/design-system/chunks/tokens.css",
+            "easings_file": "/app/videos/llm-principles-explainer/design-system/chunks/easings.js",
+            "voice_file": "/app/videos/llm-principles-explainer/design-system/chunks/voice.md",
+            "hints_file": "/app/videos/llm-principles-explainer/design-system/chunks/composition-hints.md",
+            "type_roles_file": "/app/videos/llm-principles-explainer/design-system/chunks/type-roles.md",
+            "components": [
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/button.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/chip.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/corner-pins.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/dot-grid-bg.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/feature-card.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/hero.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/quote-frame.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/star-burst.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/stat-counter.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/timeline-step.html"
+            ]
+          },
+          "creative_brief": "Headline \"Transformer\" top-left (48px Inter display). To the right, a node-link diagram: 3 vertical columns of circles (4 nodes each), with animated Bezier curves flowing between columns representing Self-Attention (curves animate stroke-dashoffset). Below the diagram at 3s, a text card with 4px #FE90E8 border and hard black shadow: \"多头注意力 · Multi-Head Attention\" + \"位置编码 · Positional Encoding\" — two mono terms on #F7CB46 chip backgrounds. Cards stagger in from bottom.\n\n---\n\n",
+          "local_start_s": 0,
+          "visual_id": "scene_2"
+        }
+      },
+      "start_s": 5,
+      "duration_s": 6,
+      "composition_id": "scene_2",
+      "composition_file": "compositions/scene_2.html",
+      "kind": "scene"
+    },
+    {
+      "worker_id": "w3",
+      "scene_ids": [
+        "scene_3"
+      ],
+      "scenes": {
+        "scene_3": {
+          "start_s": 11,
+          "effects": [
+            "center-outward-expansion",
+            "discrete-text-sequence",
+            "3d-text-depth-layers"
+          ],
+          "rule_paths": [
+            "/root/.openharness/skills/hyperframes-animation/rules/center-outward-expansion.md",
+            "/root/.openharness/skills/hyperframes-animation/rules/discrete-text-sequence.md",
+            "/root/.openharness/skills/hyperframes-animation/rules/3d-text-depth-layers.md"
+          ],
+          "assetCandidates": [],
+          "estimatedDuration_s": 6,
+          "voicePath": "",
+          "wordsPath": "",
+          "design_chunks": {
+            "tokens_file": "/app/videos/llm-principles-explainer/design-system/chunks/tokens.css",
+            "easings_file": "/app/videos/llm-principles-explainer/design-system/chunks/easings.js",
+            "voice_file": "/app/videos/llm-principles-explainer/design-system/chunks/voice.md",
+            "hints_file": "/app/videos/llm-principles-explainer/design-system/chunks/composition-hints.md",
+            "type_roles_file": "/app/videos/llm-principles-explainer/design-system/chunks/type-roles.md",
+            "components": [
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/button.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/chip.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/corner-pins.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/dot-grid-bg.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/feature-card.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/hero.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/quote-frame.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/star-burst.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/stat-counter.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/timeline-step.html"
+            ]
+          },
+          "creative_brief": "Background transitions to #000000 (full black) for dramatic contrast. Headline \"预训练\" in white Inter display (60px). A data-stream visual: multiple columns of text snippets in Space Grotesk mono (gray #888) scroll upward at different speeds — suggesting massive text corpus. Key concepts appear with pill headers: \"Next Token Prediction\" / \"Masked Language Model\" / \"语法·知识·推理\". At 4.5s, a bottom banner card slides in: \"掌握语言底层规律\" in Inter body (#F7CB46 accent).\n\n---\n\n",
+          "local_start_s": 0,
+          "visual_id": "scene_3"
+        }
+      },
+      "start_s": 11,
+      "duration_s": 6,
+      "composition_id": "scene_3",
+      "composition_file": "compositions/scene_3.html",
+      "kind": "scene"
+    },
+    {
+      "worker_id": "w4",
+      "scene_ids": [
+        "scene_4"
+      ],
+      "scenes": {
+        "scene_4": {
+          "start_s": 17,
+          "effects": [
+            "stat-bars-and-fills",
+            "svg-path-draw",
+            "sine-wave-loop"
+          ],
+          "rule_paths": [
+            "/root/.openharness/skills/hyperframes-animation/rules/stat-bars-and-fills.md",
+            "/root/.openharness/skills/hyperframes-animation/rules/svg-path-draw.md",
+            "/root/.openharness/skills/hyperframes-animation/rules/sine-wave-loop.md"
+          ],
+          "assetCandidates": [],
+          "estimatedDuration_s": 6,
+          "voicePath": "",
+          "wordsPath": "",
+          "design_chunks": {
+            "tokens_file": "/app/videos/llm-principles-explainer/design-system/chunks/tokens.css",
+            "easings_file": "/app/videos/llm-principles-explainer/design-system/chunks/easings.js",
+            "voice_file": "/app/videos/llm-principles-explainer/design-system/chunks/voice.md",
+            "hints_file": "/app/videos/llm-principles-explainer/design-system/chunks/composition-hints.md",
+            "type_roles_file": "/app/videos/llm-principles-explainer/design-system/chunks/type-roles.md",
+            "components": [
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/button.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/chip.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/corner-pins.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/dot-grid-bg.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/feature-card.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/hero.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/quote-frame.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/star-burst.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/stat-counter.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/timeline-step.html"
+            ]
+          },
+          "creative_brief": "Light background (#FFFFFF). Vertical timeline structure: 3 steps with connecting line. Step 1: \"指令微调\" with subtitle \"Instruction Tuning\". Step 2: arrow connecting down to \"奖励模型\" (Reward Model). Step 3: arrow to \"RLHF\". Each step fades in sequentially (0-2s, 2-4s, 4-5.5s). A quote card wraps the key message \"让模型输出符合人类偏好的回答\" in Inter body (28px). Timeline has 4px solid border (#FE90E8) and hard 4px black offset shadow.\n\n---\n\n",
+          "local_start_s": 0,
+          "visual_id": "scene_4"
+        }
+      },
+      "start_s": 17,
+      "duration_s": 6,
+      "composition_id": "scene_4",
+      "composition_file": "compositions/scene_4.html",
+      "kind": "scene"
+    },
+    {
+      "worker_id": "w5",
+      "scene_ids": [
+        "scene_5"
+      ],
+      "scenes": {
+        "scene_5": {
+          "start_s": 23,
+          "effects": [
+            "discrete-text-sequence",
+            "svg-path-draw",
+            "scale-swap-transition"
+          ],
+          "rule_paths": [
+            "/root/.openharness/skills/hyperframes-animation/rules/discrete-text-sequence.md",
+            "/root/.openharness/skills/hyperframes-animation/rules/svg-path-draw.md",
+            "/root/.openharness/skills/hyperframes-animation/rules/scale-swap-transition.md"
+          ],
+          "assetCandidates": [],
+          "estimatedDuration_s": 5,
+          "voicePath": "",
+          "wordsPath": "",
+          "design_chunks": {
+            "tokens_file": "/app/videos/llm-principles-explainer/design-system/chunks/tokens.css",
+            "easings_file": "/app/videos/llm-principles-explainer/design-system/chunks/easings.js",
+            "voice_file": "/app/videos/llm-principles-explainer/design-system/chunks/voice.md",
+            "hints_file": "/app/videos/llm-principles-explainer/design-system/chunks/composition-hints.md",
+            "type_roles_file": "/app/videos/llm-principles-explainer/design-system/chunks/type-roles.md",
+            "components": [
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/button.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/chip.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/corner-pins.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/dot-grid-bg.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/feature-card.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/hero.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/quote-frame.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/star-burst.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/stat-counter.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/timeline-step.html"
+            ]
+          },
+          "creative_brief": "Phase 1 (0-2.5s): \"Auto-regressive Decoding\" in mono Space Grotesk (32px) at top left. A horizontal word-by-word generation animation: tokens appear left to right, each appearing with a small bounce scale (0→1). Tokens: \"大 → 模型 → 正在 → 生成 → 回答\". Each word on a pill chip with #C0F7FE background. Phase 2 (2.5-5s): \"Chain-of-Thought\" switches to a stepped reasoning diagram — 3 cards connected by arrows: \"步骤1 → 步骤2 → 结论\". Side panel: \"KV-Cache\" badge (mono, #F7CB46 background). Bottom text: \"大幅提升推理效率\" in Inter (28px).\n\n---\n\n",
+          "local_start_s": 0,
+          "visual_id": "scene_5"
+        }
+      },
+      "start_s": 23,
+      "duration_s": 5,
+      "composition_id": "scene_5",
+      "composition_file": "compositions/scene_5.html",
+      "kind": "scene"
+    },
+    {
+      "worker_id": "w6",
+      "scene_ids": [
+        "scene_6"
+      ],
+      "scenes": {
+        "scene_6": {
+          "start_s": 28,
+          "effects": [
+            "svg-path-draw",
+            "kinetic-beat-slam",
+            "sine-wave-loop"
+          ],
+          "rule_paths": [
+            "/root/.openharness/skills/hyperframes-animation/rules/svg-path-draw.md",
+            "/root/.openharness/skills/hyperframes-animation/rules/kinetic-beat-slam.md",
+            "/root/.openharness/skills/hyperframes-animation/rules/sine-wave-loop.md"
+          ],
+          "assetCandidates": [],
+          "estimatedDuration_s": 4,
+          "voicePath": "",
+          "wordsPath": "",
+          "design_chunks": {
+            "tokens_file": "/app/videos/llm-principles-explainer/design-system/chunks/tokens.css",
+            "easings_file": "/app/videos/llm-principles-explainer/design-system/chunks/easings.js",
+            "voice_file": "/app/videos/llm-principles-explainer/design-system/chunks/voice.md",
+            "hints_file": "/app/videos/llm-principles-explainer/design-system/chunks/composition-hints.md",
+            "type_roles_file": "/app/videos/llm-principles-explainer/design-system/chunks/type-roles.md",
+            "components": [
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/button.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/chip.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/corner-pins.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/dot-grid-bg.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/feature-card.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/hero.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/quote-frame.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/star-burst.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/stat-counter.html",
+              "/app/videos/llm-principles-explainer/design-system/chunks/components/timeline-step.html"
+            ]
+          },
+          "creative_brief": "Grand finale. Background: #FE90E8 (primary) full bleed. Center: \"Scaling Law\" in giant Inter display (72px, white). Below: an upward-curving line chart (abstract SVG path) with 3 labeled points: \"模型 ↑\", \"数据 ↑\", \"计算 ↑\" — each label scales in at 1s, 1.8s, 2.6s. At 3s, bottom line appears on a white chip with hard black shadow: \"通往AGI的重要路径\" (Inter body, 32px). Final 0.5s: all elements hold for a beat.",
+          "local_start_s": 0,
+          "visual_id": "scene_6"
+        }
+      },
+      "start_s": 28,
+      "duration_s": 4,
+      "composition_id": "scene_6",
+      "composition_file": "compositions/scene_6.html",
+      "kind": "scene"
+    }
+  ],
+  "visual_clips": [
+    {
+      "id": "scene_1",
+      "file": "compositions/scene_1.html",
+      "kind": "scene",
+      "worker_id": "w1",
+      "scene_ids": [
+        "scene_1"
+      ],
+      "start_s": 0,
+      "duration_s": 5
+    },
+    {
+      "id": "scene_2",
+      "file": "compositions/scene_2.html",
+      "kind": "scene",
+      "worker_id": "w2",
+      "scene_ids": [
+        "scene_2"
+      ],
+      "start_s": 5,
+      "duration_s": 6
+    },
+    {
+      "id": "scene_3",
+      "file": "compositions/scene_3.html",
+      "kind": "scene",
+      "worker_id": "w3",
+      "scene_ids": [
+        "scene_3"
+      ],
+      "start_s": 11,
+      "duration_s": 6
+    },
+    {
+      "id": "scene_4",
+      "file": "compositions/scene_4.html",
+      "kind": "scene",
+      "worker_id": "w4",
+      "scene_ids": [
+        "scene_4"
+      ],
+      "start_s": 17,
+      "duration_s": 6
+    },
+    {
+      "id": "scene_5",
+      "file": "compositions/scene_5.html",
+      "kind": "scene",
+      "worker_id": "w5",
+      "scene_ids": [
+        "scene_5"
+      ],
+      "start_s": 23,
+      "duration_s": 5
+    },
+    {
+      "id": "scene_6",
+      "file": "compositions/scene_6.html",
+      "kind": "scene",
+      "worker_id": "w6",
+      "scene_ids": [
+        "scene_6"
+      ],
+      "start_s": 28,
+      "duration_s": 4
+    }
+  ],
+  "scene_to_visual": {
+    "scene_1": "scene_1",
+    "scene_2": "scene_2",
+    "scene_3": "scene_3",
+    "scene_4": "scene_4",
+    "scene_5": "scene_5",
+    "scene_6": "scene_6"
+  },
+  "internal_seams": [],
+  "transitions": [
+    {
+      "from": "scene_1",
+      "to": "scene_2",
+      "from_scene": "scene_1",
+      "to_scene": "scene_2",
+      "type": "push-slide",
+      "direction": "LEFT",
+      "duration_s": 0.5,
+      "tier": "b",
+      "is_break": true,
+      "bridge_id": null,
+      "from_worker": "w1",
+      "to_worker": "w2"
+    },
+    {
+      "from": "scene_2",
+      "to": "scene_3",
+      "from_scene": "scene_2",
+      "to_scene": "scene_3",
+      "type": "zoom-through",
+      "direction": null,
+      "duration_s": 0.6,
+      "tier": "b",
+      "is_break": true,
+      "bridge_id": null,
+      "from_worker": "w2",
+      "to_worker": "w3"
+    },
+    {
+      "from": "scene_3",
+      "to": "scene_4",
+      "from_scene": "scene_3",
+      "to_scene": "scene_4",
+      "type": "push-slide",
+      "direction": "RIGHT",
+      "duration_s": 0.5,
+      "tier": "b",
+      "is_break": true,
+      "bridge_id": null,
+      "from_worker": "w3",
+      "to_worker": "w4"
+    },
+    {
+      "from": "scene_4",
+      "to": "scene_5",
+      "from_scene": "scene_4",
+      "to_scene": "scene_5",
+      "type": "crossfade",
+      "direction": null,
+      "duration_s": 0.4,
+      "tier": "b",
+      "is_break": true,
+      "bridge_id": null,
+      "from_worker": "w4",
+      "to_worker": "w5"
+    },
+    {
+      "from": "scene_5",
+      "to": "scene_6",
+      "from_scene": "scene_5",
+      "to_scene": "scene_6",
+      "type": "zoom-through",
+      "direction": null,
+      "duration_s": 0.5,
+      "tier": "b",
+      "is_break": true,
+      "bridge_id": null,
+      "from_worker": "w5",
+      "to_worker": "w6"
+    }
+  ],
+  "sfx": []
+}

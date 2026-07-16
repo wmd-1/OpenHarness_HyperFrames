@@ -1,0 +1,11 @@
+大模型（Large Language Model，简称LLM）是基于深度学习技术构建的超大规模神经网络模型。其核心技术栈包括四大支柱：
+
+1. Transformer架构：2017年由Google提出，核心是自注意力机制（Self-Attention），让模型能够捕捉文本中任意两个位置之间的关联关系。多头注意力（Multi-Head Attention）从不同角度理解语义。位置编码（Positional Encoding）弥补了并行计算丢失的序列顺序信息。
+
+2. 预训练（Pre-training）：在海量无标注数据上进行自监督学习。典型任务包括：下一个词预测（Next Token Prediction）和掩码语言模型（Masked Language Model）。通过这个阶段，模型掌握了语法、知识、推理能力的基础。
+
+3. 对齐与微调（Alignment & Fine-tuning）：指令微调（Instruction Tuning）让模型理解人类指令；RLHF（基于人类反馈的强化学习）通过奖励模型引导模型输出符合人类偏好的回答。
+
+4. 推理与思维链（Inference & Chain-of-Thought）：推理时，模型逐词生成（Auto-regressive Decoding）。思维链提示（CoT）引导模型分步骤推理，大幅提升复杂问题的准确率。KV-Cache技术优化了推理效率。
+
+大模型的Scaling Law表明：模型规模、数据量和计算量按比例增长时，模型能力持续提升。这是通往通用人工智能的重要路径。

@@ -1,0 +1,124 @@
+{
+  "project": "大模型技术原理解密",
+  "narrativeArchetype": "concept-explainer",
+  "stylePreset": "block-frame",
+  "orientation": "landscape",
+  "emotionalArc": "从好奇大模型是什么，到理解Transformer、预训练、对齐、推理的完整技术链条，最后感叹Scaling Law的宏伟图景",
+  "scenes": [
+    {
+      "sceneNumber": 1,
+      "sceneName": "什么是大模型",
+      "transition": {
+        "continuity": "break",
+        "intent": "cut",
+        "description": "开场：大模型是什么？震撼标题登场"
+      },
+      "narrativeIntent": {
+        "type": "hook",
+        "narrativeRole": "吸引注意力，建立观看动机",
+        "keyMessage": "大模型（LLM）是基于深度学习的超大规模神经网络",
+        "persuasion": "contrast-before-after",
+        "emotionalBeat": "curiosity"
+      },
+      "assetCandidates": [],
+      "script": "大模型（LLM），是当今AI的核心引擎。它基于深度学习，构建了超大规模的神经网络，让机器真正理解人类语言。",
+      "estimatedDuration": "5s"
+    },
+    {
+      "sceneNumber": 2,
+      "sceneName": "Transformer架构",
+      "transition": {
+        "continuity": "break",
+        "intent": "morph",
+        "sharedMotif": "神经网络的连接线",
+        "description": "从神经网络过渡到Transformer架构的核心——自注意力机制可视化"
+      },
+      "narrativeIntent": {
+        "type": "feature_showcase",
+        "narrativeRole": "解释核心技术原理",
+        "keyMessage": "Self-Attention让模型捕捉文本中任意位置的关联关系",
+        "persuasion": "analogy",
+        "emotionalBeat": "clarity"
+      },
+      "assetCandidates": [],
+      "script": "2017年，Google提出Transformer架构。核心是自注意力机制，让模型同时关注文本中所有词的关系。多头注意力从不同角度理解语义。",
+      "estimatedDuration": "6s"
+    },
+    {
+      "sceneNumber": 3,
+      "sceneName": "大规模预训练",
+      "transition": {
+        "continuity": "break",
+        "intent": "zoom",
+        "description": "画面从模型结构缩放到海量数据——预训练的宏观视角"
+      },
+      "narrativeIntent": {
+        "type": "feature_showcase",
+        "narrativeRole": "解释模型如何从数据中学习",
+        "keyMessage": "海量无标注数据上的自监督学习让模型掌握知识基础",
+        "persuasion": "scale",
+        "emotionalBeat": "awe"
+      },
+      "assetCandidates": [],
+      "script": "预训练：在海量无标注数据上进行自监督学习。下一个词预测和掩码语言模型是核心任务。模型在此阶段掌握了语法、知识和推理基础。",
+      "estimatedDuration": "6s"
+    },
+    {
+      "sceneNumber": 4,
+      "sceneName": "对齐与微调",
+      "transition": {
+        "continuity": "break",
+        "intent": "slide",
+        "description": "从数据海洋滑动到人类反馈的精调阶段"
+      },
+      "narrativeIntent": {
+        "type": "benefit_highlight",
+        "narrativeRole": "解释如何让模型输出符合人类偏好",
+        "keyMessage": "指令微调+RLHF让模型对齐人类意图",
+        "persuasion": "step-by-step",
+        "emotionalBeat": "understanding"
+      },
+      "assetCandidates": [],
+      "script": "指令微调让模型理解人类指令。RLHF（基于人类反馈的强化学习）通过奖励模型引导输出更符合人类偏好的回答。",
+      "estimatedDuration": "6s"
+    },
+    {
+      "sceneNumber": 5,
+      "sceneName": "推理与思维链",
+      "transition": {
+        "continuity": "break",
+        "intent": "dissolve",
+        "description": "微调画面淡出，推理过程的逐词生成动画"
+      },
+      "narrativeIntent": {
+        "type": "feature_showcase",
+        "narrativeRole": "解释模型如何生成回答",
+        "keyMessage": "自回归解码+思维链提示大幅提升推理准确率",
+        "persuasion": "demonstration",
+        "emotionalBeat": "insight"
+      },
+      "assetCandidates": [],
+      "script": "推理时，模型逐词自回归生成。思维链提示引导分步骤推理，大幅提升复杂问题准确率。KV-Cache技术优化推理效率。",
+      "estimatedDuration": "5s"
+    },
+    {
+      "sceneNumber": 6,
+      "sceneName": "Scaling Law与未来",
+      "transition": {
+        "continuity": "break",
+        "intent": "zoom",
+        "description": "从推理细节缩放到Scaling Law宏观曲线，展望AGI未来"
+      },
+      "narrativeIntent": {
+        "type": "branding",
+        "narrativeRole": "总结升华，建立对AI未来的期待",
+        "keyMessage": "规模定律是通往通用人工智能的重要路径",
+        "persuasion": "vision",
+        "emotionalBeat": "inspiration"
+      },
+      "assetCandidates": [],
+      "script": "Scaling Law告诉我们：模型规模、数据量和计算量按比例增长，能力持续提升。这是通往通用人工智能的重要路径。",
+      "estimatedDuration": "4s"
+    }
+  ]
+}

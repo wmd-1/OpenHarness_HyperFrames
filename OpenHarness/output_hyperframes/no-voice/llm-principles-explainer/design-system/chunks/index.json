@@ -1,0 +1,53 @@
+{
+  "generated_at": "2026-06-16T09:04:09.221Z",
+  "source_url": "Style",
+  "preset": "block-frame",
+  "tokens_file": "chunks/tokens.css",
+  "easings_file": "chunks/easings.js",
+  "voice_file": "chunks/voice.md",
+  "hints_file": "chunks/composition-hints.md",
+  "type_roles_file": "chunks/type-roles.md",
+  "caption_skin_file": "chunks/caption-skin.html",
+  "components": [
+    {
+      "id": "button",
+      "file": "chunks/components/button.html"
+    },
+    {
+      "id": "chip",
+      "file": "chunks/components/chip.html"
+    },
+    {
+      "id": "corner-pins",
+      "file": "chunks/components/corner-pins.html"
+    },
+    {
+      "id": "dot-grid-bg",
+      "file": "chunks/components/dot-grid-bg.html"
+    },
+    {
+      "id": "feature-card",
+      "file": "chunks/components/feature-card.html"
+    },
+    {
+      "id": "hero",
+      "file": "chunks/components/hero.html"
+    },
+    {
+      "id": "quote-frame",
+      "file": "chunks/components/quote-frame.html"
+    },
+    {
+      "id": "star-burst",
+      "file": "chunks/components/star-burst.html"
+    },
+    {
+      "id": "stat-counter",
+      "file": "chunks/components/stat-counter.html"
+    },
+    {
+      "id": "timeline-step",
+      "file": "chunks/components/timeline-step.html"
+    }
+  ]
+}

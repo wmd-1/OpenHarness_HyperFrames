@@ -1,0 +1,97 @@
+/* HyperFrames Design Tokens - LLM Tech Explainer */
+/* Dark premium tech theme with neon blue/purple accents */
+
+:root {
+  /* === Colors === */
+  --bg-primary: #0a0e1a;
+  --bg-secondary: #111827;
+  --bg-tertiary: #1a2332;
+  --bg-card: #1e293b;
+  
+  --fg-primary: #f1f5f9;
+  --fg-secondary: #94a3b8;
+  --fg-tertiary: #64748b;
+  
+  --accent-primary: #3b82f6;
+  --accent-secondary: #8b5cf6;
+  --accent-tertiary: #06b6d4;
+  --accent-glow: #60a5fa;
+  
+  --gradient-hero: linear-gradient(135deg, #3b82f6, #8b5cf6, #06b6d4);
+  --gradient-card: linear-gradient(180deg, #1e293b, #0f172a);
+  
+  /* === Typography === */
+  --font-display: 'Inter', 'PingFang SC', sans-serif;
+  --font-body: 'Inter', 'PingFang SC', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  
+  --weight-display: 800;
+  --weight-body: 400;
+  --weight-bold: 700;
+  
+  /* === Spacing === */
+  --pad: 24px;
+  --pad-sm: 12px;
+  --pad-lg: 40px;
+  --gap: 16px;
+  --gap-sm: 8px;
+  
+  /* === Borders === */
+  --cr: 12px;
+  --cr-sm: 6px;
+  --cr-lg: 20px;
+  
+  /* === Shadows === */
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 24px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 40px rgba(0,0,0,0.5);
+  --shadow-glow: 0 0 30px rgba(59,130,246,0.15);
+  --shadow-glow-accent: 0 0 40px rgba(139,92,246,0.2);
+  
+  /* === Animation === */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  
+  /* === Grid === */
+  --g: rgba(59, 130, 246, 0.1);
+}
+
+/* === Utility classes === */
+.gradient-text {
+  background: var(--gradient-hero);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.glow-border {
+  position: relative;
+}
+.glow-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: var(--gradient-hero);
+  opacity: 0.3;
+  z-index: -1;
+}
+
+.neon-glow {
+  box-shadow: 0 0 20px rgba(59,130,246,0.1), 0 0 40px rgba(59,130,246,0.05);
+}
+
+.grid-bg {
+  background-image: 
+    linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.particle-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}

@@ -1,0 +1,156 @@
+# ============================================================================
+# OpenHarness_HyperFrames — Monorepo Docker Compose
+# Build context = repo root. Framework source lives in ./OpenHarness/,
+# backend service lives in ./service/ (siblings). Only hyperframes_github_skills/
+# and docker/ are baked into the image at build time (see Dockerfile); the
+# framework source (src/ohmo/frontend) and the backend (service/) are
+# mounted at runtime.
+# ============================================================================
+# 使用方法：
+#   docker compose up                           # 启动（显示 oh --help）
+#   docker compose run --rm --service-ports openharness   # 同上
+#   docker compose run --rm --service-ports shell         # 进入容器 bash 终端
+#   docker compose run --rm openharness --version         # 运行 oh 子命令
+#
+# API Key 配置：
+#   创建 .env 文件（基于 .env.example）：
+#     ANTHROPIC_API_KEY=sk-ant-xxx
+#     OPENAI_API_KEY=sk-xxx
+#     OH_CORS_ORIGINS=http://localhost:5173   # 前端 dev 地址（生产填写真实域名）
+# ============================================================================
+
+services:
+  openharness:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: "3.11"
+        UV_VERSION: "0.7.3"
+    image: openharness_hyperframes_qwen-tts_pptx:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.20_v1.3_v2.0}
+    container_name: openharness
+    environment:
+      - PYTHONUNBUFFERED=1
+      - WATCHFILES_FORCE_POLLING=true
+      - PRODUCER_HEADLESS_SHELL_PATH=/opt/chrome-headless-shell-linux64/chrome-headless-shell
+      - CHROME_HEADLESS_BIN=/opt/chrome-headless-shell-linux64/chrome-headless-shell
+      - OPENHARNESS_PERMISSION_MODE=full_auto
+      - HYPERFRAMES_AUTO_UPDATE=false
+      - HYPERFRAMES_NO_AUTO_INSTALL=1
+      - HYPERFRAMES_NO_UPDATE_CHECK=1
+      # API Keys — 通过 .env 文件传入
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # QwenTTS (本地 TTS 服务) — 通过 .env 文件传入
+      - QWENTTS_URL=${QWENTTS_URL:-}
+      - QWENTTS_MODE=${QWENTTS_MODE:-speech}
+      - QWENTTS_MODEL=${QWENTTS_MODEL:-}
+      - QWENTTS_VOICE=${QWENTTS_VOICE:-}
+      - QWENTTS_INSTRUCTIONS=${QWENTTS_INSTRUCTIONS:-}
+    volumes:
+      # 框架源码挂载（OpenHarness/ 子目录）— 修改宿主机代码，容器内立即生效
+      # PYTHONPATH=/app/src 使 Python 优先从这里导入，覆盖 pip 安装的版本
+      - ./OpenHarness/src:/app/src
+      - ./OpenHarness/ohmo:/app/ohmo
+      # 前端源码挂载 — React TUI 的 dev 布局查找路径为 /app/frontend/terminal/
+      - ./OpenHarness/frontend:/app/frontend
+      # 持久化配置和会话
+      - openharness-config:/root/.openharness
+      - ./OpenHarness/output_hyperprames/videos:/app/videos
+    stdin_open: true
+    tty: true
+    shm_size: 256g
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+      - "3002:3002"
+      - "3003:3003"
+
+  # ---- 交互终端 ----
+  shell:
+    extends: openharness
+    container_name: openharness-shell-${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.20_v1.3_v2.0}
+    entrypoint: ["bash"]
+
+  # ---- PostgreSQL ----
+  postgres:
+    image: postgres:16-alpine
+    container_name: openharness-postgres
+    environment:
+      POSTGRES_USER: oh
+      POSTGRES_PASSWORD: oh
+      POSTGRES_DB: oh
+    volumes:
+      - oh-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oh"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ---- Redis ----
+  redis:
+    image: redis:7-alpine
+    container_name: openharness-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - oh-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ---- FastAPI 视频服务 ----
+  api:
+    extends: openharness
+    container_name: openharness-api
+    entrypoint: ["oh-serve"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - OH_DB_URL=postgresql+asyncpg://oh:oh@postgres:5432/oh
+      - OH_DB_SYNC_URL=postgresql+psycopg://oh:oh@postgres:5432/oh
+      - OH_BROKER_URL=redis://redis:6379/0
+      - OH_VIDEO_DIR=/var/openharness/videos
+      - OH_WORKSPACE_ROOT=/workspaces
+      - PRODUCER_HEADLESS_SHELL_PATH=/opt/chrome-headless-shell-linux64/chrome-headless-shell
+      - CHROME_HEADLESS_BIN=/opt/chrome-headless-shell-linux64/chrome-headless-shell
+      - OPENHARNESS_PERMISSION_MODE=full_auto
+      - HYPERFRAMES_AUTO_UPDATE=false
+      - HYPERFRAMES_NO_AUTO_INSTALL=1
+      - HYPERFRAMES_NO_UPDATE_CHECK=1
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OH_CORS_ORIGINS=${OH_CORS_ORIGINS:-}
+      # QwenTTS (本地 TTS 服务) — 通过 .env 文件传入
+      - QWENTTS_URL=${QWENTTS_URL:-}
+      - QWENTTS_MODE=${QWENTTS_MODE:-speech}
+      - QWENTTS_MODEL=${QWENTTS_MODEL:-}
+      - QWENTTS_VOICE=${QWENTTS_VOICE:-}
+      - QWENTTS_INSTRUCTIONS=${QWENTTS_INSTRUCTIONS:-}
+    volumes:
+      - ./OpenHarness/src:/app/src
+      - ./OpenHarness/ohmo:/app/ohmo
+      - ./service:/opt/oh-service
+      - oh-videos:/var/openharness/videos
+      - oh-workspaces:/workspaces
+      - openharness-config:/root/.openharness
+
+volumes:
+  openharness-config:
+    name: openharness-config
+  oh-pg:
+    name: openharness-pg
+  oh-redis:
+    name: openharness-redis
+  oh-videos:
+    name: openharness-videos
+  oh-workspaces:
+    name: openharness-workspaces

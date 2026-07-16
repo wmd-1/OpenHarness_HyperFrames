@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0; width: 1920px; height: 1080px; overflow: hidden;
+        background: #080c14;
+      }
+      body { font-family: "Inter", sans-serif; }
+
+      #root {
+        position: relative; width: 1920px; height: 1080px; overflow: hidden;
+      }
+
+      .clip {
+        position: absolute; inset: 0;
+        display: flex; flex-direction: column;
+        justify-content: center; align-items: center;
+      }
+
+      /* ---- Scene shared layout ---- */
+      .scene-inner {
+        position: relative; width: 1920px; height: 1080px; overflow: visible;
+      }
+      .scene-content {
+        position: relative; z-index: 2;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        transform-origin: center center;
+        width: 100%; height: 100%;
+      }
+      .s1-zoom { transform: scale(2.0); }
+      .s2-zoom { transform: scale(1.5); }
+      .s3-zoom { transform: scale(1.55); }
+      .s4-zoom { transform: scale(1.5); }
+      .s5-zoom { transform: scale(1.45); }
+      .s6-zoom { transform: scale(1.45); }
+
+      /* ---- Decorative grids ---- */
+      .grid-bg {
+        position: absolute; inset: 0;
+        background-image:
+          linear-gradient(rgba(0,180,255,0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0,180,255,0.04) 1px, transparent 1px);
+        background-size: 60px 60px;
+      }
+      .grid-bg-dense {
+        background-size: 30px 30px;
+        background-image:
+          linear-gradient(rgba(0,200,255,0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0,200,255,0.03) 1px, transparent 1px);
+      }
+
+      /* ---- Radial glows ---- */
+      .glow-tl { position: absolute; top: -200px; left: -200px; width: 800px; height: 800px;
+        border-radius: 50%; background: radial-gradient(circle, rgba(0,120,255,0.12) 0%, transparent 70%); }
+      .glow-br { position: absolute; bottom: -250px; right: -200px; width: 700px; height: 700px;
+        border-radius: 50%; background: radial-gradient(circle, rgba(120,0,255,0.10) 0%, transparent 70%); }
+      [data-layout-allow-occlusion] { /* decorative elements intentionally layered */ }
+      [data-layout-allow-overflow] { /* decorative overflow intentional */ }
+      .glow-center { position: absolute; top: 50%; left: 50%; width: 900px; height: 900px;
+        transform: translate(-50%,-50%); border-radius: 50%;
+        background: radial-gradient(circle, rgba(0,180,255,0.07) 0%, transparent 60%); }
+
+      /* ---- Orbital rings ---- */
+      .orbit-ring {
+        position: absolute; border: 1px solid rgba(0,180,255,0.12);
+        border-radius: 50%; top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+      }
+      .orbit-r1 { width: 500px; height: 500px; }
+      .orbit-r2 { width: 700px; height: 700px; }
+      .orbit-r3 { width: 900px; height: 900px; }
+
+      /* ---- Ghost text ---- */
+      .ghost-text {
+        position: absolute; font-weight: 800; font-size: 140px;
+        letter-spacing: 0.05em; color: rgba(0,180,255,0.04);
+        text-transform: uppercase; pointer-events: none;
+      }
+
+      /* ---- Dots / particles ---- */
+      .dot-cluster {
+        position: absolute; width: 100%; height: 100%; inset: 0;
+        pointer-events: none;
+      }
+      .dot {
+        position: absolute; width: 4px; height: 4px;
+        background: rgba(0,180,255,0.3); border-radius: 50%;
+      }
+
+      /* ---- Scanline overlay ---- */
+      .scanlines {
+        position: absolute; inset: 0;
+        background: repeating-linear-gradient(
+          0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px
+        );
+        pointer-events: none;
+      }
+
+      /* ---- Scene 1: Opening ---- */
+      .s1-title { font-size: 76px; font-weight: 800; color: #fff; letter-spacing: -0.02em;
+        text-align: center; line-height: 1.2; }
+      .s1-title span { display: inline-block; }
+      .s1-accent { color: #00b4ff; }
+      .s1-sub { font-size: 24px; font-weight: 400; color: rgba(255,255,255,0.5);
+        text-align: center; margin-top: 24px; letter-spacing: 0.06em; }
+      .s1-badge-row { display: flex; gap: 16px; margin-top: 40px; }
+      .s1-badge { padding: 10px 24px; border-radius: 100px;
+        background: rgba(0,180,255,0.1); border: 1px solid rgba(0,180,255,0.2);
+        font-size: 18px; font-weight: 500; color: rgba(255,255,255,0.8); }
+      .s1-badge.active { background: rgba(0,180,255,0.2); border-color: rgba(0,180,255,0.5); color: #fff; }
+      .s1-badge-icon { font-size: 22px; margin-right: 8px; }
+
+      /* ---- Scene 2: Modalities ---- */
+      .s2-mod-grid { display: flex; gap: 20px; position: relative; z-index: 2; }
+      .s2-mod-card { width: 240px; padding: 28px 20px;
+        background: rgba(255,255,255,0.04); border-radius: 16px;
+        border: 1px solid rgba(255,255,255,0.06);
+        text-align: center;
+        backdrop-filter: blur(4px);
+      }
+      .s2-mod-card.highlight { border-color: rgba(0,180,255,0.3);
+        background: rgba(0,180,255,0.06); }
+      .s2-mod-icon { font-size: 48px; margin-bottom: 12px; line-height: 1; }
+      .s2-mod-label { font-size: 20px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+      .s2-mod-desc { font-size: 14px; color: rgba(255,255,255,0.5); line-height: 1.4; }
+      .s2-flow-arrow { font-size: 36px; color: rgba(0,180,255,0.4);
+        display: flex; align-items: center; }
+      .s2-encoder-box { position: relative; z-index: 2; margin-top: 40px;
+        padding: 20px 60px; border-radius: 12px;
+        background: linear-gradient(135deg, rgba(0,120,255,0.15), rgba(120,0,255,0.15));
+        border: 1px solid rgba(0,180,255,0.25);
+        text-align: center; }
+      .s2-encoder-label { font-size: 18px; font-weight: 600; color: #00b4ff; letter-spacing: 0.04em; }
+      .s2-encoder-desc { font-size: 16px; color: rgba(255,255,255,0.7); margin-top: 8px; }
+      .s2-tag-cloud { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 20px; }
+      .s2-tag { padding: 4px 14px; border-radius: 6px; font-size: 13px; font-weight: 500;
+        background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.5);
+        border: 1px solid rgba(255,255,255,0.06); }
+
+      /* ---- Scene 3: Cross-modal ---- */
+      .s3-diagram { position: relative; width: 900px; height: 400px; z-index: 2; }
+      .s3-node { position: absolute; padding: 16px 28px; border-radius: 12px;
+        font-size: 18px; font-weight: 600; color: #fff; text-align: center;
+        background: rgba(0,120,255,0.12); border: 1px solid rgba(0,120,255,0.25);
+        min-width: 140px; }
+      .s3-node.image { left: 50px; top: 20px; background: rgba(255,100,50,0.12); border-color: rgba(255,100,50,0.3); }
+      .s3-node.text { left: 50px; bottom: 20px; background: rgba(0,200,100,0.12); border-color: rgba(0,200,100,0.3); }
+      .s3-node.audio { right: 50px; top: 20px; background: rgba(200,100,255,0.12); border-color: rgba(200,100,255,0.3); }
+      .s3-node.video { right: 50px; bottom: 20px; background: rgba(255,200,0,0.12); border-color: rgba(255,200,0,0.3); }
+      .s3-center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+        padding: 24px 36px; border-radius: 16px; text-align: center;
+        background: linear-gradient(135deg, rgba(0,120,255,0.2), rgba(120,0,255,0.2));
+        border: 2px solid rgba(0,180,255,0.4); }
+      .s3-center-label { font-size: 22px; font-weight: 700; color: #00b4ff; }
+      .s3-center-sub { font-size: 14px; color: rgba(255,255,255,0.6); margin-top: 6px; }
+      .s3-node-icon { font-size: 28px; margin-bottom: 4px; }
+      .s3-node-label { font-size: 16px; }
+      .s3-connector { position: absolute; height: 2px; background: rgba(0,180,255,0.15); }
+      .s3-example-row { display: flex; gap: 24px; margin-top: 30px; z-index: 2; position: relative; }
+      .s3-example { padding: 12px 24px; border-radius: 10px;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+        text-align: center; }
+      .s3-example-icon { font-size: 24px; margin-bottom: 4px; }
+      .s3-example-text { font-size: 14px; color: rgba(255,255,255,0.6); }
+
+      /* ---- Scene 4: Training ---- */
+      .s4-stats-row { display: flex; gap: 30px; z-index: 2; position: relative; }
+      .s4-stat { text-align: center; padding: 24px 36px;
+        background: rgba(255,255,255,0.03); border-radius: 16px;
+        border: 1px solid rgba(255,255,255,0.06); min-width: 200px; }
+      .s4-stat-num { font-size: 52px; font-weight: 800; color: #00b4ff; line-height: 1; }
+      .s4-stat-label { font-size: 16px; color: rgba(255,255,255,0.5); margin-top: 8px; }
+      .s4-pipeline { display: flex; align-items: center; gap: 12px; margin-top: 40px; z-index: 2; position: relative; }
+      .s4-pipe-step { padding: 12px 22px; border-radius: 8px; font-size: 15px; font-weight: 500;
+        background: rgba(0,120,255,0.08); border: 1px solid rgba(0,120,255,0.15);
+        color: rgba(255,255,255,0.7); text-align: center; min-width: 100px; }
+      .s4-pipe-step.active { background: rgba(0,120,255,0.18); border-color: rgba(0,180,255,0.4);
+        color: #fff; }
+      .s4-pipe-arrow { color: rgba(0,180,255,0.3); font-size: 20px; }
+      .s4-bar-chart { display: flex; gap: 16px; align-items: flex-end; margin-top: 30px; z-index: 2; position: relative; }
+      .s4-bar { width: 60px; border-radius: 6px 6px 0 0; text-align: center; padding-top: 8px; }
+      .s4-bar-label { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 6px; }
+
+      /* ---- Scene 5: Applications ---- */
+      .s5-app-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; z-index: 2; position: relative; }
+      .s5-app-card { padding: 24px; border-radius: 14px;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+        text-align: center; }
+      .s5-app-card.highlight { border-color: rgba(0,180,255,0.3);
+        background: rgba(0,180,255,0.06); }
+      .s5-app-icon { font-size: 36px; margin-bottom: 8px; }
+      .s5-app-title { font-size: 17px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+      .s5-app-desc { font-size: 13px; color: rgba(255,255,255,0.5); line-height: 1.4; }
+      .s5-closing { z-index: 2; position: relative; margin-top: 30px;
+        padding: 20px 60px; border-radius: 12px; text-align: center;
+        background: linear-gradient(135deg, rgba(0,120,255,0.12), rgba(120,0,255,0.12));
+        border: 1px solid rgba(0,180,255,0.2); }
+      .s5-closing-text { font-size: 20px; font-weight: 600; color: #fff; }
+      .s5-closing-sub { font-size: 14px; color: rgba(0,180,255,0.6); margin-top: 4px; }
+
+      /* ---- Scene 6: Latest Models ---- */
+      .s6-model-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; z-index: 2; position: relative; }
+      .s6-model-card { padding: 20px; border-radius: 14px;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+        text-align: center; min-width: 200px; }
+      .s6-model-card.flag { border-color: rgba(0,180,255,0.35);
+        background: linear-gradient(135deg, rgba(0,120,255,0.08), rgba(120,0,255,0.08)); }
+      .s6-model-name { font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 2px; }
+      .s6-model-org { font-size: 12px; color: rgba(0,180,255,0.5); font-weight: 500;
+        letter-spacing: 0.04em; margin-bottom: 10px; }
+      .s6-model-mods { display: flex; gap: 6px; justify-content: center; margin-bottom: 10px; }
+      .s6-mod-tag { display: inline-block; padding: 2px 10px; border-radius: 4px;
+        font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.7);
+        background: rgba(255,255,255,0.05); }
+      .s6-mod-tag.active { background: rgba(0,180,255,0.12); color: #00b4ff; }
+      .s6-model-stats { display: flex; gap: 16px; justify-content: center; margin-bottom: 8px; }
+      .s6-stat-item { text-align: center; }
+      .s6-stat-val { font-size: 16px; font-weight: 700; color: #00b4ff; }
+      .s6-stat-lbl { font-size: 10px; color: rgba(255,255,255,0.3); text-transform: uppercase; letter-spacing: 0.04em; }
+      .s6-model-desc { font-size: 12px; color: rgba(255,255,255,0.45); line-height: 1.4; }
+      .s6-timeline { display: flex; align-items: center; gap: 8px; margin-top: 18px; z-index: 2; position: relative; }
+      .s6-tl-node { padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 500;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+        color: rgba(255,255,255,0.4); white-space: nowrap; }
+      .s6-tl-node.flag { background: rgba(0,120,255,0.12); border-color: rgba(0,180,255,0.3); color: #fff; }
+      .s6-tl-arrow { color: rgba(0,180,255,0.2); font-size: 16px; }
+      .s6-compare-bar { display: flex; gap: 8px; align-items: flex-end; margin-top: 14px; z-index: 2; position: relative; }
+      .s6-cbar { width: 44px; border-radius: 4px 4px 0 0; text-align: center;
+        padding-top: 4px; position: relative; }
+      .s6-cbar-val { font-size: 11px; font-weight: 700; color: #fff; }
+      .s6-cbar-lbl { font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 3px; }
+
+      /* ---- Status bar ---- */
+      .status-bar { position: absolute; bottom: 0; left: 0; right: 0;
+        height: 32px; background: rgba(0,0,0,0.4);
+        border-top: 1px solid rgba(255,255,255,0.04);
+        display: flex; align-items: center; padding: 0 20px;
+        font-size: 11px; color: rgba(255,255,255,0.2);
+        font-family: "JetBrains Mono", monospace; letter-spacing: 0.04em;
+        gap: 24px; pointer-events: none; }
+      .status-dot { width: 6px; height: 6px; border-radius: 50%;
+        background: rgba(0,180,255,0.3); display: inline-block; margin-right: 6px; }
+
+      /* ---- Section label ---- */
+      .section-label { position: absolute; top: 20px; left: 30px;
+        font-size: 13px; font-weight: 500; color: rgba(0,180,255,0.3);
+        letter-spacing: 0.08em; text-transform: uppercase; pointer-events: none; }
+      .section-line { position: absolute; top: 46px; left: 30px;
+        width: 40px; height: 1px; background: rgba(0,180,255,0.15); pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-duration="18"
+    >
+      <!-- ======================= SCENE 1: OPENING (0-3s) ======================= -->
+      <section id="scene1" class="clip" data-start="0" data-duration="3" data-track-index="1">
+        <div class="scene-inner">
+          <div class="grid-bg"></div>
+          <div class="glow-center"></div>
+          <div class="glow-br"></div>
+          <div class="scanlines"></div>
+          <div class="ghost-text" data-layout-allow-occlusion style="top:60px;right:60px;">MULTIMODAL</div>
+          <div class="ghost-text" data-layout-allow-occlusion style="bottom:80px;left:40px;font-size:100px;">AI</div>
+
+          <div class="dot-cluster">
+            <div class="dot" style="top:15%;left:20%;"></div>
+            <div class="dot" style="top:25%;left:75%;"></div>
+            <div class="dot" style="top:55%;left:12%;"></div>
+            <div class="dot" style="top:70%;left:85%;"></div>
+            <div class="dot" style="top:40%;left:90%;"></div>
+            <div class="dot" style="top:85%;left:30%;"></div>
+            <div class="dot" style="top:10%;left:55%;"></div>
+            <div class="dot" style="top:60%;left:50%;"></div>
+            <div class="dot" style="top:35%;left:40%;"></div>
+            <div class="dot" style="top:80%;left:65%;"></div>
+            <div class="dot" style="top:20%;left:10%;"></div>
+            <div class="dot" style="top:75%;left:45%;"></div>
+            <div class="dot" style="top:5%;left:80%;"></div>
+            <div class="dot" style="top:50%;left:25%;"></div>
+            <div class="dot" style="top:90%;left:15%;"></div>
+            <div class="dot" style="top:30%;left:65%;"></div>
+            <div class="dot" style="top:65%;left:35%;"></div>
+            <div class="dot" style="top:12%;left:45%;"></div>
+            <div class="dot" style="top:78%;left:78%;"></div>
+            <div class="dot" style="top:45%;left:5%;"></div>
+          </div>
+
+          <div class="orbit-ring orbit-r1" style="opacity:0.3;"></div>
+          <div class="orbit-ring orbit-r2" style="opacity:0.15;"></div>
+          <div class="orbit-ring orbit-r3" style="opacity:0.07;"></div>
+
+          <div class="scene-content s1-zoom" style="text-align:center;">
+            <div id="s1-title-line1" style="font-size:72px;font-weight:800;color:#fff;letter-spacing:-0.02em;">
+              多模态大模型
+            </div>
+            <div id="s1-title-line2" style="font-size:36px;font-weight:400;color:rgba(255,255,255,0.6);margin-top:16px;">
+              <span style="color:#00b4ff;font-weight:700;">Multimodal</span> Large Language Model
+            </div>
+            <div id="s1-sub" style="font-size:20px;font-weight:400;color:rgba(255,255,255,0.35);margin-top:20px;letter-spacing:0.06em;">
+              文本 · 图像 · 音频 · 视频 融合理解
+            </div>
+            <div id="s1-badges" class="s1-badge-row" style="justify-content:center;">
+              <div class="s1-badge active"><span class="s1-badge-icon">📝</span>Text</div>
+              <div class="s1-badge"><span class="s1-badge-icon">🖼️</span>Image</div>
+              <div class="s1-badge"><span class="s1-badge-icon">🎵</span>Audio</div>
+              <div class="s1-badge"><span class="s1-badge-icon">🎬</span>Video</div>
+            </div>
+          </div>
+
+          <div class="section-label">/* 01 · 概述 */</div>
+          <div class="section-line"></div>
+          <div class="status-bar">
+            <span><span class="status-dot"></span>MM-LLM v1.0</span>
+            <span>INFERENCE · REAL-TIME</span>
+            <span style="margin-left:auto;">00:00 / 00:18</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================= SCENE 2: ARCHITECTURE (3-6s) ======================= -->
+      <section id="scene2" class="clip" data-start="3" data-duration="3" data-track-index="1">
+        <div class="scene-inner">
+          <div class="grid-bg grid-bg-dense"></div>
+          <div class="glow-tl"></div>
+          <div class="glow-br"></div>
+          <div class="scanlines"></div>
+          <div class="ghost-text" style="top:30px;left:30px;font-size:100px;">ENCODER</div>
+          <div class="ghost-text" style="bottom:40px;right:20px;font-size:120px;">FUSION</div>
+
+          <div class="scene-content s2-zoom">
+            <div id="s2-cards" class="s2-mod-grid">
+              <div class="s2-mod-card highlight">
+                <div class="s2-mod-icon">📝</div>
+                <div class="s2-mod-label">文本编码器</div>
+                <div class="s2-mod-desc">Text Encoder<br/>Transformer / BERT</div>
+              </div>
+              <div class="s2-flow-arrow">→</div>
+              <div class="s2-mod-card highlight">
+                <div class="s2-mod-icon">🖼️</div>
+                <div class="s2-mod-label">图像编码器</div>
+                <div class="s2-mod-desc">Image Encoder<br/>ViT / CLIP</div>
+              </div>
+              <div class="s2-flow-arrow">→</div>
+              <div class="s2-mod-card highlight">
+                <div class="s2-mod-icon">🎵</div>
+                <div class="s2-mod-label">音频编码器</div>
+                <div class="s2-mod-desc">Audio Encoder<br/>Whisper / HuBERT</div>
+              </div>
+              <div class="s2-flow-arrow">→</div>
+              <div class="s2-mod-card highlight">
+                <div class="s2-mod-icon">🎬</div>
+                <div class="s2-mod-label">视频编码器</div>
+                <div class="s2-mod-desc">Video Encoder<br/>VideoMAE / ViViT</div>
+              </div>
+            </div>
+
+            <!-- Shared representation box -->
+            <div id="s2-encoder" class="s2-encoder-box">
+              <div class="s2-encoder-label">◆ 共享表征空间 · Shared Embedding Space</div>
+              <div class="s2-encoder-desc">各模态映射到统一语义向量空间 → 跨模态对齐与融合</div>
+            </div>
+
+            <!-- Tag cloud -->
+            <div id="s2-tags" class="s2-tag-cloud">
+              <span class="s2-tag">Cross-Attention</span>
+              <span class="s2-tag">Q-Former</span>
+              <span class="s2-tag">MoE</span>
+              <span class="s2-tag">LoRA</span>
+              <span class="s2-tag">Vision-Language</span>
+            </div>
+          </div>
+
+          <div class="section-label">/* 02 · 架构 */</div>
+          <div class="section-line"></div>
+          <div class="status-bar">
+            <span><span class="status-dot"></span>ENCODER BANK</span>
+            <span>MULTI-MODAL FUSION</span>
+            <span style="margin-left:auto;">00:03 / 00:18</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================= SCENE 3: CROSS-MODAL (6-9s) ======================= -->
+      <section id="scene3" class="clip" data-start="6" data-duration="3" data-track-index="1">
+        <div class="scene-inner">
+          <div class="grid-bg"></div>
+          <div class="glow-center"></div>
+          <div class="glow-tl" style="width:600px;height:600px;"></div>
+          <div class="scanlines"></div>
+          <div class="ghost-text" style="bottom:20px;right:40px;font-size:130px;">ALIGN</div>
+          <div class="ghost-text" style="top:100px;left:20px;font-size:90px;">CROSS</div>
+
+          <div class="scene-content s3-zoom">
+            <!-- Center diagram: cross-modal alignment -->
+            <div id="s3-diagram" class="s3-diagram">
+              <!-- Connecting lines -->
+              <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;">
+                <line x1="190" y1="60" x2="450" y2="200" stroke="rgba(255,100,50,0.2)" stroke-width="2" stroke-dasharray="6,4"/>
+                <line x1="190" y1="340" x2="450" y2="200" stroke="rgba(0,200,100,0.2)" stroke-width="2" stroke-dasharray="6,4"/>
+                <line x1="710" y1="60" x2="470" y2="200" stroke="rgba(200,100,255,0.2)" stroke-width="2" stroke-dasharray="6,4"/>
+                <line x1="710" y1="340" x2="470" y2="200" stroke="rgba(255,200,0,0.2)" stroke-width="2" stroke-dasharray="6,4"/>
+              </svg>
+              <div class="s3-node image">
+                <div class="s3-node-icon">🖼️</div>
+                <div class="s3-node-label">Image</div>
+              </div>
+              <div class="s3-node text">
+                <div class="s3-node-icon">📝</div>
+                <div class="s3-node-label">Text</div>
+              </div>
+              <div class="s3-node audio">
+                <div class="s3-node-icon">🎵</div>
+                <div class="s3-node-label">Audio</div>
+              </div>
+              <div class="s3-node video">
+                <div class="s3-node-icon">🎬</div>
+                <div class="s3-node-label">Video</div>
+              </div>
+              <div class="s3-center">
+                <div class="s3-center-label">✦ 跨模态对齐</div>
+                <div class="s3-center-sub">Cross-Modal Alignment<br/>对比学习 · 匹配目标</div>
+              </div>
+            </div>
+
+            <!-- Examples row -->
+            <div id="s3-examples" class="s3-example-row">
+              <div class="s3-example">
+                <div class="s3-example-icon">🖼️→📝</div>
+                <div class="s3-example-text">图生文 · Image Captioning</div>
+              </div>
+              <div class="s3-example">
+                <div class="s3-example-icon">📝→🖼️</div>
+                <div class="s3-example-text">文生图 · Text-to-Image</div>
+              </div>
+              <div class="s3-example">
+                <div class="s3-example-icon">🎬+📝→📝</div>
+                <div class="s3-example-text">视频问答 · VideoQA</div>
+              </div>
+              <div class="s3-example">
+                <div class="s3-example-icon">🎵→📝</div>
+                <div class="s3-example-text">音频转文字 · ASR</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-label">/* 03 · 跨模态对齐 */</div>
+          <div class="section-line"></div>
+          <div class="status-bar">
+            <span><span class="status-dot"></span>CROSS-MODAL</span>
+            <span>ALIGNMENT · CONTRASTIVE LEARNING</span>
+            <span style="margin-left:auto;">00:06 / 00:18</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================= SCENE 4: TRAINING (9-12s) ======================= -->
+      <section id="scene4" class="clip" data-start="9" data-duration="3" data-track-index="1">
+        <div class="scene-inner">
+          <div class="grid-bg grid-bg-dense"></div>
+          <div class="glow-br" style="background:radial-gradient(circle,rgba(120,0,255,0.12) 0%,transparent 70%);"></div>
+          <div class="glow-tl" style="background:radial-gradient(circle,rgba(0,180,255,0.1) 0%,transparent 70%);"></div>
+          <div class="scanlines"></div>
+          <div class="ghost-text" style="top:80px;right:20px;font-size:110px;">TRAIN</div>
+          <div class="ghost-text" style="bottom:60px;left:30px;font-size:80px;">DATA</div>
+
+          <div class="scene-content s4-zoom">
+            <!-- Stats -->
+            <div id="s4-stats" class="s4-stats-row">
+              <div class="s4-stat">
+                <div class="s4-stat-num" id="s4-stat1">5.4B</div>
+                <div class="s4-stat-label">图文对 (Image-Text Pairs)</div>
+              </div>
+              <div class="s4-stat">
+                <div class="s4-stat-num" id="s4-stat2">1.8M</div>
+                <div class="s4-stat-label">视频时长 (Hours of Video)</div>
+              </div>
+              <div class="s4-stat">
+                <div class="s4-stat-num" id="s4-stat3">500K</div>
+                <div class="s4-stat-label">音频小时 (Audio Hours)</div>
+              </div>
+              <div class="s4-stat">
+                <div class="s4-stat-num" id="s4-stat4">1.2T</div>
+                <div class="s4-stat-label">Tokens 训练量</div>
+              </div>
+            </div>
+
+            <!-- Pipeline -->
+            <div id="s4-pipeline" class="s4-pipeline">
+              <div class="s4-pipe-step active">预训练<br/><span style="font-size:11px;color:rgba(255,255,255,0.4);">Pre-training</span></div>
+              <div class="s4-pipe-arrow">▸</div>
+              <div class="s4-pipe-step">指令微调<br/><span style="font-size:11px;color:rgba(255,255,255,0.4);">Instruction Tuning</span></div>
+              <div class="s4-pipe-arrow">▸</div>
+              <div class="s4-pipe-step">RLHF<br/><span style="font-size:11px;color:rgba(255,255,255,0.4);">Human Feedback</span></div>
+              <div class="s4-pipe-arrow">▸</div>
+              <div class="s4-pipe-step">对齐<br/><span style="font-size:11px;color:rgba(255,255,255,0.4);">Alignment</span></div>
+            </div>
+
+            <!-- Bar chart -->
+            <div id="s4-chart" class="s4-bar-chart">
+              <div style="display:flex;flex-direction:column;align-items:center;">
+                <div class="s4-bar" style="height:100px;background:linear-gradient(to top,rgba(0,120,255,0.3),rgba(0,180,255,0.5));width:70px;"></div>
+                <div class="s4-bar-label">GPT-4V</div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:center;">
+                <div class="s4-bar" style="height:130px;background:linear-gradient(to top,rgba(0,120,255,0.3),rgba(0,180,255,0.5));width:70px;"></div>
+                <div class="s4-bar-label">Gemini</div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:center;">
+                <div class="s4-bar" style="height:85px;background:linear-gradient(to top,rgba(120,0,255,0.3),rgba(150,0,255,0.5));width:70px;"></div>
+                <div class="s4-bar-label">Qwen-VL</div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:center;">
+                <div class="s4-bar" style="height:110px;background:linear-gradient(to top,rgba(120,0,255,0.3),rgba(150,0,255,0.5));width:70px;"></div>
+                <div class="s4-bar-label">LLaVA</div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:center;">
+                <div class="s4-bar" style="height:70px;background:linear-gradient(to top,rgba(0,200,100,0.3),rgba(0,200,100,0.5));width:70px;"></div>
+                <div class="s4-bar-label">InternVL</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-label">/* 04 · 训练与数据 */</div>
+          <div class="section-line"></div>
+          <div class="status-bar">
+            <span><span class="status-dot"></span>TRAINING</span>
+            <span>MULTI-STAGE · SCALE</span>
+            <span style="margin-left:auto;">00:09 / 00:18</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================= SCENE 5: APPLICATIONS (12-15s) ======================= -->
+      <section id="scene5" class="clip" data-start="12" data-duration="3" data-track-index="1">
+        <div class="scene-inner">
+          <div class="grid-bg"></div>
+          <div class="glow-center"></div>
+          <div class="glow-tl" style="background:radial-gradient(circle,rgba(0,255,180,0.08) 0%,transparent 70%);"></div>
+          <div class="scanlines"></div>
+          <div class="ghost-text" style="bottom:40px;right:30px;font-size:90px;">FUTURE</div>
+          <div class="ghost-text" style="top:50px;left:20px;font-size:70px;">APPLY</div>
+
+          <div class="scene-content s5-zoom">
+            <!-- App grid -->
+            <div id="s5-grid" class="s5-app-grid">
+              <div class="s5-app-card highlight">
+                <div class="s5-app-icon">📄</div>
+                <div class="s5-app-title">文档理解</div>
+                <div class="s5-app-desc">DocVQA · 表格解析<br/>图表分析 · PDF 问答</div>
+              </div>
+              <div class="s5-app-card highlight">
+                <div class="s5-app-icon">🔍</div>
+                <div class="s5-app-title">视觉问答</div>
+                <div class="s5-app-desc">Visual QA · 场景理解<br/>图像推理 · 知识问答</div>
+              </div>
+              <div class="s5-app-card">
+                <div class="s5-app-icon">🎨</div>
+                <div class="s5-app-title">内容生成</div>
+                <div class="s5-app-desc">文生图/视频 · 语音合成<br/>多模态创作</div>
+              </div>
+              <div class="s5-app-card">
+                <div class="s5-app-icon">🤖</div>
+                <div class="s5-app-title">具身智能</div>
+                <div class="s5-app-desc">Embodied AI · 机器人<br/>视觉-语言-动作</div>
+              </div>
+              <div class="s5-app-card">
+                <div class="s5-app-icon">🏥</div>
+                <div class="s5-app-title">医疗AI</div>
+                <div class="s5-app-desc">影像诊断 · 病理分析<br/>多模态病历</div>
+              </div>
+              <div class="s5-app-card">
+                <div class="s5-app-icon">🚗</div>
+                <div class="s5-app-title">自动驾驶</div>
+                <div class="s5-app-desc">多模态感知 · 融合决策<br/>场景理解</div>
+              </div>
+            </div>
+
+            <!-- Closing -->
+            <div id="s5-closing" class="s5-closing">
+              <div class="s5-closing-text">多模态大模型 · 下一代通用人工智能的基石</div>
+              <div class="s5-closing-sub">Multimodal LLM — The Foundation of Next-Gen AGI</div>
+            </div>
+          </div>
+
+          <div class="section-label">/* 05 · 应用与展望 */</div>
+          <div class="section-line"></div>
+          <div class="status-bar">
+            <span><span class="status-dot"></span>APPLICATIONS</span>
+            <span>AGI · EMBODIED · HEALTHCARE</span>
+            <span style="margin-left:auto;">00:12 / 00:18</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================= SCENE 6: LATEST MODELS (15-18s) ======================= -->
+      <section id="scene6" class="clip" data-start="15" data-duration="3" data-track-index="1">
+        <div class="scene-inner">
+          <div class="grid-bg grid-bg-dense"></div>
+          <div class="glow-tl" style="background:radial-gradient(circle,rgba(0,255,200,0.1) 0%,transparent 70%);"></div>
+          <div class="glow-br" style="background:radial-gradient(circle,rgba(255,100,0,0.08) 0%,transparent 70%);"></div>
+          <div class="scanlines"></div>
+          <div class="ghost-text" style="top:40px;right:20px;font-size:80px;">STATE OF</div>
+          <div class="ghost-text" style="bottom:60px;left:40px;font-size:100px;">THE ART</div>
+
+          <div class="scene-content s6-zoom">
+            <!-- Section header -->
+            <div id="s6-header" style="text-align:center;margin-bottom:8px;">
+              <span style="font-size:20px;font-weight:600;color:rgba(255,255,255,0.7);letter-spacing:0.08em;">🔥 最新前沿模型 · STATE-OF-THE-ART</span>
+            </div>
+
+            <!-- Model grid -->
+            <div id="s6-grid" class="s6-model-grid">
+              <!-- GPT-4o -->
+              <div class="s6-model-card flag">
+                <div class="s6-model-name">GPT-4o</div>
+                <div class="s6-model-org">OpenAI · 2024</div>
+                <div class="s6-model-mods">
+                  <span class="s6-mod-tag active">📝</span>
+                  <span class="s6-mod-tag active">🖼️</span>
+                  <span class="s6-mod-tag active">🎵</span>
+                  <span class="s6-mod-tag active">🎬</span>
+                </div>
+                <div class="s6-model-stats">
+                  <div class="s6-stat-item"><div class="s6-stat-val">~1.8T</div><div class="s6-stat-lbl">Params</div></div>
+                  <div class="s6-stat-item"><div class="s6-stat-val">全模态</div><div class="s6-stat-lbl">Modality</div></div>
+                </div>
+                <div class="s6-model-desc">原生多模态 · 实时语音对话 · 统一Transformer</div>
+              </div>
+              <!-- Gemini 2.0 -->
+              <div class="s6-model-card flag">
+                <div class="s6-model-name">Gemini 2.0</div>
+                <div class="s6-model-org">Google DeepMind · 2024</div>
+                <div class="s6-model-mods">
+                  <span class="s6-mod-tag active">📝</span>
+                  <span class="s6-mod-tag active">🖼️</span>
+                  <span class="s6-mod-tag active">🎵</span>
+                  <span class="s6-mod-tag active">🎬</span>
+                </div>
+                <div class="s6-model-stats">
+                  <div class="s6-stat-item"><div class="s6-stat-val">MoE</div><div class="s6-stat-lbl">Arch</div></div>
+                  <div class="s6-stat-item"><div class="s6-stat-val">1M+</div><div class="s6-stat-lbl">Context</div></div>
+                </div>
+                <div class="s6-model-desc">超长上下文 · 原生工具调用 · Agent 集成</div>
+              </div>
+              <!-- Qwen2.5-VL -->
+              <div class="s6-model-card">
+                <div class="s6-model-name">Qwen2.5-VL</div>
+                <div class="s6-model-org">Alibaba · 2025</div>
+                <div class="s6-model-mods">
+                  <span class="s6-mod-tag active">📝</span>
+                  <span class="s6-mod-tag active">🖼️</span>
+                  <span class="s6-mod-tag active">🎬</span>
+                  <span class="s6-mod-tag">🎵</span>
+                </div>
+                <div class="s6-model-stats">
+                  <div class="s6-stat-item"><div class="s6-stat-val">72B</div><div class="s6-stat-lbl">Params</div></div>
+                  <div class="s6-stat-item"><div class="s6-stat-val">开源</div><div class="s6-stat-lbl">Type</div></div>
+                </div>
+                <div class="s6-model-desc">动态分辨率 · 视频理解 · 开源可商用</div>
+              </div>
+            </div>
+
+            <!-- Development timeline -->
+            <div id="s6-timeline" class="s6-timeline">
+              <span class="s6-tl-node">GPT-4V<br/>2023</span>
+              <span class="s6-tl-arrow">▸</span>
+              <span class="s6-tl-node">Gemini 1.5<br/>2024</span>
+              <span class="s6-tl-arrow">▸</span>
+              <span class="s6-tl-node flag">GPT-4o<br/>2024</span>
+              <span class="s6-tl-arrow">▸</span>
+              <span class="s6-tl-node flag">Gemini 2.0<br/>2024</span>
+              <span class="s6-tl-arrow">▸</span>
+              <span class="s6-tl-node flag">Qwen2.5-VL<br/>2025</span>
+              <span class="s6-tl-arrow">▸</span>
+              <span class="s6-tl-node" style="border-color:rgba(0,180,255,0.2);color:rgba(0,180,255,0.3);">Next→</span>
+            </div>
+
+            <!-- Benchmark comparison -->
+            <div id="s6-bench" style="display:flex;align-items:center;gap:16px;margin-top:10px;z-index:2;position:relative;">
+              <span style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.04em;font-weight:500;">MMMU</span>
+              <div class="s6-compare-bar">
+                <div style="display:flex;flex-direction:column;align-items:center;">
+                  <div class="s6-cbar" style="height:50px;background:linear-gradient(to top,rgba(0,120,255,0.3),rgba(0,200,255,0.5));width:52px;">
+                    <div class="s6-cbar-val">82%</div>
+                  </div>
+                  <div class="s6-cbar-lbl" style="font-size:10px;">GPT-4o</div>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:center;">
+                  <div class="s6-cbar" style="height:46px;background:linear-gradient(to top,rgba(0,200,100,0.3),rgba(0,200,100,0.5));width:52px;">
+                    <div class="s6-cbar-val">79%</div>
+                  </div>
+                  <div class="s6-cbar-lbl" style="font-size:10px;">Gemini</div>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:center;">
+                  <div class="s6-cbar" style="height:42px;background:linear-gradient(to top,rgba(120,0,255,0.3),rgba(150,0,255,0.5));width:52px;">
+                    <div class="s6-cbar-val">74%</div>
+                  </div>
+                  <div class="s6-cbar-lbl" style="font-size:10px;">Qwen2.5</div>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:center;">
+                  <div class="s6-cbar" style="height:38px;background:linear-gradient(to top,rgba(255,100,50,0.3),rgba(255,100,50,0.5));width:52px;">
+                    <div class="s6-cbar-val">69%</div>
+                  </div>
+                  <div class="s6-cbar-lbl" style="font-size:10px;">Claude</div>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:center;">
+                  <div class="s6-cbar" style="height:36px;background:linear-gradient(to top,rgba(255,200,0,0.3),rgba(255,200,0,0.5));width:52px;">
+                    <div class="s6-cbar-val">65%</div>
+                  </div>
+                  <div class="s6-cbar-lbl" style="font-size:10px;">LLaVA</div>
+                </div>
+              </div>
+              <span style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.04em;font-weight:500;">基准评分</span>
+            </div>
+
+            <!-- Bottom insight -->
+            <div id="s6-insight" style="margin-top:12px;padding:10px 32px;border-radius:8px;
+              background:rgba(0,255,180,0.04);border:1px solid rgba(0,255,180,0.1);z-index:2;position:relative;">
+              <span style="font-size:14px;font-weight:500;color:rgba(255,255,255,0.6);letter-spacing:0.02em;">
+                ◆ 多模态能力持续进化 · 向通用人工智能迈进
+              </span>
+            </div>
+          </div>
+
+          <div class="section-label">/* 06 · 前沿模型 */</div>
+          <div class="section-line"></div>
+          <div class="status-bar">
+            <span><span class="status-dot"></span>SOTA MODELS</span>
+            <span>GPT-4o · GEMINI · QWEN2.5-VL</span>
+            <span style="margin-left:auto;">00:15 / 00:18</span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      // === SCENE 1: Opening (0-3s) ===
+      tl.from("#s1-title-line1", { opacity: 0, y: 40, duration: 0.6, ease: "power3.out" }, 0.15);
+      tl.from("#s1-title-line2", { opacity: 0, y: 30, duration: 0.5, ease: "power3.out" }, 0.4);
+      tl.from("#s1-sub", { opacity: 0, y: 20, duration: 0.4, ease: "power2.out" }, 0.65);
+      tl.from("#s1-badges .s1-badge", { opacity: 0, x: -20, duration: 0.35, stagger: 0.08, ease: "power2.out" }, 0.85);
+      // Orbit rings spin
+      tl.to(".orbit-r1", { rotation: 360, duration: 3, ease: "none" }, 0);
+      tl.to(".orbit-r2", { rotation: -360, duration: 3, ease: "none" }, 0);
+      tl.to(".orbit-r3", { rotation: 360, duration: 3, ease: "none" }, 0);
+      // Dots pulse
+      tl.to(".dot", { scale: 1.5, opacity: 0.6, duration: 1.5, stagger: 0.05, ease: "sine.inOut", repeat: 1, yoyo: true }, 0);
+      // Glow breathe
+      tl.to(".glow-center", { scale: 1.05, opacity: 0.8, duration: 1.5, ease: "sine.inOut", repeat: 1, yoyo: true }, 0);
+
+      // === SCENE 2: Architecture (3-6s) ===
+      tl.from("#s2-cards .s2-mod-card", { opacity: 0, y: 30, duration: 0.4, stagger: 0.1, ease: "power2.out" }, 3.15);
+      tl.from("#s2-cards .s2-flow-arrow", { opacity: 0, scale: 0, duration: 0.25, stagger: 0.1, ease: "back.out(2)" }, 3.25);
+      tl.from("#s2-encoder", { opacity: 0, y: 20, scale: 0.95, duration: 0.5, ease: "power2.out" }, 3.8);
+      tl.from("#s2-tags .s2-tag", { opacity: 0, x: -10, duration: 0.25, stagger: 0.06, ease: "power1.out" }, 4.3);
+
+      // === SCENE 3: Cross-modal (6-9s) ===
+      tl.from("#s3-diagram .s3-node", { opacity: 0, scale: 0.7, duration: 0.4, stagger: 0.12, ease: "back.out(2)" }, 6.15);
+      tl.from("#s3-diagram .s3-center", { opacity: 0, scale: 0.5, duration: 0.5, ease: "back.out(2.5)" }, 6.65);
+      tl.from("#s3-examples .s3-example", { opacity: 0, y: 15, duration: 0.3, stagger: 0.08, ease: "power2.out" }, 7.2);
+      // SVG lines draw in
+      tl.from("#s3-diagram svg line", { strokeDashoffset: 200, duration: 0.5, ease: "power1.out", stagger: 0.08 }, 6.3);
+
+      // === SCENE 4: Training (9-12s) ===
+      tl.from("#s4-stats .s4-stat", { opacity: 0, y: 30, duration: 0.4, stagger: 0.1, ease: "power2.out" }, 9.15);
+      tl.from("#s4-pipeline .s4-pipe-step", { opacity: 0, y: 20, duration: 0.3, stagger: 0.1, ease: "power2.out" }, 9.6);
+      tl.from("#s4-pipeline .s4-pipe-arrow", { opacity: 0, scale: 0, duration: 0.2, stagger: 0.1, ease: "back.out(2)" }, 9.7);
+      tl.from("#s4-chart > div", { opacity: 0, y: 40, duration: 0.35, stagger: 0.08, ease: "power2.out" }, 10.2);
+
+      // === SCENE 5: Applications (12-15s) ===
+      tl.from("#s5-grid .s5-app-card", { opacity: 0, y: 25, scale: 0.9, duration: 0.35, stagger: 0.07, ease: "power2.out" }, 12.15);
+      tl.from("#s5-closing", { opacity: 0, y: 20, duration: 0.5, ease: "power2.out" }, 13.1);
+
+      // === SCENE 6: Latest Models (15-18s) ===
+      tl.from("#s6-header", { opacity: 0, y: -15, duration: 0.4, ease: "power2.out" }, 15.1);
+      tl.from("#s6-grid .s6-model-card", { opacity: 0, y: 25, scale: 0.9, duration: 0.35, stagger: 0.08, ease: "power2.out" }, 15.3);
+      tl.from("#s6-timeline .s6-tl-node", { opacity: 0, x: -15, duration: 0.3, stagger: 0.06, ease: "power2.out" }, 15.9);
+      tl.from("#s6-timeline .s6-tl-arrow", { opacity: 0, scale: 0, duration: 0.15, stagger: 0.06, ease: "back.out(2)" }, 16.0);
+      tl.from("#s6-bench > div > div, #s6-bench > span", { opacity: 0, y: 20, duration: 0.3, stagger: 0.06, ease: "power2.out" }, 16.4);
+      tl.from("#s6-insight", { opacity: 0, y: 10, duration: 0.4, ease: "power2.out" }, 17.2);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

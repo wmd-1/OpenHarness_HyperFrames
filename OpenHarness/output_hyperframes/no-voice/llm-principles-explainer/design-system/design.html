@@ -1,0 +1,2427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>capture × Block Frame — design.html</title>
+<!--
+  AGENT NOTE — design.html (product-launch-video Phase 1b output)
+  Brand DNA from: 
+  Style preset:   block-frame (forced)
+  Generated:      2026-06-16T09:04:09.185Z
+
+  Downstream usage (Phase 4b scene workers):
+    - §2: grep <!-- ROOT-START --> .. <!-- ROOT-END --> → paste into scene <style>
+    - §4: grep <!-- MOTION-START --> .. <!-- MOTION-END --> → paste into <script>
+    - §5: grep <!-- VOICE-START --> .. <!-- VOICE-END --> → register for DOM text copy
+    - §H: grep <!-- HINTS-START --> .. <!-- HINTS-END --> → composition rules for plan agent
+    - §6: grep <!-- COMPONENT: <name> --> .. <!-- /COMPONENT --> → paste by name
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&family=Space+Grotesk:wght@400;500&display=swap" rel="stylesheet">
+<!-- preset chromeFonts: native typography for doc chrome + .preset-native-scope -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;family=Space+Grotesk:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    color: #000000;
+    background: #FFFDF5;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 32px; }
+  .ds-section { padding: 80px 0; border-top: 1px solid #e5e5e5; }
+  .ds-section:first-of-type { border-top: none; }
+  .eyebrow { font-family: 'Space Grotesk', ui-monospace, monospace; font-size: 12px; text-transform: uppercase; letter-spacing: 0.14em; opacity: 0.6; margin-bottom: 12px; }
+  h1, h2, h3 { font-family: 'Inter', serif; font-weight: 400; letter-spacing: -0.015em; line-height: 1.05; }
+  h2 { font-size: clamp(36px, 4vw, 56px); margin-bottom: 16px; }
+  h3.ds-h3 { font-size: 18px; font-family: 'Inter', sans-serif; font-weight: 600; margin: 20px 0 12px; opacity: 0.85; }
+  .ds-prose { font-size: 16px; max-width: 62ch; margin: 12px 0; opacity: 0.85; }
+  .ds-prose code, code { font-family: 'Space Grotesk', monospace; background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 0.92em; }
+  .ds-code { font-family: 'Space Grotesk', monospace; background: #0f1419; color: #e6edf3; padding: 20px 24px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.6; margin: 16px 0; white-space: pre; }
+  .ds-summary { cursor: pointer; padding: 8px 0; font-family: 'Space Grotesk', monospace; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.7; }
+  details[open] .ds-summary { opacity: 1; }
+
+  /* Paste-ready source blocks — collapsed by default because the raw markdown / CSS
+     in <pre> doesn't render as a readable doc (it's machine-bound for emit-chunks).
+     The rendered version sits above each <details>. */
+  .ds-paste-ready { margin: 16px 0; padding: 12px 16px; border: 1px dashed #bbb; border-radius: 8px; background: #fafafa; }
+  .ds-paste-ready > .ds-summary { padding: 4px 0; font-size: 11px; opacity: 0.85; }
+  .ds-paste-ready > .ds-summary code { background: #eee; padding: 1px 5px; border-radius: 3px; font-size: 0.95em; }
+  .ds-paste-ready[open] > .ds-summary { margin-bottom: 8px; }
+  .ds-paste-ready > pre.ds-code { margin: 0; }
+
+  /* ── Title card */
+  .title-card { padding: 80px 0 64px; border-bottom: 1px solid #e5e5e5; }
+  .title-card-inner { max-width: 1120px; margin: 0 auto; padding: 0 32px; }
+  .brand-row { display: flex; gap: 12px; align-items: baseline; font-family: 'Space Grotesk', monospace; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 24px; }
+  .brand-name { color: #FE90E8; font-weight: 700; }
+  .brand-x { opacity: 0.4; }
+  .style-name { color: #F7CB46; font-weight: 700; }
+  .title-display { font-size: clamp(48px, 7vw, 96px); margin: 0; }
+  .title-meta { margin-top: 32px; font-family: 'Space Grotesk', monospace; font-size: 12px; opacity: 0.7; }
+  .title-meta strong { font-weight: 700; opacity: 0.9; }
+
+  /* ── §1 Brand DNA */
+  .dna-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 24px 0; }
+  .dna-grid-5 { grid-template-columns: repeat(5, 1fr); }
+  .dna-swatch { padding: 24px 20px; border-radius: 8px; min-height: 120px; display: flex; flex-direction: column; justify-content: space-between; }
+  .dna-label { font-family: 'Space Grotesk', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.8; }
+  .dna-hex { font-family: 'Space Grotesk', monospace; font-size: 18px; font-weight: 700; }
+  .dna-desc { margin-top: 24px; font-size: 18px; line-height: 1.55; max-width: 60ch; opacity: 0.85; }
+  .dna-gradient { margin: 32px 0 0; }
+  .dna-gradient-label { font-family: 'Space Grotesk', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.6; margin-bottom: 10px; }
+  .dna-gradient-bar { height: 96px; border-radius: 8px; }
+  .dna-gradient-code { display: block; margin-top: 10px; font-family: 'Space Grotesk', monospace; font-size: 12px; opacity: 0.7; word-break: break-all; }
+  @media (max-width: 900px) { .dna-grid-5 { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 720px) { .dna-grid { grid-template-columns: repeat(2, 1fr); } .dna-grid-5 { grid-template-columns: repeat(2, 1fr); } }
+
+  /* ── §3 Typography */
+  .type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 0; }
+  .type-card { padding: 24px; border: 1px solid #e5e5e5; border-radius: 8px; }
+  .type-role { font-family: 'Space Grotesk', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.6; }
+  .type-name { font-size: 18px; font-weight: 600; margin: 4px 0; }
+  .type-note { font-family: 'Space Grotesk', monospace; font-size: 11px; opacity: 0.5; margin-bottom: 16px; }
+  .type-specimen { margin-top: 16px; }
+  @media (max-width: 720px) { .type-grid { grid-template-columns: 1fr; } }
+
+  /* ── §5 Voice */
+  .voice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin: 24px 0; }
+  .voice-dl dt { font-family: 'Space Grotesk', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.6; margin-top: 16px; }
+  .voice-dl dd { font-size: 15px; margin-top: 4px; }
+  .voice-cta { display: inline-block; padding: 2px 10px; border: 1px solid #ddd; border-radius: 999px; font-size: 13px; margin: 2px 4px 2px 0; }
+  .voice-sample { font-size: 15px; opacity: 0.85; margin: 4px 0; }
+  .voice-pair { padding: 16px; border: 1px solid #e5e5e5; border-radius: 8px; margin: 12px 0; }
+  .voice-tag { font-family: 'Space Grotesk', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; opacity: 0.6; margin-right: 8px; }
+  .voice-in { margin-bottom: 8px; }
+  .voice-out { opacity: 0.7; }
+  @media (max-width: 720px) { .voice-grid { grid-template-columns: 1fr; } }
+
+  /* ── §6 Components */
+  .comp-card { padding: 0; border: 1px solid #e5e5e5; border-radius: 8px; margin: 16px 0; overflow: hidden; }
+  .comp-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #fafafa; border-bottom: 1px solid #e5e5e5; }
+  .comp-name { font-family: 'Space Grotesk', monospace; font-size: 13px; font-weight: 700; }
+  .comp-marker { font-family: 'Space Grotesk', monospace; font-size: 11px; opacity: 0.6; }
+  /* Component preview: components are authored for 1920×1080 scenes. The doc
+     container is ~1056px wide, so wide components (mega-stat etc.) overflow.
+     Allow horizontal scroll so reviewers can pan; max-height caps vertical too. */
+  .comp-preview { padding: 32px; background: #FFFDF5; overflow: auto; max-height: 720px; }
+  .comp-preview::-webkit-scrollbar { height: 8px; width: 8px; }
+  .comp-preview::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+
+  /* ── Markdown blocks (mdBlockToHtml output) */
+  .ds-prose-block { max-width: 80ch; margin: 16px 0; }
+  .ds-prose-block .ds-prose { margin: 0 0 12px; }
+  .ds-prose-block .ds-prose:last-child { margin-bottom: 0; }
+  .ds-prose-block .ds-h2 { font-family: 'Inter', serif; font-size: 24px; margin: 24px 0 12px; }
+  .ds-prose-block .ds-h3 { font-size: 16px; font-weight: 700; margin: 20px 0 8px; opacity: 0.9; }
+  .ds-prose-block .ds-h4 { font-size: 14px; font-weight: 700; margin: 18px 0 6px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.06em; }
+  .ds-prose-block .ds-list { margin: 8px 0 16px; padding-left: 24px; }
+  .ds-prose-block .ds-list li { margin: 4px 0; line-height: 1.55; }
+  .ds-prose-block .ds-list li code { font-size: 0.92em; }
+  .ds-prose-block .ds-code { margin: 12px 0; }
+  .ds-table { border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+  .ds-table th, .ds-table td { padding: 8px 12px; border: 1px solid #e5e5e5; vertical-align: top; text-align: left; }
+  .ds-table th { background: #fafafa; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .ds-table td code { font-size: 0.92em; }
+  
+
+/* ── Preset §I page styling (from block-frame.md) ── */
+/* ── Preset-native typography vars (loaded via preset-meta.chromeFonts.googleFontsHref).
+ * These let the doc chrome render in Inter + Space Grotesk regardless of
+ * brand DNA. The §6 component preview and §T type-role atlas also read
+ * these via .preset-native-scope.
+ *
+ * Block Frame has no script face — the script slot points at Inter because the
+ * preset refuses a third face. The fallback chain ends in a heavy grotesque
+ * (Archivo Black / system-ui) that still carries the "neobrutalist mass"
+ * register. Mono slot is Space Grotesk (treated as quasi-mono via wide
+ * tracking + uppercase) with JetBrains Mono / IBM Plex Mono as deeper falls. */
+:root {
+  --f-disp-native:
+    "Inter", "Archivo Black", "Helvetica Neue", -apple-system, BlinkMacSystemFont, system-ui,
+    sans-serif;
+  --f-body-native:
+    "Inter", "IBM Plex Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --f-script-native:
+    "Inter", "Archivo Black", "Helvetica Neue", -apple-system, BlinkMacSystemFont, system-ui,
+    sans-serif;
+  --f-mono-native:
+    "Space Grotesk", "JetBrains Mono", "IBM Plex Mono", "Menlo", ui-monospace, monospace;
+}
+
+/* .preset-native-scope: re-bind font tokens to preset-native families for §6 previews + §T atlas. */
+.preset-native-scope {
+  --font-display: var(--f-disp-native);
+  --font-body: var(--f-body-native);
+  --font-script: var(--f-script-native);
+  --font-mono: var(--f-mono-native);
+}
+
+/* design.html chrome — borrows the preset's visual register */
+body {
+  background: var(--canvas, #fffdf5);
+  font-family: "Inter", sans-serif;
+  color: var(--ink, #000);
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Inter", sans-serif;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  border-bottom: var(--bf-border-bold, 4px solid #000);
+  padding-bottom: 0.4em;
+  margin-top: 1.4em;
+}
+
+code,
+pre {
+  font-family: "Space Grotesk", monospace;
+  background: color-mix(in srgb, var(--brand-primary, #fe90e8) 12%, transparent);
+  border: var(--bf-border-mid, 3px solid #000);
+  padding: 0.1em 0.4em;
+}
+
+pre {
+  padding: 1em;
+  box-shadow: var(--bf-shadow-sm, 4px 4px 0 #000);
+}
+
+/* ── §T Type-role atlas. Container = bordered + shadowed canvas card. */
+.ds-trole-box {
+  display: flex;
+  flex-direction: column;
+  border: var(--bf-border-bold, 4px solid var(--ink));
+  border-radius: 0;
+  background: var(--canvas, #fffdf5);
+  box-shadow: var(--bf-shadow, 8px 8px 0 var(--ink));
+  overflow: hidden;
+  margin-top: 24px;
+}
+.ds-trole-row {
+  padding: 28px 32px;
+  border-bottom: var(--bf-border-thin, 2px solid var(--ink));
+}
+.ds-trole-row:last-child {
+  border-bottom: 0;
+}
+.ds-trole-sample {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 960px) {
+  .ds-trole-row {
+    padding: 24px;
+  }
+}
+
+/* ── Type-role samples. var(--font-*) resolves to brand DNA; decoration is preset-native. */
+.t-trole-heading-xl {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(48px, 6vw, 96px);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.t-trole-heading-lg {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(32px, 4vw, 64px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.t-trole-heading-md {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(24px, 2.5vw, 40px);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.t-trole-close-title {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(40px, 5vw, 80px);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+  color: var(--canvas, #fffdf5);
+  background: var(--ink);
+  border: 4px solid var(--canvas, #fffdf5);
+  box-shadow: 12px 12px 0 var(--brand-secondary, var(--brand-primary));
+  padding: 24px 32px;
+  max-width: 22ch;
+}
+.t-trole-quote-text {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(28px, 3.5vw, 52px);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--canvas, #fffdf5);
+  border: 4px solid var(--ink);
+  box-shadow: 8px 8px 0 var(--ink);
+  padding: 24px 32px;
+  max-width: 28ch;
+}
+.t-trole-stat-number {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(36px, 4vw, 64px);
+  line-height: 1;
+  color: var(--ink);
+}
+.t-trole-card-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 28px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.t-trole-step-num {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 48px;
+  line-height: 1;
+  color: var(--ink);
+  opacity: 0.6;
+}
+.t-trole-label-pill {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--brand-primary);
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: 6px 16px;
+}
+.t-trole-mono-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--brand-accent, var(--brand-primary));
+  border: 3px solid var(--ink);
+  padding: 10px 20px;
+}
+.t-trole-counter {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--canvas, #fffdf5);
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: 10px 18px;
+}
+
+</style>
+</head>
+<body>
+
+
+<section class="title-card">
+  <div class="title-card-inner">
+    <div class="brand-row">
+      <span class="brand-name">capture</span>
+      <span class="brand-x">×</span>
+      <span class="style-name">Block Frame</span>
+    </div>
+    <h1 class="title-display">capture</h1>
+    <p class="title-meta">
+      <strong>Source</strong> —
+      &nbsp;·&nbsp;
+      <strong>Material</strong> flat
+      &nbsp;·&nbsp;
+      <strong>Intent</strong> landing
+      &nbsp;·&nbsp;
+      <strong>Style</strong> Block Frame (forced)
+    </p>
+  </div>
+</section>
+
+<main class="wrap">
+
+<section id="brand-dna" class="ds-section">
+  <div class="eyebrow">§1 · Brand DNA (from site)</div>
+  <h2>capture in one glance</h2>
+  <div class="dna-grid dna-grid-5">
+    
+    <div class="dna-swatch" style="background: #FE90E8; color: #000; ">
+      <div class="dna-label">Primary</div>
+      <div class="dna-hex">#FE90E8</div>
+    </div>
+    
+    <div class="dna-swatch" style="background: #C0F7FE; color: #000; ">
+      <div class="dna-label">Secondary</div>
+      <div class="dna-hex">#C0F7FE</div>
+    </div>
+    
+    <div class="dna-swatch" style="background: #F7CB46; color: #000; ">
+      <div class="dna-label">Accent</div>
+      <div class="dna-hex">#F7CB46</div>
+    </div>
+    
+    <div class="dna-swatch" style="background: #FFFDF5; color: #000; border: 1px solid #eee;">
+      <div class="dna-label">Canvas</div>
+      <div class="dna-hex">#FFFDF5</div>
+    </div>
+    
+    <div class="dna-swatch" style="background: #000000; color: #fff; ">
+      <div class="dna-label">Ink</div>
+      <div class="dna-hex">#000000</div>
+    </div>
+  </div>
+
+  <div class="dna-gradient">
+    <div class="dna-gradient-label">Signature gradient</div>
+    <div class="dna-gradient-bar" style="background: linear-gradient(135deg, #FE90E8 0%, #C0F7FE 50%, #F7CB46 100%);"></div>
+    <code class="dna-gradient-code">linear-gradient(135deg, #FE90E8 0%, #C0F7FE 50%, #F7CB46 100%)</code>
+  </div>
+
+  <p class="dna-desc">30秒看懂大模型（LLM）核心技术原理——从Transformer到推理</p>
+</section>
+
+<section id="color-tokens" class="ds-section">
+  <div class="eyebrow">§2 · Color × Style overlay</div>
+  <h2>Color tokens + Block Frame decoration vars</h2>
+  <p class="ds-prose">Brand colors come from the site. Decoration variables come from the <strong>Block Frame</strong> preset. The <code>:root</code> block is live on this page (so §6 component previews render properly). The paste-ready source for <code>chunks/tokens.css</code> is collapsed below — open it to copy.</p>
+  <style>:root {
+  --brand-primary:   #FE90E8;
+  --brand-secondary: #C0F7FE;
+  --brand-tertiary:  #000000;
+  --brand-accent:    #F7CB46;
+  --brand-costume:   #FFFFFF;
+  --ink:             #000000;
+  --canvas:          #FFFDF5;
+  --brand-gradient:  linear-gradient(135deg, #FE90E8 0%, #C0F7FE 50%, #F7CB46 100%);
+  --deco-1:          #F7CB46;
+  --deco-2:          #99E885;
+  --deco-3:          #C0F7FE;
+  --deco-4:          #FE90E8;
+  --font-display:    'Inter', system-ui, sans-serif;
+  --font-body:       'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono:       'Space Grotesk', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bf-border-bold: 4px solid var(--ink);
+  --bf-border-mid: 3px solid var(--ink);
+  --bf-border-thin: 2px solid var(--ink);
+  --bf-shadow: 8px 8px 0 var(--ink);
+  --bf-shadow-sm: 4px 4px 0 var(--ink);
+  --bf-shadow-hover: 6px 6px 0 var(--ink);
+  --bf-shadow-close: 12px 12px 0 var(--brand-secondary);
+  --bf-shadow-close-btn: 6px 6px 0 var(--canvas);
+  --bf-tilt-sm-l: -2deg;
+  --bf-tilt-sm-r: 2deg;
+  --bf-tilt-md-l: -8deg;
+  --bf-tilt-md-r: 8deg;
+  --bf-tilt-loud: 12deg;
+  --bf-pad-card: 36px;
+  --bf-pad-card-sm: 28px;
+  --bf-pad-card-xs: 22px;
+  --bf-pad-card-lg: 60px;
+  --bf-gap-lg: 48px;
+  --bf-gap-md: 32px;
+  --bf-gap-sm: 24px;
+  --bf-gap-xs: 16px;
+  --bf-dot-size: 24px;
+  --bf-dot-radius: 1.2px;
+  }</style>
+  <details class="ds-paste-ready">
+    <summary class="ds-summary">▸ Paste-ready source → <code>chunks/tokens.css</code></summary>
+    <pre class="ds-code"><!-- ROOT-START -->:root {
+  --brand-primary:   #FE90E8;
+  --brand-secondary: #C0F7FE;
+  --brand-tertiary:  #000000;
+  --brand-accent:    #F7CB46;
+  --brand-costume:   #FFFFFF;
+  --ink:             #000000;
+  --canvas:          #FFFDF5;
+  --brand-gradient:  linear-gradient(135deg, #FE90E8 0%, #C0F7FE 50%, #F7CB46 100%);
+  --deco-1:          #F7CB46;
+  --deco-2:          #99E885;
+  --deco-3:          #C0F7FE;
+  --deco-4:          #FE90E8;
+  --font-display:    'Inter', system-ui, sans-serif;
+  --font-body:       'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono:       'Space Grotesk', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bf-border-bold: 4px solid var(--ink);
+  --bf-border-mid: 3px solid var(--ink);
+  --bf-border-thin: 2px solid var(--ink);
+  --bf-shadow: 8px 8px 0 var(--ink);
+  --bf-shadow-sm: 4px 4px 0 var(--ink);
+  --bf-shadow-hover: 6px 6px 0 var(--ink);
+  --bf-shadow-close: 12px 12px 0 var(--brand-secondary);
+  --bf-shadow-close-btn: 6px 6px 0 var(--canvas);
+  --bf-tilt-sm-l: -2deg;
+  --bf-tilt-sm-r: 2deg;
+  --bf-tilt-md-l: -8deg;
+  --bf-tilt-md-r: 8deg;
+  --bf-tilt-loud: 12deg;
+  --bf-pad-card: 36px;
+  --bf-pad-card-sm: 28px;
+  --bf-pad-card-xs: 22px;
+  --bf-pad-card-lg: 60px;
+  --bf-gap-lg: 48px;
+  --bf-gap-md: 32px;
+  --bf-gap-sm: 24px;
+  --bf-gap-xs: 16px;
+  --bf-dot-size: 24px;
+  --bf-dot-radius: 1.2px;
+}<!-- ROOT-END --></pre>
+  </details>
+</section>
+
+<section id="typography" class="ds-section">
+  <div class="eyebrow">§3 · Typography</div>
+  <h2>Type roles</h2>
+  <p class="ds-prose">Font families resolved by 4-step lookup: site name on Google Fonts → self-host local woff2 → preset §D fallback → final hard-coded fallback. Each card shows which step landed.</p>
+
+  <div class="type-grid">
+    
+    <div class="type-card">
+      <div class="type-role">Display</div>
+      <div class="type-name">Inter</div>
+      <div class="type-note">site has no display face → preset fallback</div>
+      <div class="type-specimen" style="font-family: 'Inter', serif; font-size: 72px; font-weight: 400; letter-spacing: -0.02em; line-height: 1;">capture</div>
+    </div>
+    <div class="type-card">
+      <div class="type-role">Body</div>
+      <div class="type-name">Inter</div>
+      <div class="type-note">site has no body face → preset fallback</div>
+      <div class="type-specimen" style="font-family: 'Inter', sans-serif; font-size: 22px; line-height: 1.5;">The quick brown fox jumps over the lazy dog.</div>
+    </div>
+    <div class="type-card">
+      <div class="type-role">Mono</div>
+      <div class="type-name">Space Grotesk</div>
+      <div class="type-note">site has no mono face → preset fallback</div>
+      <div class="type-specimen" style="font-family: 'Space Grotesk', ui-monospace, monospace; font-size: 18px;">font: Space Grotesk</div>
+    </div>
+  </div>
+
+  <h3 class="ds-h3" style="margin-top: 48px;">Type-role atlas</h3>
+  <div class="ds-trole-box">
+    
+    <div class="ds-trole-row" data-scale="heading-xl" data-family="display" data-px-min="48" data-px-max="96" data-weight="900" data-leading="0.95" data-tracking="-0.03em" data-case="upper" data-purpose="hero / cover headline — uppercase Inter 900 with negative tracking">
+      <div class="ds-trole-sample"><div class="t-trole-heading-xl">Neo-Brutalism Style</div></div>
+    </div>
+    <div class="ds-trole-row" data-scale="heading-lg" data-family="display" data-px-min="32" data-px-max="64" data-weight="800" data-leading="1" data-tracking="-0.02em" data-case="upper" data-purpose="primary section headline (Inter 800, uppercase, -0.02em)">
+      <div class="ds-trole-sample"><div class="t-trole-heading-lg">What we deliver</div></div>
+    </div>
+    <div class="ds-trole-row" data-scale="heading-md" data-family="display" data-px-min="24" data-px-max="40" data-weight="700" data-leading="1.1" data-tracking="-0.01em" data-case="sentence" data-purpose="region or chart title (Inter 700, sentence-case allowed)">
+      <div class="ds-trole-sample"><div class="t-trole-heading-md">Quarterly growth metrics</div></div>
+    </div>
+    <div class="ds-trole-row" data-scale="close-title" data-family="display" data-px-min="40" data-px-max="80" data-weight="900" data-leading="0.95" data-tracking="-0.03em" data-case="upper" data-purpose="closing-statement title on the inverted ink surface (cream / canvas text)">
+      <div class="ds-trole-sample"><div class="t-trole-close-title">Let's build something bold</div></div>
+    </div>
+    <div class="ds-trole-row" data-scale="quote-text" data-family="display" data-px-min="28" data-px-max="52" data-weight="900" data-leading="1.15" data-tracking="-0.02em" data-case="upper" data-purpose="uppercase pull-quote body (Inter 900, framed inside a bordered quote-frame)">
+      <div class="ds-trole-sample"><div class="t-trole-quote-text">Design is how it works, how it feels, how it lasts.</div></div>
+    </div>
+    <div class="ds-trole-row" data-scale="stat-number" data-family="display" data-px-min="36" data-px-max="64" data-weight="900" data-leading="1" data-tracking="0" data-case="upper" data-purpose="hero / card stat numeral (Inter 900, line-height 1)">
+      <div class="ds-trole-sample"><div class="t-trole-stat-number">98%</div></div>
+    </div>
+    <div class="ds-trole-row" data-scale="card-title" data-family="display" data-px-min="24" data-px-max="28" data-weight="700" data-leading="1.2" data-tracking="0" data-case="upper" data-purpose="feature / intro / team card title — Inter 700 uppercase">
+      <div class="ds-trole-sample"><div class="t-trole-card-title">Modular layouts</div></div>
+    </div>
+    <div class="ds-trole-row" data-scale="step-num" data-family="display" data-px-min="48" data-px-max="48" data-weight="900" data-leading="1" data-tracking="0" data-case="upper" data-purpose="timeline-step numeral — Inter 900 at 0.6 opacity (mandatory reduction)">
+      <div class="ds-trole-sample"><div class="t-trole-step-num">01</div></div>
+    </div>
+    <div class="ds-trole-row" data-scale="label-pill" data-family="mono" data-px-min="24" data-px-max="24" data-weight="600" data-leading="1" data-tracking="0.08em" data-case="upper" data-purpose="universal eyebrow inside a bordered + shadowed pastel pill — Space Grotesk 600, 13px, 0.08em tracked, uppercase">
+      <div class="ds-trole-sample"><div><span class="t-trole-label-pill">Overview</span></div></div>
+    </div>
+    <div class="ds-trole-row" data-scale="mono-tag" data-family="mono" data-px-min="24" data-px-max="24" data-weight="600" data-leading="1" data-tracking="0.05em" data-case="upper" data-purpose="mono tag / badge — Space Grotesk 600, 14px, 0.05em tracked, uppercase">
+      <div class="ds-trole-sample"><div class="t-trole-mono-tag">12+ years</div></div>
+    </div>
+    <div class="ds-trole-row" data-scale="counter" data-family="mono" data-px-min="24" data-px-max="24" data-weight="700" data-leading="1" data-tracking="0.1em" data-case="upper" data-purpose="persistent slide counter — Space Grotesk 700, 14px, 0.1em tracked, uppercase (NN / NN)">
+      <div class="ds-trole-sample"><div class="t-trole-counter">01 / 10</div></div>
+    </div>
+  </div>
+
+  <details class="ds-paste-ready" style="margin-top: 32px;">
+    <summary class="ds-summary">▸ Paste-ready source → <code>chunks/type-roles.md</code> (scene worker reads on demand)</summary>
+    <pre class="ds-code"><!-- TYPE-ROLES-START -->
+# Type-roles atlas — Block Frame
+
+Phase 4b scene worker reads this when text outside §6 components is needed (hero displays, ledes, pill rows, CTA buttons, …). Workflow: pick role by id → paste the CSS rule into scene `&lt;style&gt;` with `s&lt;N&gt;-` prefix on the class names → wrap content using the prefixed class. Family tokens (`var(--font-*)`) resolve to brand DNA at scene-render time.
+
+## type-role: heading-xl
+
+- family: display · px: 48–96 · weight: 900
+- leading: 0.95 · tracking: -0.03em · case: upper
+- purpose: hero / cover headline — uppercase Inter 900 with negative tracking
+
+```css
+.t-trole-heading-xl {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(48px, 6vw, 96px);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+```
+
+Sample:
+
+```html
+&lt;div class=&quot;t-trole-heading-xl&quot;&gt;Neo-Brutalism Style&lt;/div&gt;
+```
+
+## type-role: heading-lg
+
+- family: display · px: 32–64 · weight: 800
+- leading: 1 · tracking: -0.02em · case: upper
+- purpose: primary section headline (Inter 800, uppercase, -0.02em)
+
+```css
+.t-trole-heading-lg {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(32px, 4vw, 64px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+```
+
+Sample:
+
+```html
+&lt;div class=&quot;t-trole-heading-lg&quot;&gt;What we deliver&lt;/div&gt;
+```
+
+## type-role: heading-md
+
+- family: display · px: 24–40 · weight: 700
+- leading: 1.1 · tracking: -0.01em · case: sentence
+- purpose: region or chart title (Inter 700, sentence-case allowed)
+
+```css
+.t-trole-heading-md {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(24px, 2.5vw, 40px);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+```
+
+Sample:
+
+```html
+&lt;div class=&quot;t-trole-heading-md&quot;&gt;Quarterly growth metrics&lt;/div&gt;
+```
+
+## type-role: close-title
+
+- family: display · px: 40–80 · weight: 900
+- leading: 0.95 · tracking: -0.03em · case: upper
+- purpose: closing-statement title on the inverted ink surface (cream / canvas text)
+
+```css
+.t-trole-close-title {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(40px, 5vw, 80px);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+  color: var(--canvas, #fffdf5);
+  background: var(--ink);
+  border: 4px solid var(--canvas, #fffdf5);
+  box-shadow: 12px 12px 0 var(--brand-secondary, var(--brand-primary));
+  padding: 24px 32px;
+  max-width: 22ch;
+}
+```
+
+Sample:
+
+```html
+&lt;div class=&quot;t-trole-close-title&quot;&gt;Let&#39;s build something bold&lt;/div&gt;
+```
+
+## type-role: quote-text
+
+- family: display · px: 28–52 · weight: 900
+- leading: 1.15 · tracking: -0.02em · case: upper
+- purpose: uppercase pull-quote body (Inter 900, framed inside a bordered quote-frame)
+
+```css
+.t-trole-quote-text {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(28px, 3.5vw, 52px);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--canvas, #fffdf5);
+  border: 4px solid var(--ink);
+  box-shadow: 8px 8px 0 var(--ink);
+  padding: 24px 32px;
+  max-width: 28ch;
+}
+```
+
+Sample:
+
+```html
+&lt;div class=&quot;t-trole-quote-text&quot;&gt;Design is how it works, how it feels, how it lasts.&lt;/div&gt;
+```
+
+## type-role: stat-number
+
+- family: display · px: 36–64 · weight: 900
+- leading: 1 · tracking: 0 · case: upper
+- purpose: hero / card stat numeral (Inter 900, line-height 1)
+
+```css
+.t-trole-stat-number {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(36px, 4vw, 64px);
+  line-height: 1;
+  color: var(--ink);
+}
+```
+
+Sample:
+
+```html
+&lt;div class=&quot;t-trole-stat-number&quot;&gt;98%&lt;/div&gt;
+```
+
+## type-role: card-title
+
+- family: display · px: 24–28 · weight: 700
+- leading: 1.2 · tracking: 0 · case: upper
+- purpose: feature / intro / team card title — Inter 700 uppercase
+
+```css
+.t-trole-card-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 28px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+```
+
+Sample:
+
+```html
+&lt;div class=&quot;t-trole-card-title&quot;&gt;Modular layouts&lt;/div&gt;
+```
+
+## type-role: step-num
+
+- family: display · px: 48–48 · weight: 900
+- leading: 1 · tracking: 0 · case: upper
+- purpose: timeline-step numeral — Inter 900 at 0.6 opacity (mandatory reduction)
+
+```css
+.t-trole-step-num {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 48px;
+  line-height: 1;
+  color: var(--ink);
+  opacity: 0.6;
+}
+```
+
+Sample:
+
+```html
+&lt;div class=&quot;t-trole-step-num&quot;&gt;01&lt;/div&gt;
+```
+
+## type-role: label-pill
+
+- family: mono · px: 24–24 · weight: 600
+- leading: 1 · tracking: 0.08em · case: upper
+- purpose: universal eyebrow inside a bordered + shadowed pastel pill — Space Grotesk 600, 13px, 0.08em tracked, uppercase
+
+```css
+.t-trole-label-pill {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--brand-primary);
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: 6px 16px;
+}
+```
+
+Sample:
+
+```html
+&lt;div&gt;&lt;span class=&quot;t-trole-label-pill&quot;&gt;Overview&lt;/span&gt;&lt;/div&gt;
+```
+
+## type-role: mono-tag
+
+- family: mono · px: 24–24 · weight: 600
+- leading: 1 · tracking: 0.05em · case: upper
+- purpose: mono tag / badge — Space Grotesk 600, 14px, 0.05em tracked, uppercase
+
+```css
+.t-trole-mono-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--brand-accent, var(--brand-primary));
+  border: 3px solid var(--ink);
+  padding: 10px 20px;
+}
+```
+
+Sample:
+
+```html
+&lt;div class=&quot;t-trole-mono-tag&quot;&gt;12+ years&lt;/div&gt;
+```
+
+## type-role: counter
+
+- family: mono · px: 24–24 · weight: 700
+- leading: 1 · tracking: 0.1em · case: upper
+- purpose: persistent slide counter — Space Grotesk 700, 14px, 0.1em tracked, uppercase (NN / NN)
+
+```css
+.t-trole-counter {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--canvas, #fffdf5);
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: 10px 18px;
+}
+```
+
+Sample:
+
+```html
+&lt;div class=&quot;t-trole-counter&quot;&gt;01 / 10&lt;/div&gt;
+```
+<!-- TYPE-ROLES-END --></pre>
+  </details>
+  <details style="margin-top: 32px;">
+    <summary class="ds-summary">Font pairing recipe (preset §D)</summary>
+    <div class="ds-prose-block"><ul class="ds-list"><li><strong>display</strong>: <code>&#39;Inter&#39;</code> · <code>&#39;Archivo Black&#39;</code> · <code>&#39;Space Grotesk&#39;</code> wght 900</li><li><strong>body</strong>: <code>&#39;Inter&#39;</code> · <code>&#39;IBM Plex Sans&#39;</code> wght 500</li><li><strong>mono</strong>: <code>&#39;Space Grotesk&#39;</code> · <code>&#39;JetBrains Mono&#39;</code> · <code>&#39;IBM Plex Mono&#39;</code> wght 600</li></ul></div>
+  </details>
+</section>
+
+<section id="motion" class="ds-section">
+  <div class="eyebrow">§4 · Motion (preset)</div>
+  <h2>Block Frame motion language</h2>
+  <div class="ds-prose-block"><p class="ds-prose">Block Frame is maximalist neobrutalism: every region wears a 4px solid ink<br>border, every elevated card carries an 8px hard offset shadow (zero blur,<br>solid ink), every corner is square, and the canvas cycles through five<br>saturated pastels — pink, blue, green, yellow, cream — plus off-white and<br>ink. Display is heavy uppercase Inter with negative tracking; chrome is<br>wide-tracked Space Grotesk in caps. Decorative tilts (±2° to ±12°),<br>star-bursts, stripe blocks, and dot grids puncture the grid intentionally.<br>Density is the rule, not the exception.</p>
+<p class="ds-prose">Brand-aware color contract: <code>--brand-primary</code> is the dominant pastel<br>ground, <code>--brand-secondary</code> is the colored-shadow accent (replaces the<br>template&#39;s signature yellow shadow on the close-frame), <code>--brand-accent</code><br>is the CTA fill. Class prefix is <code>bf-</code> (block-frame initials).</p></div>
+  <details class="ds-paste-ready">
+    <summary class="ds-summary">▸ Paste-ready source → <code>chunks/easings.js</code> (paste at top of every scene's <code>&lt;script&gt;</code>)</summary>
+    <pre class="ds-code"><!-- MOTION-START -->
+// RULE: motion is snap-and-hit, never slow ease-in-out for primary entrances.
+// RULE: cards &quot;punch in&quot; — translate from -8/-8 offset with shadow growing
+//       from 0 to var(--bf-shadow). Mirrors the hover lift-up signature.
+// RULE: tilts are baked at rest; do NOT tween rotation during entry.
+//       Tilt-then-pop reads as wobble; tilt-at-rest reads as deliberate.
+// RULE: emphasis on chrome (label-pills, buttons) uses back.out(1.6) to
+//       echo the hard-shadow &quot;stamp&quot; feel.
+// RULE: never blur shadows during motion — toggle box-shadow values, do
+//       not interpolate filter() or use shadow-blur tweens.
+
+const EASE = {
+  entry: &quot;expo.out&quot;, // cards hit and stick — template uses 0.15s ease but punchier on video scale
+  emphasis: &quot;back.out(1.6)&quot;, // chrome pops (pills, buttons, stat cards) — echoes the brutalist stamp
+  exit: &quot;power2.in&quot;, // sharp exits — never linger
+  drift: &quot;sine.inOut&quot;, // ambient (dot-grid fade-in, tilt micro-sway) only
+};
+
+const DUR = {
+  snap: 0.16, // chrome hover, label-pill in, button settle — mirrors template&#39;s 0.15s
+  med: 0.42, // card entry, headline reveal
+  slow: 0.9, // hero entry, close-frame reveal — the loudest moments
+};
+<!-- MOTION-END --></pre>
+  </details>
+</section>
+
+<section id="voice" class="ds-section">
+  <div class="eyebrow">§5 · Voice (site × style transform)</div>
+  <h2>How to write on-screen copy in Block Frame register</h2>
+
+  <div class="voice-grid">
+    <div>
+      <h3 class="ds-h3">From the site (DNA)</h3>
+      <dl class="voice-dl">
+        <dt>Tone</dt><dd>neutral</dd>
+        <dt>Heading style</dt><dd>Sentence case</dd>
+        
+        
+      </dl>
+    </div>
+    <div>
+      <h3 class="ds-h3">Transform recipe (preset §G)</h3>
+      <div class="ds-prose-block"><p class="ds-prose">1. Strip articles and connectives (the / a / of / and / with / to).<br>2. Break into 2-4 word noun-verb-noun fragments or single dominant nouns.<br>3. UPPERCASE all on-screen text that lands in display, chip, or button<br>   slots — sentence body stays sentence case.<br>4. Join fragments with <code>.</code> + linebreak for stacked impact, or em-dash<br>   <code>—</code> for a single beat of emphasis.<br>5. End headlines on a noun, not a verb — the brutalist stamp lands on the<br>   thing, not the action.<br>6. Brand name appears as the final clause, punctuated standalone.</p>
+<p class="ds-prose"><strong>Example:</strong></p>
+<ul class="ds-list"><li>IN: <code>Higgsfield is the AI platform that helps creators generate stunning visuals in seconds</code></li><li>OUT: <code>CREATORS. GENERATE. STUNNING VISUALS — IN SECONDS. HIGGSFIELD.</code></li></ul></div>
+    </div>
+  </div>
+
+  <h3 class="ds-h3" style="margin-top: 32px;">Try it on this site's voice</h3>
+  
+  <div class="voice-pair">
+    <div class="voice-in"><span class="voice-tag">IN (site)</span> 30秒看懂大模型（LLM）核心技术原理——从Transformer到推理</div>
+    <div class="voice-out"><span class="voice-tag">OUT (Phase 4b applies recipe to DOM copy)</span> <em>worker writes register-shaped HTML text</em></div>
+  </div>
+
+  <details class="ds-paste-ready" style="margin-top: 32px;">
+    <summary class="ds-summary">▸ Paste-ready source → <code>chunks/voice.md</code> (Phase 4b applies recipe to DOM text)</summary>
+    <pre class="ds-code"><!-- VOICE-START -->
+# Voice register: block-frame
+
+## From the site (DNA)
+- Tone: neutral
+- Heading style: Sentence case
+
+## Transform recipe
+
+1. Strip articles and connectives (the / a / of / and / with / to).
+2. Break into 2-4 word noun-verb-noun fragments or single dominant nouns.
+3. UPPERCASE all on-screen text that lands in display, chip, or button
+   slots — sentence body stays sentence case.
+4. Join fragments with `.` + linebreak for stacked impact, or em-dash
+   `—` for a single beat of emphasis.
+5. End headlines on a noun, not a verb — the brutalist stamp lands on the
+   thing, not the action.
+6. Brand name appears as the final clause, punctuated standalone.
+
+**Example:**
+
+- IN: `Higgsfield is the AI platform that helps creators generate stunning visuals in seconds`
+- OUT: `CREATORS. GENERATE. STUNNING VISUALS — IN SECONDS. HIGGSFIELD.`
+
+&gt; Phase 4b scene workers: apply to DOM text only (headline / chip / button copy).
+&gt; Phase 2 narrator scripts are TTS-bound — do NOT uppercase or strip articles.
+<!-- VOICE-END --></pre>
+  </details>
+</section>
+
+<section id="hints" class="ds-section">
+  <div class="eyebrow">§H · Scene composition hints (plan agent reads these)</div>
+  <h2>Block Frame composition rules</h2>
+  <p class="ds-prose">Surface contracts, material composition rules, brand-color placement — anything that constrains <strong>which</strong> components a Phase 3 plan can mix in a single scene.</p>
+  <div class="ds-prose-block"><p class="ds-prose">_no §H declared_</p></div>
+  <details class="ds-paste-ready">
+    <summary class="ds-summary">▸ Paste-ready source → <code>chunks/composition-hints.md</code> (plan agent reads this)</summary>
+    <pre class="ds-code"><!-- HINTS-START -->
+# Composition hints — Block Frame
+
+_(preset declared no §H — plan agent picks components by id alone)_
+<!-- HINTS-END --></pre>
+  </details>
+</section>
+
+<section id="components" class="ds-section">
+  <div class="eyebrow">§6 · Components (paste-ready)</div>
+  <h2>Block Frame component library</h2>
+
+  
+  <div class="comp-card">
+    <div class="comp-head">
+      <span class="comp-name">button</span>
+      <span class="comp-marker">&lt;!-- COMPONENT: button --&gt;</span>
+    </div>
+    <div class="comp-preview preset-native-scope">
+      <style>
+  .bf-button {
+    display: inline-block;
+    border: var(--bf-border-mid);
+    background: var(--brand-accent);
+    color: var(--ink);
+    padding: 14px 32px;
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 24px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    box-shadow: var(--bf-shadow-sm);
+    cursor: pointer;
+  }
+</style>
+      <button class="bf-button">Get started</button>
+    </div>
+    <details>
+      <summary class="ds-summary">Source</summary>
+      <pre class="ds-code">&lt;!-- COMPONENT: button --&gt;
+```html
+&lt;button class=&quot;bf-button&quot;&gt;{LABEL}&lt;/button&gt;
+
+&lt;style&gt;
+  .bf-button {
+    display: inline-block;
+    border: var(--bf-border-mid);
+    background: var(--brand-accent);
+    color: var(--ink);
+    padding: 14px 32px;
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 24px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    box-shadow: var(--bf-shadow-sm);
+    cursor: pointer;
+  }
+&lt;/style&gt;
+```
+&lt;!-- /COMPONENT --&gt;</pre>
+    </details>
+  </div>
+  <div class="comp-card">
+    <div class="comp-head">
+      <span class="comp-name">chip</span>
+      <span class="comp-marker">&lt;!-- COMPONENT: chip --&gt;</span>
+    </div>
+    <div class="comp-preview preset-native-scope">
+      <style>
+  .bf-chip {
+    display: inline-block;
+    border: var(--bf-border-mid);
+    background: var(--brand-primary);
+    color: var(--ink);
+    padding: 8px 18px;
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    box-shadow: var(--bf-shadow-sm);
+  }
+</style>
+      <span class="bf-chip">Get started</span>
+    </div>
+    <details>
+      <summary class="ds-summary">Source</summary>
+      <pre class="ds-code">&lt;!-- COMPONENT: chip --&gt;
+```html
+&lt;span class=&quot;bf-chip&quot;&gt;{LABEL}&lt;/span&gt;
+
+&lt;style&gt;
+  .bf-chip {
+    display: inline-block;
+    border: var(--bf-border-mid);
+    background: var(--brand-primary);
+    color: var(--ink);
+    padding: 8px 18px;
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    box-shadow: var(--bf-shadow-sm);
+  }
+&lt;/style&gt;
+```
+&lt;!-- /COMPONENT --&gt;</pre>
+    </details>
+  </div>
+  <div class="comp-card">
+    <div class="comp-head">
+      <span class="comp-name">corner-pins</span>
+      <span class="comp-marker">&lt;!-- COMPONENT: corner-pins --&gt;</span>
+    </div>
+    <div class="comp-preview preset-native-scope">
+      <style>
+  .bf-corner-pins {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-width: 240px;
+    min-height: 160px;
+  }
+  .bf-corner-pin {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    border: var(--bf-border-mid);
+  }
+  .bf-corner-pin-tl {
+    top: 0;
+    left: 0;
+    border-right: none;
+    border-bottom: none;
+  }
+  .bf-corner-pin-tr {
+    top: 0;
+    right: 0;
+    border-left: none;
+    border-bottom: none;
+  }
+  .bf-corner-pin-bl {
+    bottom: 0;
+    left: 0;
+    border-right: none;
+    border-top: none;
+  }
+  .bf-corner-pin-br {
+    bottom: 0;
+    right: 0;
+    border-left: none;
+    border-top: none;
+  }
+</style>
+      <div class="bf-corner-pins">
+  <div class="bf-corner-pin bf-corner-pin-tl"></div>
+  <div class="bf-corner-pin bf-corner-pin-tr"></div>
+  <div class="bf-corner-pin bf-corner-pin-bl"></div>
+  <div class="bf-corner-pin bf-corner-pin-br"></div>
+</div>
+    </div>
+    <details>
+      <summary class="ds-summary">Source</summary>
+      <pre class="ds-code">&lt;!-- COMPONENT: corner-pins --&gt;
+```html
+&lt;div class=&quot;bf-corner-pins&quot;&gt;
+  &lt;div class=&quot;bf-corner-pin bf-corner-pin-tl&quot;&gt;&lt;/div&gt;
+  &lt;div class=&quot;bf-corner-pin bf-corner-pin-tr&quot;&gt;&lt;/div&gt;
+  &lt;div class=&quot;bf-corner-pin bf-corner-pin-bl&quot;&gt;&lt;/div&gt;
+  &lt;div class=&quot;bf-corner-pin bf-corner-pin-br&quot;&gt;&lt;/div&gt;
+&lt;/div&gt;
+
+&lt;style&gt;
+  .bf-corner-pins {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-width: 240px;
+    min-height: 160px;
+  }
+  .bf-corner-pin {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    border: var(--bf-border-mid);
+  }
+  .bf-corner-pin-tl {
+    top: 0;
+    left: 0;
+    border-right: none;
+    border-bottom: none;
+  }
+  .bf-corner-pin-tr {
+    top: 0;
+    right: 0;
+    border-left: none;
+    border-bottom: none;
+  }
+  .bf-corner-pin-bl {
+    bottom: 0;
+    left: 0;
+    border-right: none;
+    border-top: none;
+  }
+  .bf-corner-pin-br {
+    bottom: 0;
+    right: 0;
+    border-left: none;
+    border-top: none;
+  }
+&lt;/style&gt;
+```
+&lt;!-- /COMPONENT --&gt;</pre>
+    </details>
+  </div>
+  <div class="comp-card">
+    <div class="comp-head">
+      <span class="comp-name">dot-grid-bg</span>
+      <span class="comp-marker">&lt;!-- COMPONENT: dot-grid-bg --&gt;</span>
+    </div>
+    <div class="comp-preview preset-native-scope">
+      <style>
+  .bf-dot-grid-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--canvas);
+    background-image: radial-gradient(
+      circle,
+      var(--ink) var(--bf-dot-radius),
+      transparent var(--bf-dot-radius)
+    );
+    background-size: var(--bf-dot-size) var(--bf-dot-size);
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 0;
+  }
+</style>
+      <div class="bf-dot-grid-bg"></div>
+    </div>
+    <details>
+      <summary class="ds-summary">Source</summary>
+      <pre class="ds-code">&lt;!-- COMPONENT: dot-grid-bg --&gt;
+```html
+&lt;div class=&quot;bf-dot-grid-bg&quot;&gt;&lt;/div&gt;
+
+&lt;style&gt;
+  .bf-dot-grid-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--canvas);
+    background-image: radial-gradient(
+      circle,
+      var(--ink) var(--bf-dot-radius),
+      transparent var(--bf-dot-radius)
+    );
+    background-size: var(--bf-dot-size) var(--bf-dot-size);
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 0;
+  }
+&lt;/style&gt;
+```
+&lt;!-- /COMPONENT --&gt;</pre>
+    </details>
+  </div>
+  <div class="comp-card">
+    <div class="comp-head">
+      <span class="comp-name">feature-card</span>
+      <span class="comp-marker">&lt;!-- COMPONENT: feature-card --&gt;</span>
+    </div>
+    <div class="comp-preview preset-native-scope">
+      <style>
+  .bf-feature-card {
+    position: relative;
+    border: var(--bf-border-bold);
+    background: var(--canvas);
+    padding: var(--bf-pad-card);
+    box-shadow: var(--bf-shadow);
+    color: var(--ink);
+  }
+  .bf-feature-deco-notch {
+    position: absolute;
+    top: -12px;
+    right: 24px;
+    width: 48px;
+    height: 48px;
+    border: var(--bf-border-mid);
+    background: var(--brand-accent);
+  }
+  .bf-feature-icon {
+    width: 64px;
+    height: 64px;
+    border: var(--bf-border-mid);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 24px;
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 28px;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  /* Variants for multi-instance scenes — pick a/b/c per card so a 3-up row reads as 3 distinct icons. */
+  .bf-feature-icon-a {
+    background: var(--brand-primary);
+  }
+  .bf-feature-icon-b {
+    background: var(--brand-secondary);
+  }
+  .bf-feature-icon-c {
+    background: var(--brand-accent);
+  }
+  .bf-feature-title {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 28px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    color: var(--ink);
+  }
+  .bf-feature-body {
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 24px;
+    line-height: 1.6;
+    color: var(--ink);
+    opacity: 0.85;
+  }
+</style>
+      <!--
+  Feature-icon letter is hardcoded. When rendering N>1 feature-card instances in one scene,
+  manually cycle the `bf-feature-icon-*` class (a / b / c) and the letter inside the div (A / B / C).
+-->
+<div class="bf-feature-card">
+  <div class="bf-feature-deco-notch"></div>
+  <div class="bf-feature-icon bf-feature-icon-a">A</div>
+  <h3 class="bf-feature-title">capture</h3>
+  <p class="bf-feature-body">Two lines max. One idea.</p>
+</div>
+    </div>
+    <details>
+      <summary class="ds-summary">Source</summary>
+      <pre class="ds-code">&lt;!-- COMPONENT: feature-card --&gt;
+```html
+&lt;!--
+  Feature-icon letter is hardcoded. When rendering N&gt;1 feature-card instances in one scene,
+  manually cycle the `bf-feature-icon-*` class (a / b / c) and the letter inside the div (A / B / C).
+--&gt;
+&lt;div class=&quot;bf-feature-card&quot;&gt;
+  &lt;div class=&quot;bf-feature-deco-notch&quot;&gt;&lt;/div&gt;
+  &lt;div class=&quot;bf-feature-icon bf-feature-icon-a&quot;&gt;A&lt;/div&gt;
+  &lt;h3 class=&quot;bf-feature-title&quot;&gt;{HEADLINE}&lt;/h3&gt;
+  &lt;p class=&quot;bf-feature-body&quot;&gt;{LEDE}&lt;/p&gt;
+&lt;/div&gt;
+
+&lt;style&gt;
+  .bf-feature-card {
+    position: relative;
+    border: var(--bf-border-bold);
+    background: var(--canvas);
+    padding: var(--bf-pad-card);
+    box-shadow: var(--bf-shadow);
+    color: var(--ink);
+  }
+  .bf-feature-deco-notch {
+    position: absolute;
+    top: -12px;
+    right: 24px;
+    width: 48px;
+    height: 48px;
+    border: var(--bf-border-mid);
+    background: var(--brand-accent);
+  }
+  .bf-feature-icon {
+    width: 64px;
+    height: 64px;
+    border: var(--bf-border-mid);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 24px;
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 28px;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  /* Variants for multi-instance scenes — pick a/b/c per card so a 3-up row reads as 3 distinct icons. */
+  .bf-feature-icon-a {
+    background: var(--brand-primary);
+  }
+  .bf-feature-icon-b {
+    background: var(--brand-secondary);
+  }
+  .bf-feature-icon-c {
+    background: var(--brand-accent);
+  }
+  .bf-feature-title {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 28px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    color: var(--ink);
+  }
+  .bf-feature-body {
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 24px;
+    line-height: 1.6;
+    color: var(--ink);
+    opacity: 0.85;
+  }
+&lt;/style&gt;
+```
+&lt;!-- /COMPONENT --&gt;</pre>
+    </details>
+  </div>
+  <div class="comp-card">
+    <div class="comp-head">
+      <span class="comp-name">hero</span>
+      <span class="comp-marker">&lt;!-- COMPONENT: hero --&gt;</span>
+    </div>
+    <div class="comp-preview preset-native-scope">
+      <style>
+  .bf-hero {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--canvas);
+    padding: 6vw;
+  }
+  .bf-hero-frame {
+    position: relative;
+    max-width: 60vw;
+    border: var(--bf-border-bold);
+    background: var(--canvas);
+    padding: var(--bf-pad-card-lg);
+    box-shadow: var(--bf-shadow);
+  }
+  .bf-hero-eyebrow {
+    display: inline-block;
+    border: var(--bf-border-mid);
+    background: var(--brand-primary);
+    color: var(--ink);
+    padding: 6px 16px;
+    margin-bottom: 24px;
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    box-shadow: var(--bf-shadow-sm);
+  }
+  .bf-hero-display {
+    font-family: var(--font-body);
+    font-weight: 900;
+    font-size: clamp(56px, 7vw, 120px);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    text-transform: uppercase;
+    color: var(--ink);
+    margin-bottom: 32px;
+  }
+  .bf-hero-subhead {
+    font-family: var(--font-mono);
+    font-size: clamp(24px, 1.6vw, 30px);
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--ink);
+    opacity: 0.85;
+    max-width: 32vw;
+  }
+  .bf-hero-tab {
+    position: absolute;
+    bottom: -18px;
+    left: 60px;
+    padding: 8px 20px;
+    background: var(--brand-accent);
+    border: var(--bf-border-bold);
+    box-shadow: var(--bf-shadow-sm);
+    transform: rotate(-3deg);
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .bf-hero-deco-rect {
+    position: absolute;
+    top: -30px;
+    right: 60px;
+    width: 96px;
+    height: 96px;
+    background: var(--brand-secondary);
+    border: var(--bf-border-bold);
+    box-shadow: var(--bf-shadow-sm);
+    transform: rotate(var(--bf-tilt-loud));
+  }
+  .bf-corner {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border: var(--bf-border-mid);
+  }
+  .bf-corner-tl {
+    top: 12px;
+    left: 12px;
+    border-right: none;
+    border-bottom: none;
+  }
+  .bf-corner-tr {
+    top: 12px;
+    right: 12px;
+    border-left: none;
+    border-bottom: none;
+  }
+  .bf-corner-bl {
+    bottom: 12px;
+    left: 12px;
+    border-right: none;
+    border-top: none;
+  }
+  .bf-corner-br {
+    bottom: 12px;
+    right: 12px;
+    border-left: none;
+    border-top: none;
+  }
+</style>
+      <div class="bf-hero">
+  <div class="bf-hero-frame">
+    <div class="bf-corner bf-corner-tl"></div>
+    <div class="bf-corner bf-corner-tr"></div>
+    <div class="bf-corner bf-corner-bl"></div>
+    <div class="bf-corner bf-corner-br"></div>
+    <span class="bf-hero-eyebrow">Build faster</span>
+    <h1 class="bf-hero-display">capture</h1>
+    <p class="bf-hero-subhead">Stamped. Signed. Framed.</p>
+    <div class="bf-hero-tab">Get started</div>
+    <div class="bf-hero-deco-rect"></div>
+  </div>
+</div>
+    </div>
+    <details>
+      <summary class="ds-summary">Source</summary>
+      <pre class="ds-code">&lt;!-- COMPONENT: hero --&gt;
+```html
+&lt;div class=&quot;bf-hero&quot;&gt;
+  &lt;div class=&quot;bf-hero-frame&quot;&gt;
+    &lt;div class=&quot;bf-corner bf-corner-tl&quot;&gt;&lt;/div&gt;
+    &lt;div class=&quot;bf-corner bf-corner-tr&quot;&gt;&lt;/div&gt;
+    &lt;div class=&quot;bf-corner bf-corner-bl&quot;&gt;&lt;/div&gt;
+    &lt;div class=&quot;bf-corner bf-corner-br&quot;&gt;&lt;/div&gt;
+    &lt;span class=&quot;bf-hero-eyebrow&quot;&gt;{EYEBROW}&lt;/span&gt;
+    &lt;h1 class=&quot;bf-hero-display&quot;&gt;{HEADLINE}&lt;/h1&gt;
+    &lt;p class=&quot;bf-hero-subhead&quot;&gt;{SUBHEAD}&lt;/p&gt;
+    &lt;div class=&quot;bf-hero-tab&quot;&gt;{LABEL}&lt;/div&gt;
+    &lt;div class=&quot;bf-hero-deco-rect&quot;&gt;&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;style&gt;
+  .bf-hero {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--canvas);
+    padding: 6vw;
+  }
+  .bf-hero-frame {
+    position: relative;
+    max-width: 60vw;
+    border: var(--bf-border-bold);
+    background: var(--canvas);
+    padding: var(--bf-pad-card-lg);
+    box-shadow: var(--bf-shadow);
+  }
+  .bf-hero-eyebrow {
+    display: inline-block;
+    border: var(--bf-border-mid);
+    background: var(--brand-primary);
+    color: var(--ink);
+    padding: 6px 16px;
+    margin-bottom: 24px;
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    box-shadow: var(--bf-shadow-sm);
+  }
+  .bf-hero-display {
+    font-family: var(--font-body);
+    font-weight: 900;
+    font-size: clamp(56px, 7vw, 120px);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    text-transform: uppercase;
+    color: var(--ink);
+    margin-bottom: 32px;
+  }
+  .bf-hero-subhead {
+    font-family: var(--font-mono);
+    font-size: clamp(24px, 1.6vw, 30px);
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--ink);
+    opacity: 0.85;
+    max-width: 32vw;
+  }
+  .bf-hero-tab {
+    position: absolute;
+    bottom: -18px;
+    left: 60px;
+    padding: 8px 20px;
+    background: var(--brand-accent);
+    border: var(--bf-border-bold);
+    box-shadow: var(--bf-shadow-sm);
+    transform: rotate(-3deg);
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .bf-hero-deco-rect {
+    position: absolute;
+    top: -30px;
+    right: 60px;
+    width: 96px;
+    height: 96px;
+    background: var(--brand-secondary);
+    border: var(--bf-border-bold);
+    box-shadow: var(--bf-shadow-sm);
+    transform: rotate(var(--bf-tilt-loud));
+  }
+  .bf-corner {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border: var(--bf-border-mid);
+  }
+  .bf-corner-tl {
+    top: 12px;
+    left: 12px;
+    border-right: none;
+    border-bottom: none;
+  }
+  .bf-corner-tr {
+    top: 12px;
+    right: 12px;
+    border-left: none;
+    border-bottom: none;
+  }
+  .bf-corner-bl {
+    bottom: 12px;
+    left: 12px;
+    border-right: none;
+    border-top: none;
+  }
+  .bf-corner-br {
+    bottom: 12px;
+    right: 12px;
+    border-left: none;
+    border-top: none;
+  }
+&lt;/style&gt;
+```
+&lt;!-- /COMPONENT --&gt;</pre>
+    </details>
+  </div>
+  <div class="comp-card">
+    <div class="comp-head">
+      <span class="comp-name">quote-frame</span>
+      <span class="comp-marker">&lt;!-- COMPONENT: quote-frame --&gt;</span>
+    </div>
+    <div class="comp-preview preset-native-scope">
+      <style>
+  .bf-quote-frame {
+    position: relative;
+    border: var(--bf-border-bold);
+    background: var(--canvas);
+    padding: var(--bf-pad-card-lg) 80px;
+    box-shadow: var(--bf-shadow);
+    max-width: 1000px;
+    color: var(--ink);
+  }
+  .bf-quote-mark {
+    position: absolute;
+    top: -30px;
+    left: 40px;
+    font-family: var(--font-body);
+    font-weight: 900;
+    font-size: 120px;
+    line-height: 1;
+    color: var(--brand-accent);
+    -webkit-text-stroke: 3px var(--ink);
+  }
+  .bf-quote-text {
+    font-family: var(--font-body);
+    font-weight: 900;
+    font-size: clamp(28px, 3.5vw, 52px);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+    margin-bottom: 32px;
+    color: var(--ink);
+  }
+  .bf-quote-author {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.85;
+  }
+  .bf-quote-stripes {
+    position: absolute;
+    bottom: -20px;
+    right: 60px;
+    width: 80px;
+    height: 80px;
+    background: repeating-linear-gradient(
+      45deg,
+      var(--ink),
+      var(--ink) 4px,
+      var(--brand-primary) 4px,
+      var(--brand-primary) 12px
+    );
+    border: var(--bf-border-mid);
+    transform: rotate(var(--bf-tilt-md-r));
+  }
+</style>
+      <div class="bf-quote-frame">
+  <div class="bf-quote-mark">"</div>
+  <p class="bf-quote-text">This changes how teams work.</p>
+  <p class="bf-quote-author">Customer Quote</p>
+  <div class="bf-quote-stripes"></div>
+</div>
+    </div>
+    <details>
+      <summary class="ds-summary">Source</summary>
+      <pre class="ds-code">&lt;!-- COMPONENT: quote-frame --&gt;
+```html
+&lt;div class=&quot;bf-quote-frame&quot;&gt;
+  &lt;div class=&quot;bf-quote-mark&quot;&gt;&quot;&lt;/div&gt;
+  &lt;p class=&quot;bf-quote-text&quot;&gt;{QUOTE}&lt;/p&gt;
+  &lt;p class=&quot;bf-quote-author&quot;&gt;{AUTHOR}&lt;/p&gt;
+  &lt;div class=&quot;bf-quote-stripes&quot;&gt;&lt;/div&gt;
+&lt;/div&gt;
+
+&lt;style&gt;
+  .bf-quote-frame {
+    position: relative;
+    border: var(--bf-border-bold);
+    background: var(--canvas);
+    padding: var(--bf-pad-card-lg) 80px;
+    box-shadow: var(--bf-shadow);
+    max-width: 1000px;
+    color: var(--ink);
+  }
+  .bf-quote-mark {
+    position: absolute;
+    top: -30px;
+    left: 40px;
+    font-family: var(--font-body);
+    font-weight: 900;
+    font-size: 120px;
+    line-height: 1;
+    color: var(--brand-accent);
+    -webkit-text-stroke: 3px var(--ink);
+  }
+  .bf-quote-text {
+    font-family: var(--font-body);
+    font-weight: 900;
+    font-size: clamp(28px, 3.5vw, 52px);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+    margin-bottom: 32px;
+    color: var(--ink);
+  }
+  .bf-quote-author {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.85;
+  }
+  .bf-quote-stripes {
+    position: absolute;
+    bottom: -20px;
+    right: 60px;
+    width: 80px;
+    height: 80px;
+    background: repeating-linear-gradient(
+      45deg,
+      var(--ink),
+      var(--ink) 4px,
+      var(--brand-primary) 4px,
+      var(--brand-primary) 12px
+    );
+    border: var(--bf-border-mid);
+    transform: rotate(var(--bf-tilt-md-r));
+  }
+&lt;/style&gt;
+```
+&lt;!-- /COMPONENT --&gt;</pre>
+    </details>
+  </div>
+  <div class="comp-card">
+    <div class="comp-head">
+      <span class="comp-name">star-burst</span>
+      <span class="comp-marker">&lt;!-- COMPONENT: star-burst --&gt;</span>
+    </div>
+    <div class="comp-preview preset-native-scope">
+      <style>
+  .bf-star-burst {
+    width: 64px;
+    height: 64px;
+    transform: rotate(var(--bf-tilt-md-l));
+    overflow: visible;
+  }
+</style>
+      <svg class="bf-star-burst" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <polygon
+    points="50,2 61,35 96,35 68,57 79,93 50,71 21,93 32,57 4,35 39,35"
+    fill="var(--brand-primary)"
+    stroke="var(--ink)"
+    stroke-width="3"
+    stroke-linejoin="miter"
+  />
+</svg>
+    </div>
+    <details>
+      <summary class="ds-summary">Source</summary>
+      <pre class="ds-code">&lt;!-- COMPONENT: star-burst --&gt;
+```html
+&lt;svg class=&quot;bf-star-burst&quot; viewBox=&quot;0 0 100 100&quot; xmlns=&quot;http://www.w3.org/2000/svg&quot;&gt;
+  &lt;polygon
+    points=&quot;50,2 61,35 96,35 68,57 79,93 50,71 21,93 32,57 4,35 39,35&quot;
+    fill=&quot;var(--brand-primary)&quot;
+    stroke=&quot;var(--ink)&quot;
+    stroke-width=&quot;3&quot;
+    stroke-linejoin=&quot;miter&quot;
+  /&gt;
+&lt;/svg&gt;
+
+&lt;style&gt;
+  .bf-star-burst {
+    width: 64px;
+    height: 64px;
+    transform: rotate(var(--bf-tilt-md-l));
+    overflow: visible;
+  }
+&lt;/style&gt;
+```
+&lt;!-- /COMPONENT --&gt;</pre>
+    </details>
+  </div>
+  <div class="comp-card">
+    <div class="comp-head">
+      <span class="comp-name">stat-counter</span>
+      <span class="comp-marker">&lt;!-- COMPONENT: stat-counter --&gt;</span>
+    </div>
+    <div class="comp-preview preset-native-scope">
+      <style>
+  .bf-stat-counter {
+    position: relative;
+    border: var(--bf-border-bold);
+    background: var(--canvas);
+    padding: var(--bf-pad-card-sm);
+    box-shadow: var(--bf-shadow-sm);
+    text-align: center;
+    color: var(--ink);
+    transform: rotate(var(--bf-tilt-sm-l));
+  }
+  .bf-stat-deco-dot {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: var(--bf-border-thin);
+    background: var(--brand-secondary);
+  }
+  .bf-stat-num {
+    font-family: var(--font-body);
+    font-weight: 900;
+    font-size: clamp(36px, 4vw, 64px);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    margin-bottom: 12px;
+    color: var(--ink);
+  }
+  .bf-stat-label {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.85;
+  }
+</style>
+      <div class="bf-stat-counter">
+  <div class="bf-stat-deco-dot"></div>
+  <div class="bf-stat-num">4M</div>
+  <div class="bf-stat-label">Get started</div>
+</div>
+    </div>
+    <details>
+      <summary class="ds-summary">Source</summary>
+      <pre class="ds-code">&lt;!-- COMPONENT: stat-counter --&gt;
+```html
+&lt;div class=&quot;bf-stat-counter&quot;&gt;
+  &lt;div class=&quot;bf-stat-deco-dot&quot;&gt;&lt;/div&gt;
+  &lt;div class=&quot;bf-stat-num&quot;&gt;{NUM}&lt;/div&gt;
+  &lt;div class=&quot;bf-stat-label&quot;&gt;{LABEL}&lt;/div&gt;
+&lt;/div&gt;
+
+&lt;style&gt;
+  .bf-stat-counter {
+    position: relative;
+    border: var(--bf-border-bold);
+    background: var(--canvas);
+    padding: var(--bf-pad-card-sm);
+    box-shadow: var(--bf-shadow-sm);
+    text-align: center;
+    color: var(--ink);
+    transform: rotate(var(--bf-tilt-sm-l));
+  }
+  .bf-stat-deco-dot {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: var(--bf-border-thin);
+    background: var(--brand-secondary);
+  }
+  .bf-stat-num {
+    font-family: var(--font-body);
+    font-weight: 900;
+    font-size: clamp(36px, 4vw, 64px);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    margin-bottom: 12px;
+    color: var(--ink);
+  }
+  .bf-stat-label {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.85;
+  }
+&lt;/style&gt;
+```
+&lt;!-- /COMPONENT --&gt;</pre>
+    </details>
+  </div>
+  <div class="comp-card">
+    <div class="comp-head">
+      <span class="comp-name">timeline-step</span>
+      <span class="comp-marker">&lt;!-- COMPONENT: timeline-step --&gt;</span>
+    </div>
+    <div class="comp-preview preset-native-scope">
+      <style>
+  .bf-timeline-step {
+    position: relative;
+    flex: 1;
+    border: var(--bf-border-bold);
+    padding: 32px;
+    box-shadow: var(--bf-shadow-sm);
+    color: var(--ink);
+  }
+  /* Variants — Phase 4b worker picks one per timeline position. Backgrounds
+     rotate through the brand-color trio so a 3-up row reads as 3 distinct
+     beats. Pair the variant class with the matching step number in markup:
+     bf-step-1 → "01", bf-step-2 → "02", bf-step-3 → "03". */
+  .bf-step-1 {
+    background: var(--brand-primary);
+  }
+  .bf-step-2 {
+    background: var(--brand-secondary);
+  }
+  .bf-step-3 {
+    background: var(--brand-accent);
+  }
+  .bf-step-num {
+    font-family: var(--font-body);
+    font-weight: 900;
+    font-size: 48px;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    margin-bottom: 16px;
+    color: var(--ink);
+    opacity: 0.6;
+  }
+  .bf-step-title {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 28px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    color: var(--ink);
+  }
+  .bf-step-desc {
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 24px;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .bf-step-connector {
+    position: absolute;
+    top: 50%;
+    right: -28px;
+    width: 28px;
+    height: 4px;
+    background: var(--ink);
+    transform: translateY(-50%);
+    z-index: 5;
+  }
+</style>
+      <!--
+  Step number is hardcoded per variant. Pick the right variant class per position
+  (bf-step-1 / bf-step-2 / bf-step-3) and match the number text inside .bf-step-num
+  to the position (01 / 02 / 03).
+-->
+<div class="bf-timeline-step bf-step-1">
+  <div class="bf-step-num">01</div>
+  <h3 class="bf-step-title">capture</h3>
+  <p class="bf-step-desc">Two lines max. One idea.</p>
+  <div class="bf-step-connector"></div>
+</div>
+    </div>
+    <details>
+      <summary class="ds-summary">Source</summary>
+      <pre class="ds-code">&lt;!-- COMPONENT: timeline-step --&gt;
+```html
+&lt;!--
+  Step number is hardcoded per variant. Pick the right variant class per position
+  (bf-step-1 / bf-step-2 / bf-step-3) and match the number text inside .bf-step-num
+  to the position (01 / 02 / 03).
+--&gt;
+&lt;div class=&quot;bf-timeline-step bf-step-1&quot;&gt;
+  &lt;div class=&quot;bf-step-num&quot;&gt;01&lt;/div&gt;
+  &lt;h3 class=&quot;bf-step-title&quot;&gt;{HEADLINE}&lt;/h3&gt;
+  &lt;p class=&quot;bf-step-desc&quot;&gt;{LEDE}&lt;/p&gt;
+  &lt;div class=&quot;bf-step-connector&quot;&gt;&lt;/div&gt;
+&lt;/div&gt;
+
+&lt;style&gt;
+  .bf-timeline-step {
+    position: relative;
+    flex: 1;
+    border: var(--bf-border-bold);
+    padding: 32px;
+    box-shadow: var(--bf-shadow-sm);
+    color: var(--ink);
+  }
+  /* Variants — Phase 4b worker picks one per timeline position. Backgrounds
+     rotate through the brand-color trio so a 3-up row reads as 3 distinct
+     beats. Pair the variant class with the matching step number in markup:
+     bf-step-1 → &quot;01&quot;, bf-step-2 → &quot;02&quot;, bf-step-3 → &quot;03&quot;. */
+  .bf-step-1 {
+    background: var(--brand-primary);
+  }
+  .bf-step-2 {
+    background: var(--brand-secondary);
+  }
+  .bf-step-3 {
+    background: var(--brand-accent);
+  }
+  .bf-step-num {
+    font-family: var(--font-body);
+    font-weight: 900;
+    font-size: 48px;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    margin-bottom: 16px;
+    color: var(--ink);
+    opacity: 0.6;
+  }
+  .bf-step-title {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 28px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    color: var(--ink);
+  }
+  .bf-step-desc {
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 24px;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .bf-step-connector {
+    position: absolute;
+    top: 50%;
+    right: -28px;
+    width: 28px;
+    height: 4px;
+    background: var(--ink);
+    transform: translateY(-50%);
+    z-index: 5;
+  }
+&lt;/style&gt;
+```
+&lt;!-- /COMPONENT --&gt;</pre>
+    </details>
+  </div>
+</section>
+
+<section id="captions" class="ds-section">
+  <div class="eyebrow">§C · Captions (preset-local skin)</div>
+  <h2>Word <em>by word.</em></h2>
+  <p class="ds-prose">Live preview of <code>caption-skin.html</code> — this preset's own caption look. The same file is copied to <code>chunks/caption-skin.html</code> and filled with real word timings by the caption builder (Phase 4a.5); the demo words and loop here are preview-only.</p>
+  <div style="position: relative; width: 100%; max-width: 960px; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid #e5e5e5; border-radius: 8px; margin: 24px 0; background: #fff;">
+    <iframe title="caption-skin preview" loading="lazy" style="position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; border: 0; transform: scale(0.5); transform-origin: top left;" srcdoc="&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+  &lt;head&gt;
+    &lt;meta charset=&quot;UTF-8&quot; /&gt;
+    &lt;meta name=&quot;viewport&quot; content=&quot;width=1920, height=1080&quot; /&gt;
+    &lt;title&gt;Block Frame — Captions&lt;/title&gt;
+    &lt;!--
+      Block Frame caption skin (preset-local source — second caption source).
+
+      A pre-baked, brand-token-strict caption sub-composition. emit-chunks copies this to
+      design-system/chunks/caption-skin.html for the chosen preset; build-captions-html.mjs
+      then fills three reserved holes and writes compositions/captions.html:
+        - the empty GROUPS array       → engine's scene-aware, non-overlapping word groups
+        - the 0 DURATION + data-duration → real total_duration_s
+        - the empty brand-tokens style → the project's tokens.css
+      (the filler asserts each hole appears exactly once, so this note avoids the literals)
+
+      Contract (so ONE generic fill works for every preset's skin — no per-skin transform):
+        · root carries data-composition-id=&quot;captions&quot;; timeline registers window.__timelines[&quot;captions&quot;]
+        · canonical hooks .caption-group / .caption-word (+ states .is-active / .is-spoken)
+        · all colors are var(--*) / color-mix over tokens — brand-strict by construction
+        · no &lt;video&gt;, no Google Fonts, no placeholder transcript, no window.&lt;native&gt;() calls
+        · state changes use gsap.set({className}) (applied on seek) — NOT .call callbacks
+          (callbacks don't fire on the engine's frame-by-frame seek)
+
+      Visual: ink-framed pill, mint stamp-block on the current word, hard zero-blur offset
+      shadow, −2° tilt, uppercase ABC Solar Display. The neo-brutalist counterpart to the
+      registry default caption-pill-karaoke (soft rounded SaaS pill).
+    --&gt;
+    &lt;script src=&quot;https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js&quot;&gt;&lt;/script&gt;
+
+    &lt;!-- build-captions-html.mjs injects the project's tokens.css here --&gt;
+    &lt;style data-brand-tokens&gt;
+
+:root {
+  --brand-primary:   #FE90E8;
+  --brand-secondary: #C0F7FE;
+  --brand-tertiary:  #000000;
+  --brand-accent:    #F7CB46;
+  --brand-costume:   #FFFFFF;
+  --ink:             #000000;
+  --canvas:          #FFFDF5;
+  --brand-gradient:  linear-gradient(135deg, #FE90E8 0%, #C0F7FE 50%, #F7CB46 100%);
+  --deco-1:          #F7CB46;
+  --deco-2:          #99E885;
+  --deco-3:          #C0F7FE;
+  --deco-4:          #FE90E8;
+  --font-display:    'Inter', system-ui, sans-serif;
+  --font-body:       'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono:       'Space Grotesk', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bf-border-bold: 4px solid var(--ink);
+  --bf-border-mid: 3px solid var(--ink);
+  --bf-border-thin: 2px solid var(--ink);
+  --bf-shadow: 8px 8px 0 var(--ink);
+  --bf-shadow-sm: 4px 4px 0 var(--ink);
+  --bf-shadow-hover: 6px 6px 0 var(--ink);
+  --bf-shadow-close: 12px 12px 0 var(--brand-secondary);
+  --bf-shadow-close-btn: 6px 6px 0 var(--canvas);
+  --bf-tilt-sm-l: -2deg;
+  --bf-tilt-sm-r: 2deg;
+  --bf-tilt-md-l: -8deg;
+  --bf-tilt-md-r: 8deg;
+  --bf-tilt-loud: 12deg;
+  --bf-pad-card: 36px;
+  --bf-pad-card-sm: 28px;
+  --bf-pad-card-xs: 22px;
+  --bf-pad-card-lg: 60px;
+  --bf-gap-lg: 48px;
+  --bf-gap-md: 32px;
+  --bf-gap-sm: 24px;
+  --bf-gap-xs: 16px;
+  --bf-dot-size: 24px;
+  --bf-dot-radius: 1.2px;
+}&lt;/style&gt;
+
+    &lt;style&gt;
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+      #captions-root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+        pointer-events: none;
+      }
+
+      /* block-frame · captions · ink-framed pill, mint stamp-block, hard zero-blur shadow */
+      .caption-layer {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        pointer-events: none;
+      }
+      .caption-stage {
+        position: absolute;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        width: 1600px;
+        height: 200px;
+      }
+      .caption-group {
+        /* every group is absolutely positioned over the SAME band — exactly one is shown
+           at a time via opacity. Must be absolute: if groups stay in-flow, N groups lay
+           out side-by-side (opacity:0 hides but still occupies space). */
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+      }
+
+      /* THE block frame — thick ink border, hard offset shadow, sharp corners, micro-tilt */
+      .caption-pill {
+        max-width: 1600px;
+        padding: 14px 36px 18px;
+        background: var(--canvas);
+        border: var(--bf-border-bold);
+        border-radius: 0;
+        box-shadow: var(--bf-shadow);
+        transform: rotate(var(--bf-tilt-sm-l));
+      }
+      .caption-line {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.14em 0.34em;
+        font-family: var(--font-display);
+        font-weight: 900;
+        font-size: clamp(40px, 4.4vw, 56px);
+        line-height: 1.24;
+        letter-spacing: -0.01em;
+        text-transform: uppercase;
+      }
+
+      /* upcoming — faint ink, no block */
+      .caption-word {
+        display: inline-block;
+        color: color-mix(in srgb, var(--ink) 36%, var(--canvas));
+      }
+      /* current word — THE mint stamp-block (box-shadow spread = block w/o layout shift) */
+      .caption-word.is-active {
+        color: var(--ink);
+        background: var(--brand-primary);
+        box-shadow:
+          0 0 0 0.1em var(--brand-primary),
+          var(--bf-shadow-sm);
+      }
+      /* already spoken — solid ink, block cleared */
+      .caption-word.is-spoken {
+        color: var(--ink);
+        background: transparent;
+        box-shadow: none;
+      }
+
+      /* optional per-word accents (dormant until a word-classer tags them) */
+      .caption-word.cap-brand {
+        color: var(--brand-secondary);
+      }
+      .caption-word.cap-brand.is-active {
+        color: var(--canvas);
+        background: var(--brand-secondary);
+        box-shadow:
+          0 0 0 0.1em var(--brand-secondary),
+          var(--bf-shadow-sm);
+      }
+      .caption-word.cap-num {
+        color: color-mix(in srgb, var(--ink) 70%, var(--canvas));
+      }
+      .caption-word.cap-cta {
+        text-decoration: underline;
+        text-decoration-thickness: 5px;
+        text-decoration-color: var(--brand-secondary);
+        text-underline-offset: 0.06em;
+      }
+
+      @media (max-aspect-ratio: 9/16) {
+        .caption-stage {
+          bottom: 100px;
+          width: 92%;
+        }
+        .caption-line {
+          font-size: clamp(34px, 5.4vw, 46px);
+        }
+      }
+    &lt;/style&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;div
+      id=&quot;captions-root&quot;
+      data-composition-id=&quot;captions&quot;
+      data-timeline-locked
+      data-start=&quot;0&quot;
+      data-duration=&quot;6.6&quot;
+      data-fps=&quot;30&quot;
+      data-width=&quot;1920&quot;
+      data-height=&quot;1080&quot;
+    &gt;
+      &lt;div class=&quot;caption-layer&quot; aria-hidden=&quot;true&quot;&gt;
+        &lt;div id=&quot;caption-stage&quot; class=&quot;caption-stage&quot;&gt;&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;script&gt;
+      // build-captions-html.mjs injects the engine's scene-aware groups + real duration.
+      var GROUPS = [{&quot;start&quot;:0.3,&quot;end&quot;:2.1,&quot;words&quot;:[{&quot;text&quot;:&quot;WRITE&quot;,&quot;start&quot;:0.3,&quot;end&quot;:0.9},{&quot;text&quot;:&quot;HTML,&quot;,&quot;start&quot;:0.9,&quot;end&quot;:1.4},{&quot;text&quot;:&quot;RENDER&quot;,&quot;start&quot;:1.4,&quot;end&quot;:2.1}]},{&quot;start&quot;:2.5,&quot;end&quot;:4.3,&quot;words&quot;:[{&quot;text&quot;:&quot;VIDEO.&quot;,&quot;start&quot;:2.5,&quot;end&quot;:3.1},{&quot;text&quot;:&quot;NO&quot;,&quot;start&quot;:3.1,&quot;end&quot;:3.5},{&quot;text&quot;:&quot;TIMELINE.&quot;,&quot;start&quot;:3.5,&quot;end&quot;:4.3}]},{&quot;start&quot;:4.7,&quot;end&quot;:6.2,&quot;words&quot;:[{&quot;text&quot;:&quot;JUST&quot;,&quot;start&quot;:4.7,&quot;end&quot;:5.1},{&quot;text&quot;:&quot;CODE.&quot;,&quot;start&quot;:5.1,&quot;end&quot;:5.9}]}];
+      var DURATION = 6.6;
+
+      (function () {
+        var stage = document.getElementById(&quot;caption-stage&quot;);
+
+        // build DOM: one .caption-group per group, .caption-word per word
+        GROUPS.forEach(function (group, g) {
+          var groupEl = document.createElement(&quot;div&quot;);
+          groupEl.className = &quot;caption-group&quot;;
+          groupEl.id = &quot;caption-group-&quot; + g;
+          var pill = document.createElement(&quot;div&quot;);
+          pill.className = &quot;caption-pill&quot;;
+          var line = document.createElement(&quot;div&quot;);
+          line.className = &quot;caption-line&quot;;
+          (group.words || []).forEach(function (w, i) {
+            var span = document.createElement(&quot;span&quot;);
+            span.className = &quot;caption-word&quot;;
+            span.id = &quot;caption-word-&quot; + g + &quot;-&quot; + i;
+            span.textContent = String(w.text).toUpperCase();
+            line.appendChild(span);
+          });
+          pill.appendChild(line);
+          groupEl.appendChild(pill);
+          stage.appendChild(groupEl);
+        });
+
+        window.__timelines = window.__timelines || {};
+        var tl = gsap.timeline({ paused: true });
+
+        GROUPS.forEach(function (group, g) {
+          var groupEl = document.getElementById(&quot;caption-group-&quot; + g);
+          var words = group.words || [];
+          var next = GROUPS[g + 1];
+          var isLast = g === GROUPS.length - 1;
+          var start = Math.max(0, Number(group.start));
+          var end = isLast ? DURATION : Math.min(Number(next.start), Number(group.end) + 0.3);
+          if (end &lt;= start) end = start + 0.01;
+
+          // group on/off — exactly one group visible at a time
+          tl.set(groupEl, { opacity: 1 }, start);
+          tl.set(groupEl, { opacity: 0 }, end);
+
+          // 3-state karaoke via className SETS — seek-safe (gsap.set applies on the
+          // engine's frame-by-frame seek; .call callbacks would NOT fire).
+          words.forEach(function (w, i) {
+            var el = document.getElementById(&quot;caption-word-&quot; + g + &quot;-&quot; + i);
+            var at = Math.max(start, Number(w.start));
+            tl.set(el, { className: &quot;caption-word&quot; }, start); // upcoming (also resets on reverse-seek)
+            tl.set(el, { className: &quot;caption-word is-active&quot; }, at); // current
+            tl.fromTo(el, { scale: 0.9 }, { scale: 1, duration: 0.14, ease: &quot;back.out(2.6)&quot; }, at);
+            if (i + 1 &lt; words.length) {
+              var nextAt = Math.max(start, Number(words[i + 1].start));
+              tl.set(el, { className: &quot;caption-word is-spoken&quot; }, nextAt); // demote when next stamps
+            }
+          });
+          if (words.length) {
+            var lastEl = document.getElementById(&quot;caption-word-&quot; + g + &quot;-&quot; + (words.length - 1));
+            var lastSpoken = Math.min(end, Number(words[words.length - 1].end) + 0.1);
+            tl.set(lastEl, { className: &quot;caption-word is-spoken&quot; }, lastSpoken);
+          }
+        });
+
+        // full-span anchor so the sub-comp timeline spans the whole video
+        tl.to({}, { duration: DURATION }, 0);
+        window.__timelines[&quot;captions&quot;] = tl;
+      })();
+    &lt;/script&gt;
+    &lt;script&gt;
+    (function () {
+      var t = window.__timelines &amp;&amp; window.__timelines[&quot;captions&quot;];
+      if (t &amp;&amp; t.duration()) t.repeat(-1).repeatDelay(0.5).play();
+    })();
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+"></iframe>
+  </div>
+</section>
+</main>
+
+</body>
+</html>

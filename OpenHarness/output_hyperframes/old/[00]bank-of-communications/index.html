@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #001a4d;
+      }
+      body {
+        font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+      }
+
+      /* Background */
+      #bg-gradient {
+        position: absolute; inset: 0;
+        background: radial-gradient(ellipse 140% 100% at 30% 0%, #0047ab 0%, #002b7a 35%, #001a4d 70%, #000d26 100%);
+        z-index: 0;
+      }
+      #bg-pattern {
+        position: absolute; inset: 0; opacity: 0.04; z-index: 1;
+        background-image: linear-gradient(rgba(255,255,255,0.3) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.3) 1px, transparent 1px);
+        background-size: 60px 60px;
+      }
+      #glow-1 {
+        position: absolute; top: 15%; left: 10%; width: 600px; height: 600px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(0,100,255,0.15) 0%, transparent 70%);
+        filter: blur(60px); z-index: 1;
+      }
+      #glow-2 {
+        position: absolute; bottom: 10%; right: 5%; width: 500px; height: 500px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(0,150,255,0.1) 0%, transparent 70%);
+        filter: blur(80px); z-index: 1;
+      }
+
+      /* Accent line */
+      #accent-line {
+        position: absolute; top: 0; left: 0; width: 100%; height: 4px; z-index: 10;
+        background: linear-gradient(90deg, transparent, #4da6ff, #0066cc, #4da6ff, transparent);
+        transform-origin: left center;
+      }
+
+      /* Logo */
+      #logo-area {
+        position: absolute; top: 60px; left: 80px; display: flex; align-items: center; gap: 20px; z-index: 10;
+      }
+      #logo-circle {
+        width: 48px; height: 48px; border: 3px solid #4da6ff; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 20px; font-weight: 900; color: #fff;
+        background: rgba(0, 102, 204, 0.3);
+      }
+      #logo-text { font-size: 28px; font-weight: 700; color: #fff; letter-spacing: 4px; }
+
+      /* Scene containers */
+      .scene {
+        position: absolute; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; z-index: 5;
+      }
+
+      /* Scene 1 - Brand intro */
+      #scene-1 .bank-name {
+        font-size: 96px; font-weight: 900; color: #fff; letter-spacing: 12px;
+        text-shadow: 0 4px 20px rgba(0,100,255,0.3);
+      }
+      #scene-1 .tagline {
+        font-size: 36px; font-weight: 400; color: rgba(255,255,255,0.7);
+        letter-spacing: 6px; margin-top: 24px;
+      }
+      #scene-1 .year-badge {
+        margin-top: 40px; padding: 12px 36px;
+        border: 1px solid rgba(77, 166, 255, 0.4); border-radius: 50px;
+        font-size: 20px; color: rgba(255,255,255,0.6); letter-spacing: 3px;
+      }
+
+      /* Scene 2 - Key message */
+      #scene-2 .message-line {
+        font-size: 72px; font-weight: 700; color: #fff; text-align: center;
+        letter-spacing: 6px; text-shadow: 0 2px 10px rgba(0,100,255,0.2);
+      }
+      #scene-2 .message-sub {
+        font-size: 40px; font-weight: 400; color: rgba(255,255,255,0.75);
+        text-align: center; margin-top: 20px; letter-spacing: 4px;
+      }
+      #scene-2 .highlight-bar {
+        width: 80px; height: 3px; background: #4da6ff;
+        margin: 24px auto 0; border-radius: 2px;
+      }
+
+      /* Scene 3 - CTA */
+      #scene-3 .cta-line {
+        font-size: 80px; font-weight: 900; color: #fff; text-align: center;
+        letter-spacing: 8px; text-shadow: 0 2px 15px rgba(0,100,255,0.3);
+      }
+      #scene-3 .cta-sub {
+        font-size: 32px; font-weight: 300; color: rgba(255,255,255,0.5);
+        text-align: center; margin-top: 24px; letter-spacing: 4px;
+      }
+
+      /* Caption container */
+      #caption-container {
+        position: absolute; bottom: 120px; left: 0; width: 1920px; height: 100px; z-index: 10;
+        display: flex; align-items: center; justify-content: center; pointer-events: none;
+      }
+      .caption-group {
+        position: absolute; display: flex; align-items: center; justify-content: center; gap: 4px;
+        font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+      }
+      .caption-word {
+        font-size: 48px; font-weight: 600; color: #fff;
+        text-shadow: 0 2px 12px rgba(0,0,0,0.6), 0 0 30px rgba(0,50,120,0.4);
+        letter-spacing: 2px;
+      }
+      .caption-word.active { color: #80c8ff; text-shadow: 0 2px 12px rgba(0,0,0,0.6), 0 0 30px rgba(0,150,255,0.6); }
+      .caption-word.punct { opacity: 0.4; color: rgba(255,255,255,0.5); }
+
+      /* Bottom bar */
+      #bottom-bar {
+        position: absolute; bottom: 78px; left: 0; width: 100%; height: 1px; z-index: 10;
+        background: linear-gradient(90deg, transparent, rgba(77,166,255,0.3), transparent);
+      }
+
+      /* Initial hidden states */
+      #accent-line { transform: scaleX(0); }
+      #logo-area, #bottom-bar, #scene-1, #scene-2, #scene-3, .caption-group { opacity: 0; }
+      #scene-1 .bank-name, #scene-1 .tagline, #scene-1 .year-badge { opacity: 0; transform: translateY(30px); }
+      #scene-2 .message-line, #scene-2 .message-sub, #scene-2 .highlight-bar { opacity: 0; transform: translateY(20px); }
+      #scene-3 .cta-line, #scene-3 .cta-sub { opacity: 0; transform: translateY(30px); }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="10"
+      data-width="1920"
+      data-height="1080"
+    >
+      <!-- Audio -->
+      <audio id="narration-audio" src="assets/narration.wav" preload="auto" data-start="0" data-duration="10" data-track-index="0" muted playsinline></audio>
+
+      <!-- Background -->
+      <div id="bg-gradient"></div>
+      <div id="bg-pattern"></div>
+      <div id="glow-1"></div>
+      <div id="glow-2"></div>
+      <div id="accent-line"></div>
+
+      <!-- Logo -->
+      <div id="logo-area">
+        <div id="logo-circle">交</div>
+        <div id="logo-text">交通银行</div>
+      </div>
+
+      <!-- Scene 1 -->
+      <div id="scene-1" class="scene">
+        <div class="bank-name">交通银行</div>
+        <div class="tagline">BANK OF COMMUNICATIONS</div>
+        <div class="year-badge">始创于 1908 年</div>
+      </div>
+
+      <!-- Scene 2 -->
+      <div id="scene-2" class="scene">
+        <div class="message-line">百年品牌 · 值得信赖</div>
+        <div class="message-sub">专业金融服务</div>
+        <div class="highlight-bar"></div>
+      </div>
+
+      <!-- Scene 3 -->
+      <div id="scene-3" class="scene">
+        <div class="cta-line">与您共创未来</div>
+        <div class="cta-sub">交通银行 · 您的首选银行</div>
+      </div>
+
+      <!-- Bottom bar -->
+      <div id="bottom-bar"></div>
+
+      <!-- Captions container -->
+      <div id="caption-container"></div>
+    </div>
+
+    <script>
+      // ============================================================
+      // Transcript data
+      // ============================================================
+      var TRANSCRIPT = [
+        {id:"w0",text:"交",start:0.00,end:0.24},{id:"w1",text:"通",start:0.24,end:0.48},
+        {id:"w2",text:"银",start:0.48,end:0.72},{id:"w3",text:"行",start:0.72,end:0.96},
+        {id:"w4",text:"，",start:0.96,end:1.20},{id:"w5",text:"始",start:1.30,end:1.56},
+        {id:"w6",text:"创",start:1.56,end:1.81},{id:"w7",text:"于",start:1.81,end:2.07},
+        {id:"w8",text:"1908",start:2.07,end:3.09},{id:"w9",text:"年",start:3.09,end:3.34},
+        {id:"w10",text:"。",start:3.34,end:3.60},{id:"w11",text:"百",start:3.60,end:3.92},
+        {id:"w12",text:"年",start:3.92,end:4.24},{id:"w13",text:"品",start:4.24,end:4.56},
+        {id:"w14",text:"牌",start:4.56,end:4.88},{id:"w15",text:"，",start:4.88,end:5.20},
+        {id:"w16",text:"值",start:5.40,end:5.64},{id:"w17",text:"得",start:5.64,end:5.88},
+        {id:"w18",text:"信",start:5.88,end:6.12},{id:"w19",text:"赖",start:6.12,end:6.36},
+        {id:"w20",text:"。",start:6.36,end:6.60},{id:"w21",text:"专",start:6.80,end:7.03},
+        {id:"w22",text:"业",start:7.03,end:7.26},{id:"w23",text:"金",start:7.26,end:7.49},
+        {id:"w24",text:"融",start:7.49,end:7.71},{id:"w25",text:"服",start:7.71,end:7.94},
+        {id:"w26",text:"务",start:7.94,end:8.17},{id:"w27",text:"，",start:8.17,end:8.40},
+        {id:"w28",text:"与",start:8.50,end:8.71},{id:"w29",text:"您",start:8.71,end:8.93},
+        {id:"w30",text:"共",start:8.93,end:9.14},{id:"w31",text:"创",start:9.14,end:9.36},
+        {id:"w32",text:"未",start:9.36,end:9.57},{id:"w33",text:"来",start:9.57,end:9.79},
+        {id:"w34",text:"。",start:9.79,end:10.00}
+      ];
+
+      // ============================================================
+      // Build caption groups
+      // ============================================================
+      var phraseDefs = [
+        ["交","通","银","行","，"],
+        ["始","创","于","1908","年","。"],
+        ["百","年","品","牌","，"],
+        ["值","得","信","赖","。"],
+        ["专","业","金","融","服","务","，"],
+        ["与","您","共","创","未","来","。"]
+      ];
+
+      var groups = [];
+      var wi = 0;
+      for (var p = 0; p < phraseDefs.length; p++) {
+        var phrase = phraseDefs[p];
+        var gWords = [];
+        for (var w = 0; w < phrase.length; w++) {
+          if (wi < TRANSCRIPT.length) { gWords.push(TRANSCRIPT[wi]); wi++; }
+        }
+        groups.push({
+          label: "cg-" + p,
+          words: gWords,
+          start: gWords[0].start,
+          end: gWords[gWords.length - 1].end
+        });
+      }
+
+      // ============================================================
+      // Render caption elements
+      // ============================================================
+      var captionContainer = document.getElementById("caption-container");
+      for (var g = 0; g < groups.length; g++) {
+        var group = groups[g];
+        var el = document.createElement("div");
+        el.id = group.label;
+        el.className = "caption-group";
+        for (var w = 0; w < group.words.length; w++) {
+          var word = group.words[w];
+          var span = document.createElement("span");
+          span.className = "caption-word" + (word.text.match(/[，。、！？]/) ? " punct" : "");
+          span.id = group.label + "-w" + w;
+          span.textContent = word.text;
+          el.appendChild(span);
+        }
+        captionContainer.appendChild(el);
+      }
+
+      // ============================================================
+      // WAAPI Animation Setup
+      // ============================================================
+      // The HyperFrames WAAPI adapter automatically discovers all
+      // element.animate() calls and seeks them to the correct time.
+      // No manual timeline registration needed — just create,
+      // pause, and let the adapter handle seeking.
+
+      // Helper: create timed animation
+      function anim(el, keyframes, opts) {
+        var anim_ = el.animate(keyframes, opts);
+        anim_.pause();
+        return anim_;
+      }
+
+      // Helper: scene entrance
+      function sceneIn(el, delay, dur, fromY) {
+        return anim(el, [
+          { opacity: 0, transform: "translateY(" + fromY + "px)" },
+          { opacity: 1, transform: "translateY(0px)" }
+        ], { duration: dur * 1000, delay: delay * 1000, fill: "both", easing: "cubic-bezier(0.2, 0, 0, 1)" });
+      }
+
+      // Helper: scene exit
+      function sceneOut(el, delay, dur) {
+        return anim(el, [
+          { opacity: 1 },
+          { opacity: 0 }
+        ], { duration: dur * 1000, delay: delay * 1000, fill: "both", easing: "cubic-bezier(0.4, 0, 1, 1)" });
+      }
+
+      // ============================================================
+      // Accent line
+      // ============================================================
+      anim(document.getElementById("accent-line"), [
+        { transform: "scaleX(0)" },
+        { transform: "scaleX(1)" }
+      ], { duration: 800, delay: 0, fill: "both", easing: "cubic-bezier(0.2, 0, 0, 1)" });
+
+      // ============================================================
+      // Logo reveal
+      // ============================================================
+      anim(document.getElementById("logo-area"), [
+        { opacity: 0 },
+        { opacity: 1 }
+      ], { duration: 400, delay: 300, fill: "both", easing: "ease-out" });
+
+      anim(document.getElementById("logo-circle"), [
+        { transform: "scale(0)", opacity: 0 },
+        { transform: "scale(1)", opacity: 1 }
+      ], { duration: 500, delay: 300, fill: "both", easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" });
+
+      anim(document.getElementById("logo-text"), [
+        { transform: "translateX(-20px)", opacity: 0 },
+        { transform: "translateX(0px)", opacity: 1 }
+      ], { duration: 400, delay: 500, fill: "both", easing: "ease-out" });
+
+      // ============================================================
+      // Glow pulse
+      // ============================================================
+      var glow1 = document.getElementById("glow-1");
+      var glowAnim = anim(glow1, [
+        { transform: "scale(1)", opacity: 0.5 },
+        { transform: "scale(1.2)", opacity: 0.8 },
+        { transform: "scale(1)", opacity: 0.5 }
+      ], { duration: 4000, delay: 0, fill: "both", easing: "ease-in-out", iterations: 3 });
+
+      // ============================================================
+      // Scene 1: Brand intro (0s - 3.5s)
+      // ============================================================
+      var s1 = document.getElementById("scene-1");
+      anim(s1, [{ opacity: 0 }, { opacity: 1 }], { duration: 200, delay: 200, fill: "both" });
+      sceneIn(s1.querySelector(".bank-name"), 0.5, 700, 40);
+      sceneIn(s1.querySelector(".tagline"), 1.0, 600, 20);
+      sceneIn(s1.querySelector(".year-badge"), 1.5, 500, 20);
+      sceneOut(s1, 3.3, 400);
+
+      // ============================================================
+      // Scene 2: Key message (3.5s - 7s)
+      // ============================================================
+      var s2 = document.getElementById("scene-2");
+      anim(s2, [{ opacity: 0 }, { opacity: 1 }], { duration: 200, delay: 3500, fill: "both" });
+      sceneIn(s2.querySelector(".message-line"), 3.7, 600, 30);
+      sceneIn(s2.querySelector(".message-sub"), 4.2, 500, 20);
+      var bar = s2.querySelector(".highlight-bar");
+      anim(bar, [
+        { opacity: 0, transform: "scaleX(0.5) translateY(0)" },
+        { opacity: 1, transform: "scaleX(2) translateY(0)" }
+      ], { duration: 600, delay: 4800, fill: "both", easing: "cubic-bezier(0.2, 0, 0, 1)" });
+      sceneOut(s2, 6.8, 400);
+
+      // ============================================================
+      // Scene 3: CTA (7s - 10s)
+      // ============================================================
+      var s3 = document.getElementById("scene-3");
+      anim(s3, [{ opacity: 0 }, { opacity: 1 }], { duration: 200, delay: 7000, fill: "both" });
+      sceneIn(s3.querySelector(".cta-line"), 7.2, 700, 40);
+      sceneIn(s3.querySelector(".cta-sub"), 7.8, 500, 20);
+      sceneOut(s3, 9.7, 300);
+
+      // ============================================================
+      // Bottom bar
+      // ============================================================
+      anim(document.getElementById("bottom-bar"), [
+        { opacity: 0 }, { opacity: 1 }
+      ], { duration: 400, delay: 800, fill: "both", easing: "ease-out" });
+      anim(document.getElementById("bottom-bar"), [
+        { opacity: 1 }, { opacity: 0 }
+      ], { duration: 300, delay: 9700, fill: "both", easing: "ease-in" });
+
+      // ============================================================
+      // Caption animations (phrase-level fade in/out)
+      // ============================================================
+      for (var g = 0; g < groups.length; g++) {
+        var group = groups[g];
+        var groupEl = document.getElementById(group.label);
+
+        // Show group with fade-in
+        anim(groupEl, [
+          { opacity: 0, transform: "translateY(20px)" },
+          { opacity: 1, transform: "translateY(0px)" }
+        ], { duration: 150, delay: group.start * 1000, fill: "both", easing: "ease-out" });
+
+        // Hide group after its end
+        anim(groupEl, [
+          { opacity: 1, transform: "translateY(0px)" },
+          { opacity: 0, transform: "translateY(-10px)" }
+        ], { duration: 120, delay: (group.end - 0.12) * 1000, fill: "both", easing: "ease-in" });
+      }
+    </script>
+  </body>
+</html>

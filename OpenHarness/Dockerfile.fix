@@ -1,0 +1,102 @@
+# ============================================================================
+# Dockerfile.fix — 增量构建：仅更新 skills + Hyperframes 版本
+# ============================================================================
+# 基于已构建的主镜像，避免重复下载系统包、Python 包、Node.js 包等基础依赖
+#
+# 使用场景：
+#   1. 修改了 hyperframes_github_skills/ 内容后快速更新镜像
+#   2. 升级 Hyperframes npm 版本（无需重建整个镜像）
+#
+# 构建命令：
+#   # 仅更新 skills（最快，<5s）
+#   docker build -f Dockerfile.fix \
+#     --build-arg BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.20_v1.3_v2.0 \
+#     -t openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.20_v1.3_v2.0 .
+# 
+
+#   # 同时升级 Hyperframes 版本（较慢，约 1 分钟）
+#   docker build -f Dockerfile.fix \
+#     --build-arg BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.20_v1.3_v2.0 \
+#     --build-arg HYPERFRAMES_VERSION=0.7.20 \
+#     -t openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.20_v1.3_v2.0 .
+#
+# 说明：pptx-to-html skill 通过下方 COPY + pip install 内置到镜像；
+#       不再从 smithery 拉取（`--agent claude-code` 装到 ~/.claude/skills/，oh 不读取该目录）。
+# ============================================================================
+
+ARG BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.20_v1.3_v2.0
+FROM ${BASE_IMAGE}
+
+# ---- 安装 socat（hyperframes preview 端口转发：0.0.0.0:3002 → 127.0.0.1:30020）----
+RUN apt-get update && apt-get install -y --no-install-recommends socat \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- 可选：升级 Hyperframes 版本（不传则跳过）----
+ARG HYPERFRAMES_VERSION=""
+RUN if [ -n "${HYPERFRAMES_VERSION}" ]; then \
+        npm install -g "hyperframes@${HYPERFRAMES_VERSION}"; \
+    fi
+
+# ---- 预装/刷新 hyperframes pinned bundled chrome ----
+# 运行时 `browser ensure`/`doctor` 只认 bundled chrome（不读 PRODUCER_HEADLESS_SHELL_PATH），
+# 空缓存会在第一次跑 skill 时触发 ~150MB 下载卡住。ensure 幂等：已存在则 no-op；升级
+# hyperframes 版本后会下载该版本 pin 的 chrome。临时关掉 NO_AUTO_INSTALL 确保显式 ensure 下载。
+RUN HYPERFRAMES_NO_AUTO_INSTALL=0 npx hyperframes browser ensure
+
+# ---- 更新镜像内置 skills（覆盖 /opt/oh-skills-builtin/）----
+COPY hyperframes_github_skills/ /opt/oh-skills-builtin/
+COPY pptx2html_github_skills/ /opt/oh-skills-builtin/
+
+# ---- 安装 pptx-to-html 的 Python 依赖到 OpenHarness venv ----
+# 主镜像未预装 python-pptx/openpyxl/fonttools；skill 运行时 python(=venv) 调用，
+# 故装到 /root/.openharness-venv（PATH 最前，运行时无需 activate）。
+RUN /root/.openharness-venv/bin/pip install --no-cache-dir \
+        -r /opt/oh-skills-builtin/pptx-to-html/requirements.txt
+
+ARG Model_Download=""
+RUN if [ -n "${Model_Download}" ]; then \
+    # ---- 预下载 Whisper small 转录模型（~466 MB）到 ~/.cache/hyperframes/whisper/ ----
+    # 几乎所有 skill 的语音转录都依赖此模型（embedded-captions, talking-head-recut 等）。
+    # 生成 0.5s 静默音频触发 whisper.cpp 模型自动下载，即使转录结果为空也不影响。
+    ffmpeg -y -f lavfi -i anullsrc=r=16000:cl=mono -t 0.5 -c:a pcm_s16le /tmp/_dummy.wav \
+    && mkdir -p /tmp/_dummy_transcribe \
+    && hyperframes transcribe /tmp/_dummy.wav --model small -d /tmp/_dummy_transcribe 2>/dev/null || true \
+    && rm -rf /tmp/_dummy.wav /tmp/_dummy_transcribe; \
+    \
+    # ---- 预下载 u2net_human_seg 人像抠图模型（~168 MB）到 ~/.cache/hyperframes/background-removal/models/ ----
+    # embedded-captions 的 matte.cjs 通过 hyperframes remove-background 使用此 ONNX 模型。
+    # 生成 64x64 黑色图片触发模型自动下载；模型加载在推理前完成，图片内容不影响下载。
+    ffmpeg -y -f lavfi -i color=c=black:s=64x64:d=0.04 -frames:v 1 /tmp/_dummy.png \
+    && hyperframes remove-background /tmp/_dummy.png -o /tmp/_dummy_out.png 2>/dev/null || true \
+    && rm -f /tmp/_dummy.png /tmp/_dummy_out.png; \
+    \
+    # ---- 安装 music-to-video 的 Python 依赖（librosa, numpy, soundfile）----
+    # music-to-video 的 analyze-beatgrid.py 音频分析需要此三件套。
+    /root/.openharness-venv/bin/pip install --no-cache-dir librosa numpy soundfile; \
+    fi
+
+# ---- 预装 React TUI 前端 npm 依赖（避免远程无网络时启动失败）----
+# 运行时 react_launcher.py 检测到 node_modules 不存在会执行 npm install，
+# 远程服务器无法访问 npm registry 时即报错退出。构建时预装到 pip 包内置的
+# _frontend 目录，运行时检测到 node_modules 已存在则跳过安装。
+RUN _SITE_PKGS=$(/root/.openharness-venv/bin/python -c "import site; print(site.getsitepackages()[0])") \
+    && cd "$_SITE_PKGS/openharness/_frontend" \
+    && npm install --no-fund --no-audit
+
+# ---- 重写 wrapper 脚本（含 skills 同步 + React TUI node_modules 兜底）----
+# node_modules 兜底：当源码挂载（./frontend:/app/frontend）遮蔽了镜像内置的
+# pip 包 _frontend/ 路径时，启动 oh 会自动命中 dev 路径（/app/frontend/terminal/），
+# 但该路径没有预装的 node_modules。此处将镜像预装的 node_modules 复制过去。
+RUN printf '#!/bin/bash\ncp -a /opt/oh-skills-builtin/. /root/.openharness/skills/ 2>/dev/null || true\n_FE_SRC=$(/root/.openharness-venv/bin/python -c "import site; print(site.getsitepackages()[0])")/openharness/_frontend\n[ -f /app/frontend/terminal/package.json ] && [ -d "$_FE_SRC/node_modules" ] && [ ! -f /app/frontend/terminal/node_modules/.bin/tsx ] && (rm -rf /app/frontend/terminal/node_modules 2>/dev/null; cp -a "$_FE_SRC/node_modules" /app/frontend/terminal/node_modules 2>/dev/null) || true\nexec /root/.openharness-venv/bin/oh --permission-mode full_auto "$@"\n' > /root/.local/bin/oh \
+    && printf '#!/bin/bash\ncp -a /opt/oh-skills-builtin/. /root/.openharness/skills/ 2>/dev/null || true\n_FE_SRC=$(/root/.openharness-venv/bin/python -c "import site; print(site.getsitepackages()[0])")/openharness/_frontend\n[ -f /app/frontend/terminal/package.json ] && [ -d "$_FE_SRC/node_modules" ] && [ ! -f /app/frontend/terminal/node_modules/.bin/tsx ] && (rm -rf /app/frontend/terminal/node_modules 2>/dev/null; cp -a "$_FE_SRC/node_modules" /app/frontend/terminal/node_modules 2>/dev/null) || true\nexec /root/.openharness-venv/bin/ohmo --permission-mode full_auto "$@"\n' > /root/.local/bin/ohmo \
+    && printf '#!/bin/bash\ncp -a /opt/oh-skills-builtin/. /root/.openharness/skills/ 2>/dev/null || true\n_FE_SRC=$(/root/.openharness-venv/bin/python -c "import site; print(site.getsitepackages()[0])")/openharness/_frontend\n[ -f /app/frontend/terminal/package.json ] && [ -d "$_FE_SRC/node_modules" ] && [ ! -f /app/frontend/terminal/node_modules/.bin/tsx ] && (rm -rf /app/frontend/terminal/node_modules 2>/dev/null; cp -a "$_FE_SRC/node_modules" /app/frontend/terminal/node_modules 2>/dev/null) || true\nexec /root/.openharness-venv/bin/openharness --permission-mode full_auto "$@"\n' > /root/.local/bin/openharness \
+    && chmod +x /root/.local/bin/oh /root/.local/bin/ohmo /root/.local/bin/openharness
+
+# ---- hf-preview：hyperframes preview 包装脚本（自动 socat 转发 0.0.0.0:3002 → 127.0.0.1:30020）----
+RUN printf '#!/bin/bash\n\
+socat TCP-LISTEN:3002,fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:30020 &\n\
+SOCAT_PID=$!\n\
+cleanup() { kill $SOCAT_PID 2>/dev/null; }\n\
+trap cleanup EXIT INT TERM\n\
+npx hyperframes preview --port 30020 --no-open "$@"\n' > /usr/local/bin/hf-preview \
+    && chmod +x /usr/local/bin/hf-preview

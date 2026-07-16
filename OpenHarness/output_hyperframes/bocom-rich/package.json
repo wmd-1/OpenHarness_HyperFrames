@@ -1,0 +1,9 @@
+{
+  "name": "bocom-rich",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes hyperframes@0.6.93 preview",
+    "render": "npx --yes hyperframes@0.6.93 render"
+  }
+}
