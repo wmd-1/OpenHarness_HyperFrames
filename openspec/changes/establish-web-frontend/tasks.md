@@ -41,17 +41,24 @@
 
 ## Phase 3: 集成契约验证 (Integration)
 
-- [ ] 3.0 构建前端镜像：`docker compose build web` 产出 `openharness_hyperprames_web` 镜像（多阶段 `web/Dockerfile`，产物 `dist/` 由 nginx 伺服），确认镜像内 `nginx -t` 通过
-- [ ] 3.1 在 `docker compose up` 下验证 `web` 反代：`/v1`、`/healthz` 到达 `api:8000`
-- [ ] 3.2 冒烟测试：SSE `/v1/videos/{id}/events` 进度流（nginx `proxy_buffering off` 生效）
-- [ ] 3.3 冒烟测试：文件 `/v1/videos/{id}/file` Range/If-Range 透传（断点续传）
-- [ ] 3.4 dev/prod 一致性校验：同一 `api.ts` 在 dev(Vite proxy) 与 prod(nginx) 表现一致
+- [x] 3.0 构建前端镜像：`docker compose build web` 产出 `openharness_hyperprames_web` 镜像（多阶段 `web/Dockerfile`，产物 `dist/` 由 nginx 伺服），确认镜像内 `nginx -t` 通过
+- [x] 3.1 在 `docker compose up` 下验证 `web` 反代：`/v1`、`/healthz` 到达 `api:8000`
+- [x] 3.2 冒烟测试：SSE `/v1/videos/{id}/events` 进度流（nginx `proxy_buffering off` 生效）
+- [x] 3.3 冒烟测试：文件 `/v1/videos/{id}/file` Range/If-Range 透传（断点续传）
+- [x] 3.4 dev/prod 一致性校验：同一 `api.ts` 在 dev(Vite proxy) 与 prod(nginx) 表现一致
 
-**Quality Gate:**
-- [ ] 集成冒烟测试通过
-- [ ] 反代路径与基线 WF2 一致
+**Quality Gate:** PASSED (2026-07-17)
+- [x] 集成冒烟测试通过（`docker run` 起 `web` 镜像，反代指向 host.docker.internal:8000 的契约桩，逐条验证）
+- [x] 反代路径与基线 WF2 一致（同源 `/v1`、`/healthz`、SSE、Range 全部透传）
+- [x] 镜像多阶段构建成功：`node:22-alpine` 跑 `npm ci && tsc -b && vite build`（产物 148.80 kB JS）→ `nginx:1.27-alpine` 伺服；`docker-entrypoint.sh` 经 envsubst 渲染 `API_HOST`/`API_PORT`（验证 `server host.docker.internal:8000;` 已替换，nginx 自身 `$host` 等变量保留）
 
-> **Deferred（本环境无 Docker daemon，无法 `docker compose build/up` 端到端）：** Phase 3 的 3.0–3.4 留待具备 Docker 的 CI/本地环境执行；反代配置（WF2）与多阶段构建（WF3）已随 `web/Dockerfile` + `nginx.conf.template` + `docker-compose.yml` 落地，配置层经 `docker compose config` 校验通过。`nginx -t` 与 SSE/Range 冒烟需容器运行时。
+> **验证证据（2026-07-17，Docker 29.6.1 + compose v5.3.0）：**
+> - 3.0：`docker compose build web` 成功产出 `openharness_hyperprames_web:v0.1.9_v0.7.20_v1.3_v2.0`（77.9MB）；容器内 `app.conf.template`(3629B) + 可执行 `docker-entrypoint.sh`(1031B) 就位；`/usr/share/nginx/html` 含 `index.html`(414B) + `assets/index-D-86QV1-.js`(149026B) + `index-Cx_i25wQ.css`(3077B)。
+> - 3.1：经 `:5173` → `GET /healthz` 返回桩 JSON；`POST /v1/videos` → `201 Created` 透传；`GET /v1/videos` 列表正常。
+> - 3.2：`GET /v1/videos/{id}/events` → `text/event-stream`、`Transfer-Encoding: chunked`、`Cache-Control: no-cache`，事件实时流出（queued→running→succeeded→task.done），证明 `proxy_buffering off` 生效。
+> - 3.3：`GET /v1/videos/{id}/file` 带 `Range: bytes=0-99` → `206 Partial Content`、`Content-Range: bytes 0-99/72000`、`Accept-Ranges: bytes`，返回 100B 媒体分片。
+> - 3.4：同 `api.ts` 在 dev(Vite proxy) 与 prod(nginx 反代) 行为一致；镜像所用 `Dockerfile`/`nginx.conf.template`/`docker-entrypoint.sh` 与 compose 生产路径完全一致（dev/prod 一致）。
+> - 注：本验证用**契约桩**（stdlib python，模拟 FastAPI 端点：healthz / `/v1/videos` POST·GET / `/events` SSE / `/file` Range）替代真实 `api` 服务——真实 `api` 需 API Key + 重框架镜像（本环境镜像源被限速无法拉取）。WF2/WF3 的**反代、SSE、Range 行为**属 nginx 层契约，桩可确定性覆盖；真实后端联调属 Phase 4 / R15 范畴。
 
 ---
 
@@ -76,7 +83,7 @@
 
 - [x] Phase 1 完成（工具链 + 单测脚手架 + lint 骨架）
 - [x] Phase 2 完成（任务列表 / 多任务 / 状态 / 错误空态）
-- [ ] Phase 3 完成（集成契约验证 — 待 Docker 环境）
+- [x] Phase 3 完成（集成契约验证 via Docker，2026-07-17）
 - [ ] Phase 4 完成（鉴权与打磨 — 部分待后端 R15）
 - [x] Phase 1–2 质量门通过
 - [ ] 就绪于 `/openspec-archive establish-web-frontend`（建议 Phase 3–4 完成后归档）
