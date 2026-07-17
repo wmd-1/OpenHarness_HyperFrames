@@ -50,3 +50,21 @@ OH_CORS_ORIGINS=https://your-frontend.example.com
 前端在提交后会同时：① 打开 `events` SSE 流接收实时日志；② 每 2 秒
 轮询一次任务状态，直到进入终态（SUCCEEDED / FAILED / CANCELED），
 成功后展示视频播放器。
+
+
+## 独立镜像（Standalone Docker 镜像）
+
+`web/` 可独立构建为一个**完全独立**的前端镜像，不依赖 OpenHarness/后端镜像：
+
+```bash
+# 在 web/ 目录内构建（构建上下文即 web/ 自身，无需仓库根）
+cd web
+docker build -t openharness-web .
+
+# 独立运行，指向任意后端（默认 api:8000，仅 compose 内有效）
+docker run -p 5173:80   -e API_HOST=your-api-host   -e API_PORT=8000   openharness-web
+```
+
+- 镜像基于 `nginx:1.27-alpine`，**不继承** OpenHarness/后端镜像；静态资源由构建阶段产出，运行时只伺服 `dist/` + 反代 API。
+- 后端地址通过环境变量注入（`docker-entrypoint.sh` 用 `envsubst` 渲染 `nginx.conf.template`），因此**同一镜像**可部署到任何后端：`API_HOST`（默认 `api`）、`API_PORT`（默认 `8000`）；`docker-compose.yml` 的 `web` 服务已显式设为 `api` / `8000`，与 `api` 服务同网络开箱即用。
+- 开发态仍走 `vite.config.ts` 的 proxy（`http://localhost:8000`），与生产镜像的 nginx 反代契约一致（路径同为 `/v1`、`/healthz`、SSE、文件端点）。

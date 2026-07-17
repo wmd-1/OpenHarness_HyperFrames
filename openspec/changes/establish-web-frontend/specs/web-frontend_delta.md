@@ -54,7 +54,7 @@
 
 ### Requirement: WF3 — 构建与容器镜像
 
-`web/` SHALL 通过多阶段 `Dockerfile` 构建：阶段 1（`node:22-alpine`）执行 `npm ci && npm run build` 产出 `dist/`；阶段 2（`nginx:1.27-alpine`）挂载 `dist/` 与自定义 `nginx.conf`，容器内监听 `:80`。`docker-compose.yml` 的 `web` 服务构建 `./web` 并发布 `5173:80`。
+`web/` SHALL 通过多阶段 `Dockerfile` 构建出一个**完全独立**的前端镜像（基于 `nginx:1.27-alpine`，**不继承** OpenHarness/后端镜像）：阶段 1（`node:22-alpine`）执行 `npm ci && npm run build` 产出 `dist/`；阶段 2 挂载 `dist/` 并用 `docker-entrypoint.sh` 经 `envsubst` 渲染 `nginx.conf.template`（后端坐标由 `API_HOST`/`API_PORT` 注入），容器内监听 `:80`。`docker-compose.yml` 的 `web` 服务构建 `./web` 并发布 `5173:80`；默认 `API_HOST=api`、`API_PORT=8000`，与 `api` 服务同网络开箱即用。
 
 #### Scenario: 镜像构建产出静态资源
 - **Given** 执行 `docker compose build web`

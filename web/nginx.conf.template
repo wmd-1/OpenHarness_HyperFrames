@@ -1,15 +1,13 @@
 # =============================================================================
-# OpenHarness HyperFrames - frontend nginx site config
-# - Serves the built SPA (client-side routing via try_files).
-# - Reverse-proxies the backend API (same-origin -> no CORS):
-#     /v1/...    -> api:8000
-#     /healthz   -> api:8000
-# - Special-cased proxying for SSE (event stream) and Range file downloads.
-# The `api` upstream name resolves via docker-compose service DNS.
+# OpenHarness HyperFrames - frontend nginx site config (TEMPLATE)
+# Rendered at container start by docker-entrypoint.sh via envsubst,
+# substituting ONLY ${API_HOST} and ${API_PORT} (nginx's own $vars are
+# preserved). The backend target is configurable so this image can be
+# deployed standalone against ANY API host/port.
 # =============================================================================
 
 upstream oh_api {
-    server api:8000;
+    server ${API_HOST}:${API_PORT};
 }
 
 server {
@@ -24,7 +22,7 @@ server {
 
     # ---- SSE: video task event stream ------------------------------------
     # Must disable buffering so events flush immediately; keep the connection
-    # open for a long time and speak HTTP/1.1 without Connection: keep-alive
+    # open for a long time and speak HTTP/1.1 without Connection keepalive
     # interference.
     location ~ ^/v1/videos/[^/]+/events$ {
         proxy_pass              http://oh_api;

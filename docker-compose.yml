@@ -156,6 +156,12 @@ services:
         VITE_API_BASE: "${VITE_API_BASE:-}"
     image: openharness_hyperframes_web:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.20_v1.3_v2.0}
     container_name: openharness-web
+    environment:
+      # Backend coordinates for the standalone nginx reverse-proxy.
+      # Defaults match the compose `api` service; override to point the
+      # standalone frontend image at any external/remote backend.
+      API_HOST: api
+      API_PORT: "8000"
     depends_on:
       - api
     ports:
