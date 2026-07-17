@@ -2,7 +2,7 @@
 
 **Change ID:** `establish-web-frontend`
 **Created:** 2026-07-17
-**Status:** Draft
+**Status:** In Progress (Phase 1–2 完成；Phase 3 待 Docker 环境；Phase 4 部分待后端 R15)
 
 ---
 

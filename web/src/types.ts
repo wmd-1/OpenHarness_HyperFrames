@@ -1,11 +1,9 @@
 export type TaskStatus =
-  | "PENDING"
-  | "CLAIMED"
-  | "RUNNING"
-  | "SUCCEEDED"
-  | "FAILED"
-  | "CANCELED"
-  | "RETRYING";
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "canceled";
 
 export interface TaskLinks {
   self: string;
