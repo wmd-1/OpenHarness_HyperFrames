@@ -4,6 +4,12 @@
 
 ---
 
+> **前置基线（已建立，commit `2a3ed3a`）：前端独立镜像已落地。**
+> - 构建文件：`web/Dockerfile`（多阶段 `node:22-alpine` 构建 `dist/` → `nginx:1.27-alpine` 伺服）、`web/nginx.conf`（同源反代）、`web/.dockerignore`。
+> - 编排：`docker-compose.yml` 的 `web` 服务 `build: ./web` → 镜像 `openharness_hyperframes_web:<tag>`、`5173:80`、`depends_on api`。
+> - 即「双镜像」中的**前端镜像**（另一镜像是 OpenHarness+后端 根 `Dockerfile`）。
+> - 本计划在其之上做 UI 硬化与集成验证，不重复"新建镜像"，但 Phase 3 会显式验证镜像可构建且反代生效。
+
 ## Phase 1: 规格与工具链基座 (Foundation)
 
 - [ ] 1.1 落地本提案 delta → 基线 `openspec/specs/web-frontend.md`（`/openspec-archive` 时）
@@ -32,6 +38,7 @@
 
 ## Phase 3: 集成契约验证 (Integration)
 
+- [ ] 3.0 构建前端镜像：`docker compose build web` 产出 `openharness_hyperframes_web` 镜像（多阶段 `web/Dockerfile`，产物 `dist/` 由 nginx 伺服），确认镜像内 `nginx -t` 通过
 - [ ] 3.1 在 `docker compose up` 下验证 `web` 反代：`/v1`、`/healthz` 到达 `api:8000`
 - [ ] 3.2 冒烟测试：SSE `/v1/videos/{id}/events` 进度流（nginx `proxy_buffering off` 生效）
 - [ ] 3.3 冒烟测试：文件 `/v1/videos/{id}/file` Range/If-Range 透传（断点续传）
