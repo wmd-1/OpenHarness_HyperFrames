@@ -52,11 +52,11 @@
 
 ## Success Criteria
 
-- [ ] `web-frontend` 规格进入基线（归档后 `openspec/specs/web-frontend.md` 存在）。
-- [ ] `tsc -b && vite build` 在 CI 中通过（现有已可本地通过）。
-- [ ] 任务列表/多任务管理/错误空态落地并有冒烟测试。
-- [ ] 集成契约冒烟测试覆盖 SSE 与文件 Range 透传。
-- [ ] README 与规格同步。
+- [x] `web-frontend` 规格进入基线（`openspec/specs/web-front-end.md` 已存在）。
+- [x] `tsc -b && vite build` 在 CI 中通过（`.github/workflows/web.yml`）。
+- [x] 任务列表/多任务管理/错误空态落地并有冒烟测试（11 passed）。
+- [x] 集成契约冒烟测试覆盖 SSE 与文件 Range 透传（Phase 3，via Docker 契约桩）。
+- [x] README 与规格同步（`web/README.md`）。
 
 ## Risks & Mitigations
 
@@ -65,3 +65,24 @@
 | 前端状态管理过度设计 | Med | Med | 保持最小依赖，先做单任务增强再上列表 |
 | SSE/Range 反代在浏览器行为偏差 | Low | Med | 用冒烟测试锁契约（见 tasks Phase 3） |
 | 与 `create-monorepo` 规格重叠 | Low | Low | 本提案专注前端专属，开发代理/CORS 引用前者 |
+
+---
+
+## Archive Information
+
+**Archived:** 2026-07-17 17:20
+**Duration:** < 1 day（创建于 2026-07-17 11:16）
+**Outcome:** Successfully implemented
+
+### Files Modified / Added
+- `web/src/store.tsx`、`web/src/components/*`、`web/src/api.ts`、`web/src/App.tsx`（Phase 1–2 UI 硬化）
+- `web/src/components/ApiKeyInput.tsx` + `api.ts` X-API-Key（Phase 4.1）
+- `.github/workflows/web.yml`（Phase 4.5 CI）
+- `web/README.md`、`web/Dockerfile`、`web/nginx.conf.template`、`web/docker-entrypoint.sh`
+
+### Specs Updated
+- `openspec/specs/web-front-end.md`（新建基线：WF1–WF5）
+- `openspec/archive/establish-web-frontend/`（本提案归档）
+
+### Summary
+前端能力建立为 OpenSpec 一等规格并完成到生产就绪：SPA 架构、同源反代集成契约、独立构建镜像、dev/prod 一致性、任务生命周期 UI 基线；Phase 4 补齐 X-API-Key 鉴权 UI 与 CI。质量门全绿（lint 0 err / 11 passed / build 150KB）。4.2 tenant UI 钩子预留（后端经 API Key 解析 tenant）、4.3 i18n 判定 N/A。

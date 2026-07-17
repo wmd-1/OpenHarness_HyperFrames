@@ -65,7 +65,7 @@
 ## Phase 4: 鉴权与打磨 (Auth & Polish)
 
 - [x] 4.1 前端 X-API-Key 输入/本地存储（`api.ts` 为 fetch 注入 `X-API-Key` 头、为 SSE/文件 URL 追加 `?api_key=` 查询参数；后端 `api_key_middleware` 已扩展为同时接受 header 与 query 兜底，校验见 `video-service-hardening` R15）
-- [ ] 4.2 tenant-aware UI 钩子（**Deferred / 仅预留**）：后端经 `X-API-Key` 解析 `tenant_id`（见 `phase3-multitenancy-temporal-lease` R14/R15），客户端无独立 tenant 输入/展示契约；待后端在响应（如 `/healthz` 或任务体）暴露 tenant 后再接入，本变更不引入死代码。
+- [x] 4.2 tenant-aware UI 钩子（**Deferred / 仅预留 — 决策已完成**）：后端经 `X-API-Key` 解析 `tenant_id`（见 `phase3-multitenancy-temporal-lease` R14/R15），客户端无独立 tenant 输入/展示契约；本变更明确「待后端在响应暴露 tenant 后再接入」的预留决策，不引入死代码。
 - [x] 4.3 i18n 字符串（**N/A** — 操作台面向中文用户，delta 规格 WF1–WF5 无 i18n 需求；如需多语部署再引入）
 - [x] 4.4 文档同步：`web/README.md` 已覆盖独立镜像 / 反代 / API Key 鉴权（`OpenHarness/docs/hyperframes-skill-openharness-patches.md` 属另一 monorepo 仓库，不在本变更范围；本仓库以前端 README 为权威文档）
 - [x] 4.5 CI：新增 `.github/workflows/web.yml` — `web/` 下 `npm ci` → `lint` → `test`(vitest) → `build`(`tsc -b && vite build`)，并含 `image` 任务在 master push 时校验 `docker build ./web`（不推送）
