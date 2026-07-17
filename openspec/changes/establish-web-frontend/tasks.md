@@ -75,7 +75,7 @@
 - [ ] 代码分析干净
 - [ ] 文档同步
 
-> **Deferred（部分）：** 4.1 的 X-API-Key 后端校验（R15）需在 `service` 侧落 `api_key` 鉴权中间件后方可联调，属后端范围；4.3 i18n / 4.5 CI 为可选打磨。本实现已具备 4.4 所需的 README 骨架；4.1–4.3 留待后续。
+> **Deferred（部分）：** 后端 R15 已实现（`service/app/main.py` 的 `api_key_middleware` + `config.py` 的 `api_key` 配置，可选——仅当部署设置 `API_KEY` 时才启用校验，`/healthz` 免校验）；缺的只是前端发送 `X-API-Key` 头与 key 输入/存储，4.1 现在即可动手；4.3 i18n / 4.5 CI 为可选打磨。本实现已具备 4.4 所需的 README 骨架；4.1–4.3 留待后续。
 
 ---
 
