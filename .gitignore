@@ -29,6 +29,13 @@ OpenHarness/output_hyperprames/*
 # Local state
 .openharness/
 
+# Hyperframes skill sync baseline (upstream snapshot, populated on-demand) & backups
+hyperframes_github_skills_latest/
+hyperframes_github_skills.bak.*/
+hyperframes_container_skills/
+
+# Chrome headless shell zip is pre-downloaded manually into docker/chrome/ (large, gitignored via *.zip)
+
 # Editor / OS
 .idea/
 .vscode/

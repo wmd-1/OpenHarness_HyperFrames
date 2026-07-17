@@ -143,6 +143,25 @@ services:
       - oh-workspaces:/workspaces
       - openharness-config:/root/.openharness
 
+  # ---- 前端 SPA（独立镜像：Vite/React 构建 → nginx 提供静态资源 + 反向代理）----
+  # nginx 将 /v1、/healthz 反代到 api:8000（同源，无需 CORS），SSE / Range 已特殊处理。
+  # 访问 http://localhost:5173 即可使用前端。
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        # 留空 => 前端走同源相对路径，由 nginx 反代到 api 服务。
+        # 若前端与 API 部署在不同域名，可在此填写公网 API 地址。
+        VITE_API_BASE: "${VITE_API_BASE:-}"
+    image: openharness_hyperframes_web:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.20_v1.3_v2.0}
+    container_name: openharness-web
+    depends_on:
+      - api
+    ports:
+      - "5173:80"
+    restart: unless-stopped
+
 volumes:
   openharness-config:
     name: openharness-config

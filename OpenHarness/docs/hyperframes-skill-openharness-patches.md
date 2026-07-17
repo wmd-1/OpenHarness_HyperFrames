@@ -19,13 +19,41 @@
 | `hyperframes_github_skills_latest/` | 从 hyperframes github 同步的**上游原版最新** skill（`.gitignore` 忽略、不入库；非空，是上次拉取的快照） | 拉新版时填充，与`hyperframes_github_skills/` 比对确认 skill 集合一致后再覆盖，作为基线 |
 | `hyperframes_github_skills/`        | **实际使用**的、已打 OpenHarness 补丁的版本                                                               | Docker 构建时`COPY` 进镜像；补丁打在这里                                               |
 
-镜像构建链路（[Dockerfile:98](../Dockerfile#L98)、[Dockerfile.fix:36](../Dockerfile.fix#L36)）：
+镜像构建链路（[Dockerfile:98](../../Dockerfile#L98)、[Dockerfile.fix:36](../../Dockerfile.fix#L36)）：
 
 ```
 hyperframes_github_skills/   ──Docker COPY──▶  /opt/oh-skills-builtin/  ──wrapper cp -a──▶  /root/.openharness/skills/  ──oh CLI 加载
 ```
 
 api 服务（docker-compose `api`）`extends: openharness`，与交互式 CLI **共用同一镜像、同一份 skill**，无独立副本。
+
+### 1.1 Monorepo 布局与双镜像架构
+
+本仓库为 monorepo，**Docker 构建上下文 = 仓库根目录**。关键构建输入文件全部位于**仓库根**，而本文档位于 `OpenHarness/docs/`，因此文中对构建文件的相对链接一律为 `../../`（上跳两级到仓库根）。
+
+```
+OpenHarness_HyperFrames/                # 仓库根 = 构建上下文
+├── Dockerfile                          # 镜像 A：OpenHarness 框架 + 后端服务
+├── Dockerfile.fix                      # 镜像 A 的增量重建层（pptx 依赖 / wrapper / hf-preview）
+├── docker-compose.yml                  # 编排：openharness / api / postgres / redis / web
+├── .dockerignore  /  .env.example
+├── hyperframes_github_skills/          # 已打补丁的 skill（COPY 进镜像 A）
+├── hyperframes_github_skills_latest/   # 上游快照基线（.gitignore 忽略，不入库）
+├── pptx2html_github_skills/            # pptx-to-html skill（COPY 进镜像 A，见 §8）
+├── docker/                             # chrome zip / supervisord.conf 等镜像 A 资源
+├── OpenHarness/                        # 框架源码（运行时挂载 src/ohmo/frontend）+ 本文档
+├── service/                            # FastAPI + Celery 后端（运行时挂载 /opt/oh-service）
+└── web/                               # 前端 SPA（镜像 B：独立 Dockerfile + nginx.conf）
+```
+
+**双镜像**（均通过 Dockerfile 启动，`docker compose up` 一键拉起）：
+
+| 镜像 | 构建文件 | 内容 | compose 服务 |
+| ---- | -------- | ---- | ------------ |
+| **A：OpenHarness + 后端** | 仓库根 `Dockerfile`（+ `Dockerfile.fix` 增量层） | `oh` CLI + 打补丁 skill + FastAPI/Celery 视频服务（`service/` 运行时挂载） | `openharness` / `shell` / `api`（`extends`） |
+| **B：前端** | `web/Dockerfile`（多阶段：node 构建 Vite/React → nginx 提供静态资源） | 构建后的 SPA + nginx 反向代理 | `web`（`5173:80`） |
+
+> 前端镜像 B 的 nginx 把 `/v1`、`/healthz` **同源反代**到 `api:8000`（`web/nginx.conf`），因此前端 `VITE_API_BASE` 默认留空、走相对路径，**无需 CORS**。SSE（`/v1/videos/*/events`）关闭 `proxy_buffering`，视频文件（`/v1/videos/*/file`）透传 `Range`。仅当前端与 API 分域名部署时才需设置 `VITE_API_BASE` + 后端 `OH_CORS_ORIGINS`。
 
 ---
 
@@ -353,7 +381,7 @@ PRODUCER_HEADLESS_SHELL_PATH=/opt/chrome-headless-shell-linux64/chrome-headless-
 
 **根因**：`render` 用 `PRODUCER_HEADLESS_SHELL_PATH`（指向 `/opt/chrome-headless-shell`）没问题；但 `ensure`/`doctor` 走另一条路（bundled chrome），第一次空缓存就触发下载。两套 chrome 互不相干——文档 callout 拦不住"第一次没读文档就行动"的模型，所以需要 build 层兜底。
 
-**主 [Dockerfile](../Dockerfile)** — 在 `npm install -g hyperframes` 之后加：
+**主 [Dockerfile](../../Dockerfile)** — 在 `npm install -g hyperframes` 之后加：
 
 ```dockerfile
 # 预装 hyperframes pinned bundled chrome：运行时 `browser ensure`/`doctor` 只认 bundled
@@ -363,7 +391,7 @@ PRODUCER_HEADLESS_SHELL_PATH=/opt/chrome-headless-shell-linux64/chrome-headless-
 RUN HYPERFRAMES_NO_AUTO_INSTALL=0 npx hyperframes browser ensure
 ```
 
-**[Dockerfile.fix](../Dockerfile.fix)** — 在 `HYPERFRAMES_VERSION` 升级块之后加（升级版本后 pinned chrome 版本可能变，需重新 ensure；ensure 幂等，不升级时 no-op）：
+**[Dockerfile.fix](../../Dockerfile.fix)** — 在 `HYPERFRAMES_VERSION` 升级块之后加（升级版本后 pinned chrome 版本可能变，需重新 ensure；ensure 幂等，不升级时 no-op）：
 
 ```dockerfile
 # ---- 预装/刷新 hyperframes pinned bundled chrome ----
@@ -373,7 +401,7 @@ RUN HYPERFRAMES_NO_AUTO_INSTALL=0 npx hyperframes browser ensure
 RUN HYPERFRAMES_NO_AUTO_INSTALL=0 npx hyperframes browser ensure
 ```
 
-> **为何 `HYPERFRAMES_NO_AUTO_INSTALL=0`**：主 [Dockerfile](../Dockerfile#L58-L60) 设了 `HYPERFRAMES_NO_AUTO_INSTALL=1` 禁止运行时自动安装（避免 render 时偷偷下载）。语义上它管"自动"安装，显式 `browser ensure` 应不受限——但保险起见 build 时显式覆盖为 `0`，确保 ensure 真下载。**运行时的 `=1` 不动**，仍禁止自动安装。
+> **为何 `HYPERFRAMES_NO_AUTO_INSTALL=0`**：主 [Dockerfile](../../Dockerfile#L58-L60) 设了 `HYPERFRAMES_NO_AUTO_INSTALL=1` 禁止运行时自动安装（避免 render 时偷偷下载）。语义上它管"自动"安装，显式 `browser ensure` 应不受限——但保险起见 build 时显式覆盖为 `0`，确保 ensure 真下载。**运行时的 `=1` 不动**，仍禁止自动安装。
 >
 > **两套 chrome 共存**：`/opt/chrome-headless-shell-linux64/`（用户预下载的 last-known-good，`render` 用）+ `~/.cache/hyperframes/chrome/`（hyperframes pinned，`ensure`/`doctor` 用）。两者独立、不冲突。镜像增大约 150MB（与已预下载的 TTS/whisper 模型同策略）。
 
@@ -476,7 +504,7 @@ docker exec openharness-api ls /root/.cache/hyperframes/chrome/
 docker exec openharness-api timeout 30 npx hyperframes browser ensure 2>&1 | tail -3
 ```
 
-> 命名卷 `openharness-config` 挂在 `/root/.openharness`。wrapper 用 `cp -a`（覆盖式，不删除旧文件）——重建镜像后新内容会覆盖生效，但 v1.3 删除的旧文件可能残留在卷里。若要彻底一致，把 wrapper 改为先清空再拷：`rm -rf /root/.openharness/skills 2>/dev/null; cp -a /opt/oh-skills-builtin/. /root/.openharness/skills/`（改 [Dockerfile:102-104](../Dockerfile#L102-L104) 与 [Dockerfile.fix:36-38](../Dockerfile.fix#L36-L38)）。
+> 命名卷 `openharness-config` 挂在 `/root/.openharness`。wrapper 用 `cp -a`（覆盖式，不删除旧文件）——重建镜像后新内容会覆盖生效，但 v1.3 删除的旧文件可能残留在卷里。若要彻底一致，把 wrapper 改为先清空再拷：`rm -rf /root/.openharness/skills 2>/dev/null; cp -a /opt/oh-skills-builtin/. /root/.openharness/skills/`（改 [Dockerfile:102-104](../../Dockerfile#L102-L104) 与 [Dockerfile.fix:36-38](../../Dockerfile.fix#L36-L38)）。
 
 ---
 
@@ -509,7 +537,7 @@ docker exec openharness-api timeout 30 npx hyperframes browser ensure 2>&1 | tai
 
 | 文件                             | 补丁性质                                                                                                                                                                                  |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Dockerfile.fix](../Dockerfile.fix) | 删无效的`PPTX2HTML_VERSION` / `npx skills add --agent claude-code` 段（装到 `~/.claude/skills/`，oh 不读）；新增 `pip install -r requirements.txt` 到 `/root/.openharness-venv` |
+| [Dockerfile.fix](../../Dockerfile.fix) | 删无效的`PPTX2HTML_VERSION` / `npx skills add --agent claude-code` 段（装到 `~/.claude/skills/`，oh 不读）；新增 `pip install -r requirements.txt` 到 `/root/.openharness-venv` |
 | `pptx-to-html/SKILL.md`        | 脚本名 →`_v2.py`；路径 → `/root/.openharness/skills/pptx-to-html/`；去掉 `/mnt/user-data` 写死与 `computer://`；能力描述同步到 Phase 2                                          |
 | `pptx-to-html/README.md`       | 删引用已移除的 Phase 1 脚本的两处（Basic Usage 的 legacy 示例 + 文件树 legacy 行）                                                                                                        |
 
@@ -533,7 +561,7 @@ RUN /root/.openharness-venv/bin/pip install --no-cache-dir \
         -r /opt/oh-skills-builtin/pptx-to-html/requirements.txt
 ```
 
-> 为何装到 venv：主 [Dockerfile](../Dockerfile#L87) 把 `/root/.openharness-venv/bin` 放在 `PATH` 最前，容器里 `python` / `python3` / `pip` 自动命中 venv，运行时无需 activate；安装时显式用 `/root/.openharness-venv/bin/pip` 最稳。
+> 为何装到 venv：主 [Dockerfile](../../Dockerfile#L87) 把 `/root/.openharness-venv/bin` 放在 `PATH` 最前，容器里 `python` / `python3` / `pip` 自动命中 venv，运行时无需 activate；安装时显式用 `/root/.openharness-venv/bin/pip` 最稳。
 
 ### 8.4 SKILL.md — 路径 + 脚本名 + 能力描述
 
@@ -700,3 +728,35 @@ rm -rf hyperframes_github_skills && cp -a hyperframes_github_skills_latest hyper
 2. **备份目录** `hyperframes_github_skills.bak.20260708_170149` 保留为回滚点（review 确认无误后可删）。
 3. **文档 §3/§6/§7 路径仍为 `hyperframes-media`**——下次同步前建议统一改为 `media-use`（见 10.1），否则照文档操作会找不到文件。
 4. 容器侧 §6.2 验证待补（需 Docker + 运行中镜像）。
+
+---
+
+## 11. Monorepo 重构 + 双镜像架构（2026-07-16）
+
+将原单目录仓库重构为 monorepo，并拆分为**两个镜像**（均由 Dockerfile 启动）。详见 §1.1 布局图。
+
+### 11.1 目录/构建输入对齐
+
+上游 skill 目录与 Docker 构建文件统一上提到**仓库根**（构建上下文），消除子目录漂移：
+
+| 动作 | 对象 | 说明 |
+| ---- | ---- | ---- |
+| 提升到仓库根 | `pptx2html_github_skills/`（21 文件）、`Dockerfile.fix`、`hyperframes_github_skills_latest/`（826 文件基线） | 原散落在 `OpenHarness/` 下，`Dockerfile.fix` 的 `COPY pptx2html_github_skills/` 在 monorepo 下会失配 |
+| 删除遗留副本 | `OpenHarness/pptx2html_github_skills/`、`OpenHarness/Dockerfile.fix` | 避免双份漂移 |
+| `.gitignore` 新增 | `hyperframes_github_skills_latest/`、`hyperframes_github_skills.bak.*/`、`hyperframes_container_skills/` | 上游快照/备份不入库 |
+| 文档链接修正 | 本文档所有 `../Dockerfile*` → `../../Dockerfile*` | 文档在 `OpenHarness/docs/`，构建文件在仓库根，需上跳两级 |
+
+### 11.2 镜像 B（前端）新增文件
+
+- `web/Dockerfile`：多阶段构建。stage1 `node:22-alpine` 跑 `npm ci && npm run build`（`VITE_API_BASE` 默认空）；stage2 `nginx:1.27-alpine` 提供 `dist/` + 自定义 `nginx.conf`。
+- `web/nginx.conf`：SPA `try_files` 客户端路由回退；`/v1`+`/healthz` 反代 `upstream oh_api {server api:8000;}`；正则 location 特判 SSE（`proxy_buffering off` + 3600s 超时）与文件下载（透传 `Range`/`If-Range`）。
+- `web/.dockerignore`：忽略 `node_modules`/`dist`/`*.tsbuildinfo` 等。
+- `docker-compose.yml` 新增 `web` 服务：`build ./web`、`depends_on api`、`5173:80`、`restart unless-stopped`。
+
+### 11.3 启动方式
+
+```
+docker compose up --build        # 一键拉起 postgres/redis/api/web
+# 前端： http://localhost:5173   （nginx 同源反代到 api:8000）
+# 后端： http://localhost:8000   （直连 FastAPI）
+```
