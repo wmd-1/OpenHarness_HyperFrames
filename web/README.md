@@ -76,3 +76,14 @@ docker run -p 5173:80   -e API_HOST=your-api-host   -e API_PORT=8000   openharne
 - `src/api.ts` — 统一 `fetch` 封装（`createVideo`/`getVideo`/`deleteVideo`/`getHealth` 与 `fileUrl`/`eventsUrl`），后端枚举为小写 `queued|running|succeeded|failed|canceled`。
 - `src/__tests__/` — `vitest` 单测：`api.test.ts`（fetch 封装）、`App.test.tsx`（空 prompt 拦截、提交建任务并开启 SSE 流）。
 - 统一 `npm run test`（vitest）、`npm run lint`（eslint flat + typescript-eslint）与 `npm run build`（`tsc -b && vite build`）。
+
+## API Key 鉴权（X-API-Key）
+
+当部署端在 `.env` 中设置了 `API_KEY`（启用后端 `X-API-Key` 鉴权，见 `service` 的 R15）时：
+
+1. 打开前端页面，在侧栏的 **API Key** 卡片中填入该 Key 并点击「保存」（存于浏览器 `localStorage`，键名 `oh_api_key`）。
+2. 此后所有 `fetch` 请求（创建/查询/删除）会自动带上 `X-API-Key` 请求头。
+3. SSE 进度流与视频文件下载因浏览器限制无法自定义请求头，故通过 URL 查询参数 `?api_key=<key>` 携带；后端中间件已同时接受 header 与 query 两种形式。
+4. 留空则不发送任何鉴权信息（对应部署端未启用 `API_KEY` 的本地开发场景）。
+
+> 注：API Key 由**使用者在前端界面输入并保存在本机浏览器**，不属于仓库 `.env` 配置。

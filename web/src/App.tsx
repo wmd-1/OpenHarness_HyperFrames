@@ -3,6 +3,7 @@ import { Composer } from "./components/Composer";
 import { TaskList } from "./components/TaskList";
 import { TaskDetail } from "./components/TaskDetail";
 import { HealthBadge } from "./components/HealthBadge";
+import { ApiKeyInput } from "./components/ApiKeyInput";
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
         </header>
         <div className="layout">
           <aside className="sidebar">
+            <ApiKeyInput />
             <Composer />
             <TaskList />
           </aside>

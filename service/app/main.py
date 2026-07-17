@@ -48,7 +48,8 @@ if settings.api_key:
     async def api_key_middleware(request, call_next):
         if request.url.path == "/healthz":
             return await call_next(request)
-        if request.headers.get("X-API-Key") != settings.api_key:
+        provided = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+        if provided != settings.api_key:
             from fastapi.responses import JSONResponse
 
             return JSONResponse(status_code=401, content={"detail": "Invalid API key"})

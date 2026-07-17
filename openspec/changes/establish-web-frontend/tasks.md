@@ -64,7 +64,7 @@
 
 ## Phase 4: 鉴权与打磨 (Auth & Polish)
 
-- [ ] 4.1 前端 X-API-Key 输入/本地存储（调用现有 `X-API-Key` 头；后端校验见 `video-service-hardening` R15）
+- [x] 4.1 前端 X-API-Key 输入/本地存储（`api.ts` 为 fetch 注入 `X-API-Key` 头、为 SSE/文件 URL 追加 `?api_key=` 查询参数；后端 `api_key_middleware` 已扩展为同时接受 header 与 query 兜底，校验见 `video-service-hardening` R15）
 - [ ] 4.2 tenant-aware UI 钩子（仅预留，后端多租户见 `phase3-multitenancy-temporal-lease`）
 - [ ] 4.3 i18n 字符串（如适用）
 - [ ] 4.4 文档同步：`web/README.md` 与 `OpenHarness/docs/hyperframes-skill-openharness-patches.md` §前端镜像 同步
@@ -75,7 +75,7 @@
 - [ ] 代码分析干净
 - [ ] 文档同步
 
-> **Deferred（部分）：** 后端 R15 已实现（`service/app/main.py` 的 `api_key_middleware` + `config.py` 的 `api_key` 配置，可选——仅当部署设置 `API_KEY` 时才启用校验，`/healthz` 免校验）；缺的只是前端发送 `X-API-Key` 头与 key 输入/存储，4.1 现在即可动手；4.3 i18n / 4.5 CI 为可选打磨。本实现已具备 4.4 所需的 README 骨架；4.1–4.3 留待后续。
+> **Deferred（部分）：** 4.1 已完成——前端 `web/src/components/ApiKeyInput.tsx`（密码框 + 保存/清除 + localStorage） + `api.ts` 为 fetch 注入 `X-API-Key` 头、为 SSE/文件 URL 追加 `?api_key=` 查询参数；后端 `service/app/main.py` 的 `api_key_middleware` 已扩展为 header 或 query 任一等于 `settings.api_key` 即放行（2026-07-17）。4.3 i18n / 4.5 CI 为可选打磨；4.4 README 已补 API Key 鉴权段。
 
 ---
 
@@ -84,6 +84,6 @@
 - [x] Phase 1 完成（工具链 + 单测脚手架 + lint 骨架）
 - [x] Phase 2 完成（任务列表 / 多任务 / 状态 / 错误空态）
 - [x] Phase 3 完成（集成契约验证 via Docker，2026-07-17）
-- [ ] Phase 4 完成（鉴权与打磨 — 部分待后端 R15）
+- [ ] Phase 4 完成（4.1 鉴权已落地；4.2–4.5 打磨待续）
 - [x] Phase 1–2 质量门通过
 - [ ] 就绪于 `/openspec-archive establish-web-frontend`（建议 Phase 3–4 完成后归档）

@@ -6,9 +6,23 @@ import type {
 } from "./types";
 
 const API_BASE: string = import.meta.env.VITE_API_BASE || "";
+export const API_KEY_STORAGE = "oh_api_key";
+
+function getApiKey(): string {
+  try {
+    return localStorage.getItem(API_KEY_STORAGE)?.trim() || "";
+  } catch {
+    return "";
+  }
+}
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(API_BASE + path, init);
+  const key = getApiKey();
+  const headers: Record<string, string> = {
+    ...(init?.headers as unknown as Record<string, string> | undefined),
+  };
+  if (key) headers["X-API-Key"] = key;
+  const res = await fetch(API_BASE + path, { ...init, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error("HTTP " + res.status + ": " + text);
@@ -53,11 +67,15 @@ export function getHealth(): Promise<HealthResponse> {
 }
 
 export function fileUrl(id: string): string {
-  return API_BASE + "/v1/videos/" + id + "/file";
+  const base = API_BASE + "/v1/videos/" + id + "/file";
+  const key = getApiKey();
+  return key ? base + "?api_key=" + encodeURIComponent(key) : base;
 }
 
 export function eventsUrl(id: string): string {
-  return API_BASE + "/v1/videos/" + id + "/events";
+  const base = API_BASE + "/v1/videos/" + id + "/events";
+  const key = getApiKey();
+  return key ? base + "?api_key=" + encodeURIComponent(key) : base;
 }
 
 export type { TaskLinks };

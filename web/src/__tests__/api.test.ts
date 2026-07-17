@@ -111,4 +111,28 @@ describe("api client", () => {
     expect(fileUrl("t9")).toBe("/v1/videos/t9/file");
     expect(eventsUrl("t9")).toBe("/v1/videos/t9/events");
   });
+
+  it("injects X-API-Key header from localStorage when set", async () => {
+    localStorage.setItem("oh_api_key", "s3cret");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ task_id: "x", status: "queued", links: {} }),
+      text: async () => "",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await createVideo("hi", 60);
+    const init = fetchMock.mock.calls[0][1];
+    expect(init.headers).toEqual({
+      "Content-Type": "application/json",
+      "X-API-Key": "s3cret",
+    });
+    localStorage.removeItem("oh_api_key");
+  });
+
+  it("appends api_key query param to fileUrl/eventsUrl when key set", () => {
+    localStorage.setItem("oh_api_key", "s3cret");
+    expect(fileUrl("t9")).toBe("/v1/videos/t9/file?api_key=s3cret");
+    expect(eventsUrl("t9")).toBe("/v1/videos/t9/events?api_key=s3cret");
+    localStorage.removeItem("oh_api_key");
+  });
 });
