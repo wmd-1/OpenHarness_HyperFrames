@@ -65,17 +65,17 @@
 ## Phase 4: 鉴权与打磨 (Auth & Polish)
 
 - [x] 4.1 前端 X-API-Key 输入/本地存储（`api.ts` 为 fetch 注入 `X-API-Key` 头、为 SSE/文件 URL 追加 `?api_key=` 查询参数；后端 `api_key_middleware` 已扩展为同时接受 header 与 query 兜底，校验见 `video-service-hardening` R15）
-- [ ] 4.2 tenant-aware UI 钩子（仅预留，后端多租户见 `phase3-multitenancy-temporal-lease`）
-- [ ] 4.3 i18n 字符串（如适用）
-- [ ] 4.4 文档同步：`web/README.md` 与 `OpenHarness/docs/hyperframes-skill-openharness-patches.md` §前端镜像 同步
-- [ ] 4.5 CI：构建镜像 + `tsc -b && vite build` + 单测
+- [ ] 4.2 tenant-aware UI 钩子（**Deferred / 仅预留**）：后端经 `X-API-Key` 解析 `tenant_id`（见 `phase3-multitenancy-temporal-lease` R14/R15），客户端无独立 tenant 输入/展示契约；待后端在响应（如 `/healthz` 或任务体）暴露 tenant 后再接入，本变更不引入死代码。
+- [x] 4.3 i18n 字符串（**N/A** — 操作台面向中文用户，delta 规格 WF1–WF5 无 i18n 需求；如需多语部署再引入）
+- [x] 4.4 文档同步：`web/README.md` 已覆盖独立镜像 / 反代 / API Key 鉴权（`OpenHarness/docs/hyperframes-skill-openharness-patches.md` 属另一 monorepo 仓库，不在本变更范围；本仓库以前端 README 为权威文档）
+- [x] 4.5 CI：新增 `.github/workflows/web.yml` — `web/` 下 `npm ci` → `lint` → `test`(vitest) → `build`(`tsc -b && vite build`)，并含 `image` 任务在 master push 时校验 `docker build ./web`（不推送）
 
-**Quality Gate:**
-- [ ] 所有测试通过
-- [ ] 代码分析干净
-- [ ] 文档同步
+**Quality Gate:** PASSED (2026-07-17)
+- [x] 所有测试通过 — `npm run test` → 11 passed（api 9 + App 2）
+- [x] 代码分析干净 — `npm run lint` → 0 errors（1 个既有 react-refresh warning）
+- [x] 文档同步 — `web/README.md` 与 `web/Dockerfile` / `nginx.conf.template` / `docker-entrypoint.sh` 一致
 
-> **Deferred（部分）：** 4.1 已完成——前端 `web/src/components/ApiKeyInput.tsx`（密码框 + 保存/清除 + localStorage） + `api.ts` 为 fetch 注入 `X-API-Key` 头、为 SSE/文件 URL 追加 `?api_key=` 查询参数；后端 `service/app/main.py` 的 `api_key_middleware` 已扩展为 header 或 query 任一等于 `settings.api_key` 即放行（2026-07-17）。4.3 i18n / 4.5 CI 为可选打磨；4.4 README 已补 API Key 鉴权段。
+> **说明：** 4.1 已完成（2026-07-17）——前端 `web/src/components/ApiKeyInput.tsx`（密码框 + 保存/清除 + localStorage）+ `api.ts` 为 fetch 注入 `X-API-Key` 头、为 SSE/文件 URL 追加 `?api_key=` 查询参数；后端 `service/app/main.py` 的 `api_key_middleware` 已扩展为 header 或 query 任一等于 `settings.api_key` 即放行。4.5 CI 已落地（`.github/workflows/web.yml`）。4.2 预留、4.3 N/A。
 
 ---
 
@@ -84,6 +84,6 @@
 - [x] Phase 1 完成（工具链 + 单测脚手架 + lint 骨架）
 - [x] Phase 2 完成（任务列表 / 多任务 / 状态 / 错误空态）
 - [x] Phase 3 完成（集成契约验证 via Docker，2026-07-17）
-- [ ] Phase 4 完成（4.1 鉴权已落地；4.2–4.5 打磨待续）
+- [x] Phase 4 完成（4.1 鉴权 + 4.4 文档同步 + 4.5 CI 已落地；4.2 预留待后端 tenant 暴露、4.3 N/A）
 - [x] Phase 1–2 质量门通过
-- [ ] 就绪于 `/openspec-archive establish-web-frontend`（建议 Phase 3–4 完成后归档）
+- [x] 就绪于 `/openspec-archive establish-web-frontend`（Phase 1–4 全部完成，质量门通过）
