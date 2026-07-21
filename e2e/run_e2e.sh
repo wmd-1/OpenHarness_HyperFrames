@@ -9,7 +9,7 @@
 # Usage:  bash e2e/run_e2e.sh
 set -u
 
-cd "$(dirname "$0")/.."            # -> OpenHarness
+cd "$(dirname "$0")/.."            # -> repo root
 PROJECT="${E2E_PROJECT:-e2e}"
 COMPOSE="docker compose -p $PROJECT -f docker-compose.e2e.yml"
 IMAGE=oh-e2e:latest
