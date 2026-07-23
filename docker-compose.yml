@@ -143,6 +143,49 @@ services:
       - oh-workspaces:/workspaces
       - openharness-config:/root/.openharness
 
+  # ---- FastAPI 交互会话服务 (oh --backend-only 桥接) ----
+  # 独立进程，复用同一 Postgres/Redis（Redis 用 db=1 避免与视频服务键空间冲突），
+  # 共享 /workspaces 卷（会话快照冷态保留）。每个会话 spawn 一个 oh --backend-only。
+  session:
+    extends: openharness
+    container_name: openharness-session
+    entrypoint: ["/root/.openharness-venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - OH_DB_URL=postgresql+asyncpg://oh:oh@postgres:5432/oh
+      - OH_DB_SYNC_URL=postgresql+psycopg://oh:oh@postgres:5432/oh
+      - OH_DB_MIGRATION_URL=postgresql+asyncpg://oh:oh@postgres:5432/oh
+      # Redis db=1 — 与 api(db=0) 分离，避免键空间冲突。
+      - OH_BROKER_URL=redis://redis:6379/1
+      - OH_VIDEO_DIR=/var/openharness/videos
+      - OH_WORKSPACE_ROOT=/workspaces
+      - OH_NODE_ID=session
+      - OH_NODE_BASE_URL=http://session:8001
+      - OH_OH_BIN=/root/.local/bin/oh
+      - PRODUCER_HEADLESS_SHELL_PATH=/opt/chrome-headless-shell-linux64/chrome-headless-shell
+      - CHROME_HEADLESS_BIN=/opt/chrome-headless-shell-linux64/chrome-headless-shell
+      - OPENHARNESS_PERMISSION_MODE=full_auto
+      - HYPERFRAMES_AUTO_UPDATE=false
+      - HYPERFRAMES_NO_AUTO_INSTALL=1
+      - HYPERFRAMES_NO_UPDATE_CHECK=1
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OH_CORS_ORIGINS=${OH_CORS_ORIGINS:-}
+    volumes:
+      - ./OpenHarness/src:/app/src
+      - ./OpenHarness/ohmo:/app/ohmo
+      - ./session-service:/opt/oh-session-service
+      - oh-videos:/var/openharness/videos
+      - oh-workspaces:/workspaces
+      - openharness-config:/root/.openharness
+
   # ---- 前端 SPA（独立镜像：Vite/React 构建 → nginx 提供静态资源 + 反向代理）----
   # nginx 将 /v1、/healthz 反代到 api:8000（同源，无需 CORS），SSE / Range 已特殊处理。
   # 访问 http://localhost:5173 即可使用前端。
@@ -158,12 +201,15 @@ services:
     container_name: openharness-web
     environment:
       # Backend coordinates for the standalone nginx reverse-proxy.
-      # Defaults match the compose `api` service; override to point the
+      # Defaults match the compose services; override to point the
       # standalone frontend image at any external/remote backend.
       API_HOST: api
       API_PORT: "8000"
+      SESSION_HOST: session
+      SESSION_PORT: "8001"
     depends_on:
       - api
+      - session
     ports:
       - "5173:80"
     restart: unless-stopped

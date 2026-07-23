@@ -12,10 +12,12 @@ set -e
 # where the backend service is named `api` and listens on 8000.
 export API_HOST="${API_HOST:-api}"
 export API_PORT="${API_PORT:-8000}"
+export SESSION_HOST="${SESSION_HOST:-session}"
+export SESSION_PORT="${SESSION_PORT:-8001}"
 
-# Substitute ONLY our two vars; nginx's own $variables ($host, $uri, ...)
+# Substitute ONLY our vars; nginx's own $variables ($host, $uri, ...)
 # must stay literal, so we pass an explicit variable list to envsubst.
-envsubst '${API_HOST} ${API_PORT}' \
+envsubst '${API_HOST} ${API_PORT} ${SESSION_HOST} ${SESSION_PORT}' \
     < /etc/nginx/templates/app.conf.template \
     > /etc/nginx/conf.d/app.conf
 

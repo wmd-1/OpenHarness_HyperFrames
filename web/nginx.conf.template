@@ -10,6 +10,10 @@ upstream oh_api {
     server ${API_HOST}:${API_PORT};
 }
 
+upstream oh_session {
+    server ${SESSION_HOST}:${SESSION_PORT};
+}
+
 server {
     listen       80;
     server_name  _;
@@ -49,6 +53,40 @@ server {
         proxy_set_header        X-Real-IP         $remote_addr;
         proxy_set_header        X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header        X-Forwarded-Proto $scheme;
+        proxy_set_header        Range             $http_range;
+        proxy_set_header        If-Range          $http_if_range;
+        proxy_buffering         off;
+        proxy_read_timeout      600s;
+    }
+
+    # ---- Session service: WebSocket turn streaming -----------------------
+    # Long-lived bidirectional WS; honor the Upgrade handshake and disable
+    # buffering/timeout interference. Routed to the session-service (port 8001),
+    # NOT the video API.
+    location ~ ^/v1/sessions/[^/]+/ws$ {
+        proxy_pass              http://oh_session;
+        proxy_http_version      1.1;
+        proxy_set_header        Host              $host;
+        proxy_set_header        X-Real-IP         $remote_addr;
+        proxy_set_header        X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header        X-Forwarded-Proto $scheme;
+        proxy_set_header        Upgrade           $http_upgrade;
+        proxy_set_header        Connection        "upgrade";
+        proxy_buffering         off;
+        proxy_cache             off;
+        proxy_read_timeout      3600s;
+        proxy_send_timeout      3600s;
+    }
+
+    # ---- Session service: REST (create/get/delete/turns/artifacts) -------
+    location /v1/sessions/ {
+        proxy_pass              http://oh_session;
+        proxy_http_version      1.1;
+        proxy_set_header        Host              $host;
+        proxy_set_header        X-Real-IP         $remote_addr;
+        proxy_set_header        X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header        X-Forwarded-Proto $scheme;
+        # Artifact downloads honor Range.
         proxy_set_header        Range             $http_range;
         proxy_set_header        If-Range          $http_if_range;
         proxy_buffering         off;
