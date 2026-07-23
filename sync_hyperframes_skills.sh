@@ -10,7 +10,9 @@ PROXY="http://127.0.0.1:10808"
 # ================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEST_DIR="$SCRIPT_DIR/OpenHarness/hyperframes_github_skills_latest"
+# monorepo 后基线目录在仓库根（与 docs/hyperframes-skill-openharness-patches.md §1 表格一致），
+# 不在 OpenHarness/ 子目录下。
+DEST_DIR="$SCRIPT_DIR/hyperframes_github_skills_latest"
 
 # 注意：Git Bash 下 mktemp 可能返回 Windows 风格路径(C:\...)，
 # 而 tar -f "C:\..." 会把 "C:" 误判为远程主机导致失败。

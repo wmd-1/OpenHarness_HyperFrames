@@ -16,10 +16,10 @@
 | 目录                                  | 角色                                                                                                            | 处理方式                                                                                 |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `hyperframes_container_skills/`     | 旧版（过期）                                                                                                    | **忽略**，不再维护                                                                 |
-| `hyperframes_github_skills_latest/` | 从 hyperframes github 同步的**上游原版最新** skill（`.gitignore` 忽略、不入库；非空，是上次拉取的快照） | 拉新版时填充，与`hyperframes_github_skills/` 比对确认 skill 集合一致后再覆盖，作为基线 |
+| `hyperframes_github_skills_latest/` | 从 hyperframes github 同步的**上游原版最新** skill（`.gitignore` 忽略、不入库；拉取后保存为快照，首次拉取前为空） | `./sync_hyperframes_skills.sh` 拉新版时填充，与`hyperframes_github_skills/` 比对确认 skill 集合一致后再覆盖，作为基线 |
 | `hyperframes_github_skills/`        | **实际使用**的、已打 OpenHarness 补丁的版本                                                               | Docker 构建时`COPY` 进镜像；补丁打在这里                                               |
 
-镜像构建链路（[Dockerfile:98](../../Dockerfile#L98)、[Dockerfile.fix:36](../../Dockerfile.fix#L36)）：
+镜像构建链路（[Dockerfile:102](../Dockerfile#L102)、[Dockerfile.fix:47](../Dockerfile.fix#L47)）：
 
 ```
 hyperframes_github_skills/   ──Docker COPY──▶  /opt/oh-skills-builtin/  ──wrapper cp -a──▶  /root/.openharness/skills/  ──oh CLI 加载
@@ -29,7 +29,7 @@ api 服务（docker-compose `api`）`extends: openharness`，与交互式 CLI **
 
 ### 1.1 Monorepo 布局与双镜像架构
 
-本仓库为 monorepo，**Docker 构建上下文 = 仓库根目录**。关键构建输入文件全部位于**仓库根**，而本文档位于 `OpenHarness/docs/`，因此文中对构建文件的相对链接一律为 `../../`（上跳两级到仓库根）。
+本仓库为 monorepo，**Docker 构建上下文 = 仓库根目录**。关键构建输入文件全部位于**仓库根**，而本文档位于仓库根下的 `docs/`，因此文中对构建文件的相对链接一律为 `../`（上跳一级到仓库根）。
 
 ```
 OpenHarness_HyperFrames/                # 仓库根 = 构建上下文
@@ -41,7 +41,8 @@ OpenHarness_HyperFrames/                # 仓库根 = 构建上下文
 ├── hyperframes_github_skills_latest/   # 上游快照基线（.gitignore 忽略，不入库）
 ├── pptx2html_github_skills/            # pptx-to-html skill（COPY 进镜像 A，见 §8）
 ├── docker/                             # chrome zip / supervisord.conf 等镜像 A 资源
-├── OpenHarness/                        # 框架源码（运行时挂载 src/ohmo/frontend）+ 本文档
+├── docs/                              # 本文档（HyperFrames skill 补丁同步指南）
+├── OpenHarness/                        # 框架源码（运行时挂载 src/ohmo/frontend）
 ├── service/                            # FastAPI + Celery 后端（运行时挂载 /opt/oh-service）
 └── web/                               # 前端 SPA（镜像 B：独立 Dockerfile + nginx.conf）
 ```
@@ -61,7 +62,7 @@ OpenHarness_HyperFrames/                # 仓库根 = 构建上下文
 
 每次 hyperframes 上游发布新版 skill 时：
 
-1. **拉取上游最新** → 填充 `hyperframes_github_skills_latest/`（`npx skills add heygen-com/hyperframes` 或直接 clone github 仓库的 skills 目录）。
+1. **拉取上游最新** → 运行根目录的 `./sync_hyperframes_skills.sh` 填充 `hyperframes_github_skills_latest/`（脚本从 `heygen-com/hyperframes` main 分支拉 tar、解压 `skills/` 到目标目录，内置代理与重试；也可手动 `npx skills add heygen-com/hyperframes` 或直接 clone github 仓库的 skills 目录）。
 2. **用 latest 覆盖实际使用目录**：把 `hyperframes_github_skills_latest/` 的内容覆盖到 `hyperframes_github_skills/`。
 3. **重新应用 OpenHarness 补丁**：按本文档第 3、4 节，在 `hyperframes_github_skills/` 上逐文件打回 QwenTTS + Chrome 定制。
 4. **同步构建配置**：按第 5 节更新 `Dockerfile.fix` / `.env.example` 的版本标签。
@@ -83,18 +84,18 @@ OpenHarness_HyperFrames/                # 仓库根 = 构建上下文
 1. 旧版 QwenTTS 仅 vendored 在 `product-launch-video` / `pr-to-video` / `faceless-explainer` 三个 per-skill `audio.mjs` 中；`general-video` 等走 `npx hyperframes tts`（Kokoro-only CLI）的工作流**从不查询 QwenTTS**。
 2. `QWENTTS_URL=http://localhost:8091` 是容器自身 loopback，GPU 机器上的 QwenTTS 服务不可达，导致 QwenTTS 感知的技能也静默失败、回退 Kokoro。
 
-**解法**：在**唯一共享 TTS 库** `hyperframes-media/scripts/lib/tts.mjs` 中加一处 QwenTTS 分支，即覆盖全部视频工作流；设 `QWENTTS_URL` 时优先于 HeyGen / ElevenLabs / Kokoro。
+**解法**：在**唯一共享 TTS 库** `media-use/audio/scripts/lib/tts.mjs` 中加一处 QwenTTS 分支，即覆盖全部视频工作流；设 `QWENTTS_URL` 时优先于 HeyGen / ElevenLabs / Kokoro。
 
 ### 3.2 涉及文件
 
 | 文件                                      | 补丁性质                                                      |
 | ----------------------------------------- | ------------------------------------------------------------- |
-| `hyperframes-media/scripts/lib/tts.mjs` | **核心**：注入 QwenTTS provider（检测/选择/voice/合成） |
-| `hyperframes-media/scripts/audio.mjs`   | 注释标注 QwenTTS 优先级（代码靠 import tts.mjs 间接支持）     |
-| `hyperframes-media/SKILL.md`            | provider 文档                                                 |
-| `hyperframes-media/references/tts.md`   | QwenTTS 详细参考节                                            |
+| `media-use/audio/scripts/lib/tts.mjs` | **核心**：注入 QwenTTS provider（检测/选择/voice/合成） |
+| `media-use/audio/scripts/audio.mjs`   | 注释标注 QwenTTS 优先级（代码靠 import tts.mjs 间接支持）     |
+| `media-use/SKILL.md`                  | provider 文档                                                 |
+| `media-use/audio/references/tts.md`   | QwenTTS 详细参考节                                            |
 
-### 3.3 `scripts/lib/tts.mjs` — 注入 QwenTTS provider（6 处）
+### 3.3 `media-use/audio/scripts/lib/tts.mjs` — 注入 QwenTTS provider（6 处）
 
 > 上游 v0.7.2 的 `tts.mjs` 自带 HeyGen / ElevenLabs / Kokoro / transcribe 等基础设施。OpenHarness 在其上插入下面 6 处 QwenTTS 片段。若上游新版函数名/结构变化，按"意图"在对应位置适配。
 
@@ -221,7 +222,7 @@ async function synthesizeQwenTTS({ text, voiceId, lang, wavAbs }) {
 
 > `synthesizeQwenTTS` 依赖同文件已有的 `transcodeToWav`（上游基础设施，把任意音频字节 ffmpeg 成 44.1k 单声道 wav）。无需新增。
 
-### 3.4 `scripts/audio.mjs` — 注释标注（2 处）
+### 3.4 `media-use/audio/scripts/audio.mjs` — 注释标注（2 处）
 
 `audio.mjs` 是共享音频引擎，本身不直接写 QwenTTS，靠 `import { pickProvider, resolveVoiceId, synthesizeOne, ... } from "./lib/tts.mjs"` 间接支持。只需在**顶部注释**里把 QwenTTS 标进 provider chain：
 
@@ -241,7 +242,7 @@ async function synthesizeQwenTTS({ text, voiceId, lang, wavAbs }) {
 
 ### 3.5 `SKILL.md` — provider 文档
 
-在 `hyperframes-media/SKILL.md` 里确保以下 QwenTTS 文档点存在（v1.2 起就有，v1.3 架构重写时保留）：
+在 `media-use/SKILL.md` 里确保以下 QwenTTS 文档点存在（v1.2 起就有，v1.3 架构重写时保留）：
 
 - `description` frontmatter 含 `QwenTTS local`：
 
@@ -258,7 +259,7 @@ async function synthesizeQwenTTS({ text, voiceId, lang, wavAbs }) {
   | 1     | QwenTTS (local)   | `$QWENTTS_URL` set | No — chain`transcribe` after |
   | 2     | HeyGen (Starfish) | ...                  | ...                             |
 
-### 3.6 `references/tts.md` — QwenTTS 参考节（完整）
+### 3.6 `media-use/audio/references/tts.md` — QwenTTS 参考节（完整）
 
 上游 `tts.md` 不会有 QwenTTS 节（QwenTTS 是 OpenHarness 本地服务）。需在 `tts.md` 里加回以下内容：
 
@@ -381,7 +382,7 @@ PRODUCER_HEADLESS_SHELL_PATH=/opt/chrome-headless-shell-linux64/chrome-headless-
 
 **根因**：`render` 用 `PRODUCER_HEADLESS_SHELL_PATH`（指向 `/opt/chrome-headless-shell`）没问题；但 `ensure`/`doctor` 走另一条路（bundled chrome），第一次空缓存就触发下载。两套 chrome 互不相干——文档 callout 拦不住"第一次没读文档就行动"的模型，所以需要 build 层兜底。
 
-**主 [Dockerfile](../../Dockerfile)** — 在 `npm install -g hyperframes` 之后加：
+**主 [Dockerfile](../Dockerfile)** — 在 `npm install -g hyperframes` 之后加：
 
 ```dockerfile
 # 预装 hyperframes pinned bundled chrome：运行时 `browser ensure`/`doctor` 只认 bundled
@@ -391,7 +392,7 @@ PRODUCER_HEADLESS_SHELL_PATH=/opt/chrome-headless-shell-linux64/chrome-headless-
 RUN HYPERFRAMES_NO_AUTO_INSTALL=0 npx hyperframes browser ensure
 ```
 
-**[Dockerfile.fix](../../Dockerfile.fix)** — 在 `HYPERFRAMES_VERSION` 升级块之后加（升级版本后 pinned chrome 版本可能变，需重新 ensure；ensure 幂等，不升级时 no-op）：
+**[Dockerfile.fix](../Dockerfile.fix)** — 在 `HYPERFRAMES_VERSION` 升级块之后加（升级版本后 pinned chrome 版本可能变，需重新 ensure；ensure 幂等，不升级时 no-op）：
 
 ```dockerfile
 # ---- 预装/刷新 hyperframes pinned bundled chrome ----
@@ -401,7 +402,7 @@ RUN HYPERFRAMES_NO_AUTO_INSTALL=0 npx hyperframes browser ensure
 RUN HYPERFRAMES_NO_AUTO_INSTALL=0 npx hyperframes browser ensure
 ```
 
-> **为何 `HYPERFRAMES_NO_AUTO_INSTALL=0`**：主 [Dockerfile](../../Dockerfile#L58-L60) 设了 `HYPERFRAMES_NO_AUTO_INSTALL=1` 禁止运行时自动安装（避免 render 时偷偷下载）。语义上它管"自动"安装，显式 `browser ensure` 应不受限——但保险起见 build 时显式覆盖为 `0`，确保 ensure 真下载。**运行时的 `=1` 不动**，仍禁止自动安装。
+> **为何 `HYPERFRAMES_NO_AUTO_INSTALL=0`**：主 [Dockerfile](../Dockerfile#L58-L60) 设了 `HYPERFRAMES_NO_AUTO_INSTALL=1` 禁止运行时自动安装（避免 render 时偷偷下载）。语义上它管"自动"安装，显式 `browser ensure` 应不受限——但保险起见 build 时显式覆盖为 `0`，确保 ensure 真下载。**运行时的 `=1` 不动**，仍禁止自动安装。
 >
 > **两套 chrome 共存**：`/opt/chrome-headless-shell-linux64/`（用户预下载的 last-known-good，`render` 用）+ `~/.cache/hyperframes/chrome/`（hyperframes pinned，`ensure`/`doctor` 用）。两者独立、不冲突。镜像增大约 150MB（与已预下载的 TTS/whisper 模型同策略）。
 
@@ -473,11 +474,11 @@ environment:
 
 ```bash
 # tts.mjs 语法
-node --check hyperframes_github_skills/hyperframes-media/scripts/lib/tts.mjs
-node --check hyperframes_github_skills/hyperframes-media/scripts/audio.mjs
+node --check hyperframes_github_skills/media-use/audio/scripts/lib/tts.mjs
+node --check hyperframes_github_skills/media-use/audio/scripts/audio.mjs
 
 # QwenTTS 注入点计数（tts.mjs 应 ≈ 20 处 qwentts）
-grep -c -i qwentts hyperframes_github_skills/hyperframes-media/scripts/lib/tts.mjs
+grep -c -i qwentts hyperframes_github_skills/media-use/audio/scripts/lib/tts.mjs
 
 # Chrome callout 在
 grep -c "OpenHarness runtime note" hyperframes_github_skills/hyperframes-cli/references/doctor-browser.md
@@ -491,10 +492,10 @@ docker inspect openharness-api --format '{{.Config.Image}}'
 # 期望: openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.20_v1.3_v2.0
 
 # 镜像内置 skill 含 QwenTTS
-docker exec openharness-api grep -c qwentts /opt/oh-skills-builtin/hyperframes-media/scripts/lib/tts.mjs
+docker exec openharness-api grep -c qwentts /opt/oh-skills-builtin/media-use/audio/scripts/lib/tts.mjs
 
 # 运行时加载的 skill 也含 QwenTTS（证明已同步到卷）
-docker exec openharness-api grep -c qwentts /root/.openharness/skills/hyperframes-media/scripts/lib/tts.mjs
+docker exec openharness-api grep -c qwentts /root/.openharness/skills/media-use/audio/scripts/lib/tts.mjs
 
 # Chrome callout 在
 docker exec openharness-api grep -c "OpenHarness runtime note" /root/.openharness/skills/hyperframes-cli/references/doctor-browser.md
@@ -504,7 +505,7 @@ docker exec openharness-api ls /root/.cache/hyperframes/chrome/
 docker exec openharness-api timeout 30 npx hyperframes browser ensure 2>&1 | tail -3
 ```
 
-> 命名卷 `openharness-config` 挂在 `/root/.openharness`。wrapper 用 `cp -a`（覆盖式，不删除旧文件）——重建镜像后新内容会覆盖生效，但 v1.3 删除的旧文件可能残留在卷里。若要彻底一致，把 wrapper 改为先清空再拷：`rm -rf /root/.openharness/skills 2>/dev/null; cp -a /opt/oh-skills-builtin/. /root/.openharness/skills/`（改 [Dockerfile:102-104](../../Dockerfile#L102-L104) 与 [Dockerfile.fix:36-38](../../Dockerfile.fix#L36-L38)）。
+> 命名卷 `openharness-config` 挂在 `/root/.openharness`。wrapper 用 `cp -a`（覆盖式，不删除旧文件）——重建镜像后新内容会覆盖生效，但 v1.3 删除的旧文件可能残留在卷里。若要彻底一致，把 wrapper 改为先清空再拷：`rm -rf /root/.openharness/skills 2>/dev/null; cp -a /opt/oh-skills-builtin/. /root/.openharness/skills/`（改 [Dockerfile:106-108](../Dockerfile#L106-L108) 与 [Dockerfile.fix:90-93](../Dockerfile.fix#L90-L93)）。
 
 ---
 
@@ -514,7 +515,7 @@ docker exec openharness-api timeout 30 npx hyperframes browser ensure 2>&1 | tai
 
 - `faceless-explainer` 的 `agents/`、`phases/`、`style-presets/` 大量删除/重构（block-frame / capsule / claude / pin-and-paper / scatterbrain 等 preset）。
 - 各工作流（`faceless-explainer` / `pr-to-video` / `product-launch-video`）的 per-skill `scripts/audio.mjs` 从"各自 vendored TTS 逻辑"改为"调用共享引擎的薄适配器"。
-- 共享引擎组件：`hyperframes-media/scripts/audio.mjs`、`scripts/lib/{heygen,bgm,sfx}.mjs`、`scripts/heygen-tts.mjs`、`scripts/wait-bgm.mjs`（HeyGen/BGM/SFX 主体逻辑，**不含 QwenTTS**）。
+- 共享引擎组件：`media-use/audio/scripts/audio.mjs`、`media-use/audio/scripts/lib/{heygen,bgm,sfx}.mjs`、`media-use/audio/scripts/heygen-tts.mjs`、`media-use/audio/scripts/wait-bgm.mjs`（HeyGen/BGM/SFX 主体逻辑，**不含 QwenTTS**）。
 - `references/bgm.md`、`references/sfx.md` 等 BGM/SFX 文档。
 
 > 判据：文件内容含 `qwen` / `QWENTTS` 的才是 OpenHarness 定制（须手动打回）；其余 HeyGen/ElevenLabs/Kokoro/BGM/SFX 逻辑是上游自带。
@@ -537,7 +538,7 @@ docker exec openharness-api timeout 30 npx hyperframes browser ensure 2>&1 | tai
 
 | 文件                             | 补丁性质                                                                                                                                                                                  |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Dockerfile.fix](../../Dockerfile.fix) | 删无效的`PPTX2HTML_VERSION` / `npx skills add --agent claude-code` 段（装到 `~/.claude/skills/`，oh 不读）；新增 `pip install -r requirements.txt` 到 `/root/.openharness-venv` |
+| [Dockerfile.fix](../Dockerfile.fix) | 删无效的`PPTX2HTML_VERSION` / `npx skills add --agent claude-code` 段（装到 `~/.claude/skills/`，oh 不读）；新增 `pip install -r requirements.txt` 到 `/root/.openharness-venv` |
 | `pptx-to-html/SKILL.md`        | 脚本名 →`_v2.py`；路径 → `/root/.openharness/skills/pptx-to-html/`；去掉 `/mnt/user-data` 写死与 `computer://`；能力描述同步到 Phase 2                                          |
 | `pptx-to-html/README.md`       | 删引用已移除的 Phase 1 脚本的两处（Basic Usage 的 legacy 示例 + 文件树 legacy 行）                                                                                                        |
 
@@ -561,7 +562,7 @@ RUN /root/.openharness-venv/bin/pip install --no-cache-dir \
         -r /opt/oh-skills-builtin/pptx-to-html/requirements.txt
 ```
 
-> 为何装到 venv：主 [Dockerfile](../../Dockerfile#L87) 把 `/root/.openharness-venv/bin` 放在 `PATH` 最前，容器里 `python` / `python3` / `pip` 自动命中 venv，运行时无需 activate；安装时显式用 `/root/.openharness-venv/bin/pip` 最稳。
+> 为何装到 venv：主 [Dockerfile](../Dockerfile#L91) 把 `/root/.openharness-venv/bin` 放在 `PATH` 最前，容器里 `python` / `python3` / `pip` 自动命中 venv，运行时无需 activate；安装时显式用 `/root/.openharness-venv/bin/pip` 最稳。
 
 ### 8.4 SKILL.md — 路径 + 脚本名 + 能力描述
 
@@ -636,6 +637,7 @@ python3 -m py_compile scripts/pptx_path.py scripts/chart_extractor.py \
 | 2026-07-06 | —                 | build 时预装 pinned bundled chrome（`Dockerfile` + `Dockerfile.fix` 加 `npx hyperframes browser ensure`），根治"第一次运行 skill 时 `browser ensure` 下载卡住"；`doctor-browser.md` Common issues 加 OpenHarness 预装说明，弱化运行时 ensure（见 4.5）；`Dockerfile.fix` 模型预下载（Whisper small / u2net）与 librosa 安装改为 `ARG Model_Download` 条件触发                                                                                                                                   |
 | 2026-07-07 | —                 | 修正版本标签不一致：`.env.example` + `docker-compose.yml` 默认 fallback 对齐 `Dockerfile.fix` 产出 tag `v0.1.9_v0.7.20_v1.3_v2.0`（原先 `.env.example` 为 `v1.4`，按模板部署会找不到镜像而误触发主 Dockerfile 全量构建）；重写第 5 节版本标签（镜像名补 `_pptx`、补 `Model_Download` 示例）；第 1 节 `latest` 描述修正（不再"当前为空"）                                                                                                                                                    |
 | 2026-07-08 | —                 | **按第 2 节工作流重新同步 + 重打补丁（OpenSpec 驱动）**：升级 HyperFrames skill 至 v0.7.42；用 `hyperframes_github_skills_latest/` 镜像覆盖 `hyperframes_github_skills/`；关键适配——**上游把 `hyperframes-media` 重命名为 `media-use`**，共享 TTS 库移到 `media-use/audio/scripts/lib/tts.mjs`，全部 QwenTTS / Chrome 补丁按"意图"重映射到 `media-use` / `hyperframes-cli`；静态验证全过（`node --check`、qwentts 计数 20、`OpenHarness runtime` callout 各 1）。详见第 10 节 |
+| 2026-07-23 | —                 | 文档随 monorepo 搬迁至仓库根 `docs/`：相对链接 `../../`→`../`、§1.1 布局图补 `docs/`、§2 引用新增 `sync_hyperframes_skills.sh`；修脚本 `DEST_DIR` 误指 `OpenHarness/` 子目录；刷新 Dockerfile/Dockerfile.fix 过时行号锚点；§3/§6/§7 的 `hyperframes-media/` 路径统一为 `media-use/audio/`（落实 §10.1 待办）。详见第 12 节 |
 
 ---
 
@@ -656,7 +658,7 @@ python3 -m py_compile scripts/pptx_path.py scripts/chart_extractor.py \
 
 - 共享 TTS 库从 `hyperframes-media/scripts/lib/tts.mjs` 迁移到 `media-use/audio/scripts/lib/tts.mjs`，内部函数（`pickProvider` / `synthesizeOne` / `transcodeToWav` / `heygenAvailable` / `elevenlabsAvailable`）均保留，可直接套用 §3.3 的 6 处注入点。
 - `media-use/SKILL.md` 第 18 行注有 "hyperframes-media retired"，印证重命名。
-- **对文档的影响**：第 3 节 / 第 6 节 / 第 7 节里的 `hyperframes-media/...` 路径均指向上游旧名，下次同步前建议把 §3.2 涉及文件表、§6.1 验证命令、§7 引用统一改为 `media-use/...`（本次补丁代码已按新路径落地，文档路径见下方日志）。
+- **对文档的影响**：第 3 节 / 第 6 节 / 第 7 节里的 `hyperframes-media/...` 路径原指向上游旧名；已于 2026-07-23 统一改为 `media-use/audio/...`（§3.2 涉及文件表、§6.1 验证命令、§7 引用，见第 12 节）。
 
 ### 10.2 操作步骤与结果
 
@@ -726,7 +728,7 @@ rm -rf hyperframes_github_skills && cp -a hyperframes_github_skills_latest hyper
 
 1. **`hyperframes_github_skills/` 含 214 处 git 改动（镜像 + 补丁），尚未提交**——请 review 后再决定是否 `git add hyperframes_github_skills && commit`。
 2. **备份目录** `hyperframes_github_skills.bak.20260708_170149` 保留为回滚点（review 确认无误后可删）。
-3. **文档 §3/§6/§7 路径仍为 `hyperframes-media`**——下次同步前建议统一改为 `media-use`（见 10.1），否则照文档操作会找不到文件。
+3. ✅ ~~**文档 §3/§6/§7 路径仍为 `hyperframes-media`**~~——已于 2026-07-23 统一改为 `media-use/audio/`（见第 12 节），本条结项。
 4. 容器侧 §6.2 验证待补（需 Docker + 运行中镜像）。
 
 ---
@@ -760,3 +762,23 @@ docker compose up --build        # 一键拉起 postgres/redis/api/web
 # 前端： http://localhost:5173   （nginx 同源反代到 api:8000）
 # 后端： http://localhost:8000   （直连 FastAPI）
 ```
+
+---
+
+## 12. 文档搬迁 + 脚本修正（2026-07-23）
+
+monorepo 重构（§11）后，本指南文档从 `OpenHarness/docs/` 搬到仓库根 `docs/`（git `c5be468`，纯移动、内容未改），同时根目录新增 `sync_hyperframes_skills.sh` 自动化拉取。本次据此修订：
+
+### 12.1 链接前缀与文档位置
+- §1.1 “本文档位于”由 `OpenHarness/docs/`（上跳两级 `../../`）改为 `docs/`（上跳一级 `../`）；全文 7 处 `../../Dockerfile*` → `../Dockerfile*`。
+- §1.1 布局图去掉 `OpenHarness/ ... + 本文档` 的“+ 本文档”，补 `docs/` 行。
+
+### 12.2 同步脚本
+- §2 第 1 步改为引用 `./sync_hyperframes_skills.sh`（从 `heygen-com/hyperframes` main 拉 tar、解压 `skills/` 到 `hyperframes_github_skills_latest/`，带代理/重试）。
+- 修脚本 bug：`DEST_DIR` 由 `$SCRIPT_DIR/OpenHarness/hyperframes_github_skills_latest`（monorepo 后该子目录不存在）改为 `$SCRIPT_DIR/hyperframes_github_skills_latest`（仓库根，与 §1 表格基线位置一致）。
+
+### 12.3 行号锚点刷新
+Dockerfile / Dockerfile.fix 在 monorepo 构建输入对齐时增删了若干块，行号整体下移，刷新过时锚点：`Dockerfile#L98`→`#L102`、`Dockerfile#L87`→`#L91`、`Dockerfile:102-104`→`#L106-L108`、`Dockerfile.fix:36`→`#L47`、`Dockerfile.fix:36-38`→`#L90-L93`；`Dockerfile#L58-L60` 实际未变，仅改前缀。
+
+### 12.4 路径统一（落实 §10.1 待办）
+§3 / §6 / §7 里残留的 `hyperframes-media/...` 旧路径统一改为重命名后的 `media-use/audio/...`（`SKILL.md` 对应 `media-use/SKILL.md`）。§10.1 的映射表与 §9 / §10 变更历史作为“重命名事件”记录，保留旧名不改。

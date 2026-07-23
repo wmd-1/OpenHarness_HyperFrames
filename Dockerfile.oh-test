@@ -1,0 +1,20 @@
+# OpenHarness (oh) unit-test image.
+#
+# Base: oh-e2e-test:latest ships the full `oh` dependency venv + pytest. We
+# overlay the local OpenHarness source (OpenHarness/src) ahead of the installed
+# package via PYTHONPATH so edits to ui/app.py / cli.py etc. are exercised
+# against the image's complete dependency set without a full reinstall.
+#
+# Build: docker build -t oh-e2e-oh-test:latest -f Dockerfile.oh-test .
+# Run:   docker run --rm oh-e2e-oh-test:latest [pytest args...]
+FROM oh-e2e-test:latest
+
+# Local oh source takes import precedence over the venv-installed package.
+ENV PYTHONPATH=/opt/oh-src/src:/opt/oh-service
+
+COPY OpenHarness/src /opt/oh-src/src
+COPY OpenHarness/tests /opt/oh-tests
+
+WORKDIR /opt/oh-src
+ENTRYPOINT ["/root/.openharness-venv/bin/python", "-m", "pytest"]
+CMD ["tests/test_ui/test_headless_resume.py", "-q"]
