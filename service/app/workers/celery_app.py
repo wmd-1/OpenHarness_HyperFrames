@@ -56,7 +56,10 @@ celery_app.conf.task_routes = {
     "cleanup_expired_tasks": {"queue": "normal"},
 }
 
-celery_app.autodiscover_tasks(["app.workers.tasks"])
+# N9: autodiscover on the *package* ("app.workers") so Celery scans
+# tasks.py, beat.py, and any future sibling module.  The explicit import of
+# beat below is belt-and-suspenders — it also wires signal handlers.
+celery_app.autodiscover_tasks(["app.workers"])
 
 # Register the liveness (heartbeat) signal handlers and the periodic reclaim
 # task. Importing the module wires up worker_process_init (per-replica

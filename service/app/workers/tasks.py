@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 import redis as _redis
-from sqlalchemy import create_engine, func, update as sa_update
+from sqlalchemy import create_engine, func, select, update as sa_update
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -21,13 +20,7 @@ from app.workers.parser import OutputNotFoundError, locate_output_file, probe_mp
 from app.workers.identity import get_worker_id
 from app.workers.runner import run_oh
 from app.observability.metrics import render_inflight
-
-# --- Per-worker render concurrency cap (scale-multi-instance Phase 7) -------
-# Caps concurrently running ``oh`` render subprocesses in THIS worker process
-# so horizontal scale-out does not OOM Chrome/ffmpeg. The task body acquires
-# this around ``run_oh``.
-render_semaphore = threading.BoundedSemaphore(settings.max_concurrent_renders)
-MAX_CONCURRENT_RENDERS = settings.max_concurrent_renders
+from app.observability.logging import bind_task_context
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +45,12 @@ _sync_engine = None
 def _get_sync_engine():
     global _sync_engine
     if _sync_engine is None:
-        _sync_engine = create_engine(settings.db_sync_url, pool_size=5, max_overflow=10)
+        _sync_engine = create_engine(
+            settings.db_sync_url,
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,  # P4: detect stale connections before use
+        )
     return _sync_engine
 
 
@@ -65,19 +63,34 @@ def _sync_session() -> Session:
 _DONE_MARKER = "__DONE__"
 _LOG_CAP = 10000  # max retained entries per task stream
 
+# Circuit-break: after N consecutive Redis push failures, stop trying to push
+# log lines for the rest of this task (avoids log storms during Redis outage).
+_log_push_failed: set[str] = set()  # task_ids that have circuit-broken
+
 
 def _append_log(task_id: str, line: str) -> None:
     """Append a log line to the task's Redis Stream.
 
     Uses a single XADD per line (replayed and tailed by the SSE endpoint via
-    XREAD). Connection is taken from the shared pool.
+    XREAD). Connection is taken from the shared pool. The stream is bounded
+    with MAXLEN so heavy logging cannot exhaust Redis memory (P1/P2).
+    Push failures circuit-break per-task so a Redis outage does not flood
+    logs (N14).
     """
+    # Circuit-break: skip if this task already failed to push.
+    if str(task_id) in _log_push_failed:
+        return
     try:
         r = _redis_client()
-        # Coalesce the done marker to avoid duplicate terminal events.
-        r.xadd(f"oh:logs:{task_id}", {"line": line})
+        r.xadd(
+            f"oh:logs:{task_id}",
+            {"line": line},
+            maxlen=_LOG_CAP,
+            approximate=True,
+        )
     except Exception:
         logger.warning("Failed to push log line to Redis for task %s", task_id)
+        _log_push_failed.add(str(task_id))
 
 
 def claim(task_id: uuid.UUID, worker_id: str) -> bool:
@@ -194,25 +207,58 @@ def _mark_canceled(task_id: str, exc: Exception | None = None, worker_id: str | 
 
 
 def _abort_requested(task_id: str) -> bool:
-    """True if a cancellation flag was set for this task (cross-replica safe)."""
+    """True if a cancellation flag was set for this task (cross-replica safe).
+
+    Falls back to the DB when Redis is unreachable: a task already CANCELED
+    in DB counts as aborted (N3/X4). The ``cancellation_requested`` flag is
+    also checked so a cancel that set the DB flag but failed to reach Redis
+    still aborts the worker.
+    """
     try:
         r = _redis_client()
-        return r.get(f"oh:abort:{task_id}") is not None
+        if r.get(f"oh:abort:{task_id}") is not None:
+            return True
     except Exception:
-        return False
+        # Redis unavailable -- fall back to DB (N3/X4).
+        pass
+
+    # DB fallback: check status and cancellation_requested flag.
+    try:
+        with _sync_session() as db:
+            row = db.execute(
+                select(VideoTask.status, VideoTask.cancellation_requested).where(
+                    VideoTask.id == uuid.UUID(str(task_id))
+                )
+            ).first()
+            if row is None:
+                return False
+            status, cancelled = row
+            if status == TaskStatus.CANCELED or cancelled:
+                return True
+    except Exception:
+        logger.warning("DB fallback for abort check failed for task %s", task_id)
+
+    return False
 
 
 def _update_log_tail(task_id: str) -> None:
-    """Read the full log stream from Redis and write the tail to DB."""
+    """Read the tail of the log stream from Redis and write it to DB.
+
+    Uses XREVRANGE (reverse, newest-first) with COUNT so the full stream
+    is never loaded into memory (P2).
+    """
     try:
         r = _redis_client()
-        entries = r.xrange(f"oh:logs:{task_id}")
+        # Read the last N entries (newest-first), then reverse to oldest-first.
+        tail_count = 500
+        entries = r.xrevrange(f"oh:logs:{task_id}", count=tail_count)
+        entries.reverse()  # oldest-first for chronological order
         raw = "".join(
             _as_str(fields.get(b"line")) + "\n" for _id, fields in entries
         )
-        tail = raw[-settings.log_tail_bytes :]
+        tail = raw[-settings.log_tail_bytes:]
         with _sync_session() as db:
-            task = db.get(VideoTask, task_id)
+            task = db.get(VideoTask, uuid.UUID(str(task_id)))
             if task is not None:
                 task.log_tail = tail
                 db.commit()
@@ -226,8 +272,40 @@ def _as_str(value) -> str:
     return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value)
 
 
+def _cleanup_workspace(workspace: Path) -> None:
+    """Eagerly remove the workspace directory after a task reaches terminal state (P5).
+
+    This prevents workspace dirs from accumulating on disk between periodic
+    cleanup_expired_tasks runs. Failures are logged, not raised, so a missing
+    or read-only workspace never blocks the terminal state write.
+    """
+    try:
+        import shutil
+
+        if workspace.exists():
+            shutil.rmtree(workspace, ignore_errors=True)
+            logger.info("Eagerly cleaned up workspace %s", workspace)
+    except Exception:
+        logger.warning("Failed to clean up workspace %s", workspace)
+
+
 class TransientError(Exception):
     """Errors that should trigger automatic retry."""
+
+
+def _is_transient(exc: Exception) -> bool:
+    """True if *exc* is a transient infrastructure error that should retry (L2).
+
+    ``OperationalError`` (DB) and Redis ``ConnectionError``/``TimeoutError`` are
+    classified as transient so ``autoretry_for``/``retry_backoff`` fires.
+    All other exceptions are deterministic and mark the task FAILED.
+    """
+    from sqlalchemy.exc import OperationalError as SAOperationalError
+
+    from redis.exceptions import ConnectionError as RedisConnectionError
+    from redis.exceptions import TimeoutError as RedisTimeoutError
+
+    return isinstance(exc, (SAOperationalError, RedisConnectionError, RedisTimeoutError))
 
 
 @celery_app.task(
@@ -243,31 +321,37 @@ def generate_video_task(self, task_id: str) -> None:
     # Celery serializes the task id as a string; the model's UUID primary key
     # needs a uuid.UUID object for DB lookups, so coerce once up front.
     task_id = uuid.UUID(str(task_id))
+    wid = get_worker_id()
+
+    # --- Atomic claim (X1/L3) -------------------------------------------
+    # Exactly one worker flips QUEUED/RETRYING -> RUNNING via the conditional
+    # UPDATE in claim(). A redelivered or reclaimed task already owned by
+    # another live worker matches 0 rows and is skipped -- no run_oh.
+    if not claim(task_id, wid):
+        logger.warning("Task %s already claimed or terminal; skipping", task_id)
+        return
+
     storage = LocalVideoStorage()
 
     with _sync_session() as db:
         task = db.get(VideoTask, task_id)
         if task is None:
-            logger.error("Task %s not found in DB", task_id)
+            logger.error("Task %s not found in DB after claim", task_id)
             return
         if task.status == TaskStatus.CANCELED:
             return
-
-        # Claim ownership of this task for the lifetime of this worker process
-        # (scale-multi-instance R7): the worker_id lets the heartbeat/reclaim
-        # flow tell which replica owns a running task.
-        wid = get_worker_id()
-        task.worker_id = wid
-        task.status = TaskStatus.RUNNING
-        task.started_at = datetime.now(timezone.utc)
-        # Seed heartbeat_at at claim time (scale-multi-instance R7/R8). The
-        # liveness loop refreshes it while the worker is alive; if the worker
-        # dies, this timestamp goes stale and recover_lost_tasks reclaims the
-        # task. Without this, heartbeat_at stays NULL and the reclaim scan's
-        # `heartbeat_at < cutoff` condition can never match -> orphaned tasks.
-        task.heartbeat_at = datetime.now(timezone.utc)
+        # Persist the celery task id so revoke is possible for the duration
+        # of the run (L4 -- celery_task_id persistence).
         task.celery_task_id = self.request.id
         db.commit()
+
+        # X7: bind task/worker/attempt into structlog contextvars so every
+        # log line in the task body carries this context.
+        bind_task_context(
+            task_id=str(task_id),
+            worker_id=wid,
+            attempt=task.attempt,
+        )
 
         prompt = task.prompt
         timeout = task.timeout_seconds
@@ -284,28 +368,43 @@ def generate_video_task(self, task_id: str) -> None:
 
     try:
         # Track an in-flight render so Grafana can see per-replica concurrency
-        # (Phase 5 / R8). Phase 7 caps this with a global semaphore so the
-        # worker never spawns more than MAX_CONCURRENT_RENDERS oh processes.
+        # (Phase 5 / R8). Process-local render semaphore removed (X3): under
+        # Celery prefork, each child gets its own semaphore copy, making it
+        # ineffective as a node-level cap. Concurrency is instead controlled
+        # via Celery ``-c`` (worker processes) + ``prefetch=1`` (one task per
+        # child). ``max_concurrent_renders`` in config remains as an advisory
+        # hint for capacity planning, not an enforcement mechanism.
         with render_inflight():
-            with render_semaphore:
-                result = run_oh(
-                    prompt=prompt,
-                    cwd=workspace,
-                    timeout=timeout,
-                    on_log_line=lambda line: _append_log(task_id, line),
-                    extra_args=extra_oh_args,
-                    is_aborted=lambda: _abort_requested(task_id),
-                    oh_bin=settings.oh_bin,
-                    headless_shell_path=settings.headless_shell_path,
-                )
+            result = run_oh(
+                prompt=prompt,
+                cwd=workspace,
+                timeout=timeout,
+                on_log_line=lambda line: _append_log(task_id, line),
+                extra_args=extra_oh_args,
+                is_aborted=lambda: _abort_requested(task_id),
+                oh_bin=settings.oh_bin,
+                headless_shell_path=settings.headless_shell_path,
+                watchdog_poll_interval=settings.watchdog_poll_interval,  # N15
+            )
 
         # Guard: if the user canceled while running, do NOT overwrite the
         # status back to SUCCEEDED/FAILED. The worker is authoritative here.
         if _abort_requested(task_id):
             _mark_canceled(task_id, RuntimeError("canceled by user"), worker_id=wid)
+            _cleanup_workspace(workspace)
             return
 
         _update_log_tail(task_id)
+
+        if result.timed_out:
+            _mark_failed(
+                task_id,
+                RuntimeError(f"timed out after {timeout}s"),
+                exit_code=result.exit_code,
+                worker_id=wid,
+            )
+            _cleanup_workspace(workspace)
+            return
 
         if result.exit_code != 0:
             _mark_failed(
@@ -314,12 +413,14 @@ def generate_video_task(self, task_id: str) -> None:
                 exit_code=result.exit_code,
                 worker_id=wid,
             )
+            _cleanup_workspace(workspace)
             return
 
         mp4 = locate_output_file(result.stdout, workspace)
         meta = probe_mp4(mp4)
         final_key = storage.save(task_id, mp4)
         _mark_succeeded(task_id, final_key, meta, result, worker_id=wid)
+        _cleanup_workspace(workspace)
 
         # Publish done marker into the log stream (consumed by SSE).
         try:
@@ -332,55 +433,95 @@ def generate_video_task(self, task_id: str) -> None:
         # message is acked rather than infinitely redelivered).
         _update_log_tail(task_id)
         _mark_failed(task_id, exc, worker_id=wid)
+        _cleanup_workspace(workspace)
     except TransientError:
         # Transient infrastructure errors still trigger the autoretry_for retry.
         raise
     except Exception as exc:
+        # Classify: transient infrastructure errors (DB/Redis) should retry (L2).
+        if _is_transient(exc):
+            raise TransientError(str(exc)) from exc
         # Deterministic failure — record and stop (no re-raise).
         _update_log_tail(task_id)
         _mark_failed(task_id, exc, worker_id=wid)
+        _cleanup_workspace(workspace)
         return
 
 
 @celery_app.task(name="cleanup_expired_tasks")
 def cleanup_expired_tasks() -> None:
-    """Remove workspace dirs and log entries for tasks older than retention period."""
+    """Remove workspace dirs and log entries for tasks older than retention period.
+
+    Batched and per-task-resilient (P6/N13): processes tasks in batches of
+    100, wraps each task's cleanup in try/except so one failure does not abort
+    the entire sweep, and commits per batch so partial progress is durable.
+    """
     from datetime import timedelta
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=settings.cleanup_retention_days)
-    with _sync_session() as db:
-        expired = db.query(VideoTask).filter(
-            VideoTask.created_at < cutoff,
-            VideoTask.status.in_([
-                TaskStatus.SUCCEEDED,
-                TaskStatus.FAILED,
-                TaskStatus.CANCELED,
-            ]),
-        ).all()
+    storage = LocalVideoStorage()
+    batch_size = 100
+    total_cleaned = 0
 
-        storage = LocalVideoStorage()
-        for task in expired:
-            # Clean up workspace
-            if task.workspace_path:
-                wp = Path(task.workspace_path)
-                if wp.exists():
-                    import shutil
-                    shutil.rmtree(wp, ignore_errors=True)
+    while True:
+        with _sync_session() as db:
+            expired = (
+                db.query(VideoTask)
+                .filter(
+                    VideoTask.created_at < cutoff,
+                    VideoTask.status.in_([
+                        TaskStatus.SUCCEEDED,
+                        TaskStatus.FAILED,
+                        TaskStatus.CANCELED,
+                    ]),
+                    # Only process tasks that still have resources to clean up.
+                    (VideoTask.output_path.isnot(None) | VideoTask.workspace_path.isnot(None)),
+                )
+                .limit(batch_size)
+                .all()
+            )
 
-            # Clean up stored video
-            if task.output_path:
-                storage.delete(task.output_path)
+            if not expired:
+                break
 
-            # Clean up Redis log stream
-            try:
-                _redis_client().delete(f"oh:logs:{str(task.id)}")
-            except Exception:
-                pass
+            for task in expired:
+                try:
+                    # Clean up workspace (P5 eager cleanup already handles the
+                    # common case, but stale workspaces from crashed workers
+                    # still need the periodic sweep).
+                    if task.workspace_path:
+                        wp = Path(task.workspace_path)
+                        if wp.exists():
+                            import shutil
+                            shutil.rmtree(wp, ignore_errors=True)
 
-            # Null the now-stale pointers so a later download returns a clean
-            # 404 instead of pointing at a deleted file.
-            task.output_path = None
-            task.workspace_path = None
+                    # Clean up stored video
+                    if task.output_path:
+                        storage.delete(task.output_path)
 
-        db.commit()
-        logger.info("Cleaned up %d expired tasks", len(expired))
+                    # Clean up Redis log stream
+                    try:
+                        _redis_client().delete(f"oh:logs:{str(task.id)}")
+                    except Exception:
+                        pass
+
+                    # Null the now-stale pointers so a later download returns
+                    # a clean 404 instead of pointing at a deleted file.
+                    task.output_path = None
+                    task.workspace_path = None
+                    total_cleaned += 1
+                except Exception:
+                    logger.warning(
+                        "Failed to clean up expired task %s — continuing (N13)",
+                        task.id,
+                        exc_info=True,
+                    )
+                    # Rollback this task's changes so the next sweep retries.
+                    db.rollback()
+
+            db.commit()
+
+        if len(expired) < batch_size:
+            break
+
+    logger.info("Cleaned up %d expired tasks", total_cleaned)

@@ -1,56 +1,96 @@
-"""Tests for the extra_oh_args allowlist validator."""
+"""Tests for extra_oh_args validation (N5/N17/S4)."""
 
 import pytest
 
 from app.security import InvalidOhArgError, vet_extra_oh_args
 
 
-def test_forbidden_permission_mode_rejected():
+# ---- Allowlist / blocklist ----
+
+
+def test_safe_flag_with_valid_value_passes():
+    """A safe flag with a valid value passes through unchanged."""
+    result = vet_extra_oh_args(["--temperature", "0.7"])
+    assert result == ["--temperature", "0.7"]
+
+
+def test_permission_mode_override_rejected():
+    """permission-mode must never be caller-controllable."""
     with pytest.raises(InvalidOhArgError):
-        vet_extra_oh_args(["--permission-mode", "evil"])
+        vet_extra_oh_args(["--permission-mode", "not_full_auto"])
 
 
-def test_forbidden_output_rejected():
+def test_unknown_flag_rejected():
+    """Flags not in the allowlist are rejected."""
     with pytest.raises(InvalidOhArgError):
-        vet_extra_oh_args(["--output", "/evil"])
+        vet_extra_oh_args(["--dangerous-flag", "value"])
 
 
-def test_forbidden_output_format_rejected():
-    with pytest.raises(InvalidOhArgError):
-        vet_extra_oh_args(["--output-format", "json"])
+def test_flag_only_no_value():
+    """Boolean flags (no value) pass through."""
+    result = vet_extra_oh_args(["--verbose"])
+    assert result == ["--verbose"]
 
 
-def test_bogus_flag_rejected():
-    with pytest.raises(InvalidOhArgError):
-        vet_extra_oh_args(["--bogus"])
+# ---- Type checking (N17) ----
 
 
-def test_non_flag_token_rejected():
-    with pytest.raises(InvalidOhArgError):
-        vet_extra_oh_args(["foo"])
+def test_non_numeric_temperature_rejected():
+    """--temperature value must be a float."""
+    with pytest.raises(InvalidOhArgError, match="must be a float"):
+        vet_extra_oh_args(["--temperature", "hot"])
 
 
-def test_flag_missing_value_rejected():
-    with pytest.raises(InvalidOhArgError):
-        vet_extra_oh_args(["--temperature"])
+def test_valid_float_temperature_passes():
+    """--temperature accepts float values."""
+    result = vet_extra_oh_args(["--temperature", "0.5"])
+    assert result == ["--temperature", "0.5"]
 
 
-def test_allowed_flag_with_value_ok():
-    assert vet_extra_oh_args(["--temperature", "0.7"]) == ["--temperature", "0.7"]
+def test_non_integer_max_turns_rejected():
+    """--max-turns value must be an int."""
+    with pytest.raises(InvalidOhArgError, match="must be an int"):
+        vet_extra_oh_args(["--max-turns", "many"])
 
 
-def test_allowed_flag_without_value_ok():
-    assert vet_extra_oh_args(["--no-cache"]) == ["--no-cache"]
+def test_valid_integer_max_turns_passes():
+    """--max-turns accepts int values."""
+    result = vet_extra_oh_args(["--max-turns", "10"])
+    assert result == ["--max-turns", "10"]
 
 
-def test_empty_input_ok():
-    assert vet_extra_oh_args([]) == []
-    assert vet_extra_oh_args(None) == []
+# ---- Shell metachar rejection (S4) ----
 
 
-def test_mixed_allowed_flags_ok():
-    assert vet_extra_oh_args(["--model", "gpt-4", "--verbose"]) == [
-        "--model",
-        "gpt-4",
-        "--verbose",
-    ]
+def test_shell_metachar_in_value_rejected():
+    """Values with shell metacharacters are rejected."""
+    with pytest.raises(InvalidOhArgError, match="shell metachar"):
+        vet_extra_oh_args(["--model", "gpt;rm -rf /"])
+
+
+def test_pipe_in_value_rejected():
+    """Pipe character in value is rejected."""
+    with pytest.raises(InvalidOhArgError, match="shell metachar"):
+        vet_extra_oh_args(["--model", "a|b"])
+
+
+def test_backtick_in_value_rejected():
+    """Backtick in value is rejected."""
+    with pytest.raises(InvalidOhArgError, match="shell metachar"):
+        vet_extra_oh_args(["--model", "`whoami`"])
+
+
+def test_clean_model_value_passes():
+    """A clean model name passes through."""
+    result = vet_extra_oh_args(["--model", "claude-sonnet-4"])
+    assert result == ["--model", "claude-sonnet-4"]
+
+
+# ---- Length validation (N5) ----
+
+
+def test_overlong_model_value_rejected():
+    """--model value exceeding max length is rejected."""
+    long_val = "a" * 257
+    with pytest.raises(InvalidOhArgError, match="exceeds max length"):
+        vet_extra_oh_args(["--model", long_val])

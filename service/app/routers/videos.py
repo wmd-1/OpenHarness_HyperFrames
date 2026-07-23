@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from typing import AsyncGenerator
 
@@ -24,10 +25,12 @@ from app.schemas import (
     VideoTaskResponse,
 )
 from app.storage.base import VideoStorage
+from app.ratelimit import check_rate_limit, _client_ip
 from app.workers.celery_app import celery_app
 from app.workers.scheduler import get_scheduler
 
 router = APIRouter(prefix="/v1/videos", tags=["videos"])
+logger = logging.getLogger(__name__)
 
 # Marker written into the log stream when generation finishes.
 _DONE_MARKER = "__DONE__"
@@ -52,14 +55,12 @@ def _to_response(task: VideoTask) -> VideoTaskResponse:
         skill=task.skill,
         status=task.status,
         timeout_seconds=task.timeout_seconds,
-        output_path=task.output_path,
         file_size_bytes=task.file_size_bytes,
         duration_seconds=task.duration_seconds,
         resolution=task.resolution,
         fps=task.fps,
         exit_code=task.exit_code,
         error_message=task.error_message,
-        log_tail=task.log_tail,
         created_at=task.created_at,
         started_at=task.started_at,
         finished_at=task.finished_at,
@@ -95,9 +96,15 @@ async def _get_task_or_404(task_id: uuid.UUID, db: AsyncSession) -> VideoTask:
 @router.post("", response_model=VideoCreateResponse, status_code=201)
 async def create_video(
     body: VideoCreateRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> VideoCreateResponse:
     """Submit a new video generation task."""
+    # Rate limit (S3): token-bucket per client IP, fail-open on Redis outage.
+    ip = _client_ip(request)
+    if not check_rate_limit(ip):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
     # Idempotency check
     if body.idempotency_key is not None:
         stmt = select(VideoTask).where(VideoTask.idempotency_key == body.idempotency_key)
@@ -146,7 +153,19 @@ async def create_video(
 
     # Enqueue render via the configured scheduler (Phase 6). Priority drives
     # the queue tier (high/normal/low) for Phase 7 priority consumption.
-    get_scheduler().enqueue(str(task.id), priority=task.priority)
+    # Enqueue failure compensation (N1): if the broker/scheduler is down, the
+    # task must not be orphaned as QUEUED -- mark it FAILED and return 503.
+    try:
+        get_scheduler().enqueue(str(task.id), priority=task.priority)
+    except Exception as exc:
+        logger.error("Enqueue failed for task %s: %s", task.id, exc)
+        task.status = TaskStatus.FAILED
+        task.error_message = f"enqueue failed: {exc}"
+        await db.commit()
+        raise HTTPException(
+            status_code=503,
+            detail="Task enqueued but broker unavailable; marked as failed",
+        )
 
     return VideoCreateResponse(
         task_id=task.id,
@@ -165,19 +184,24 @@ async def get_video(
     return _to_response(task)
 
 
-async def _iterfile(fileobj, start: int = 0, chunk: int = 1024 * 1024) -> AsyncGenerator[bytes, None]:
-    """Yield file contents from ``start`` onward without blocking the event loop.
+async def _iterfile(fileobj, start: int = 0, length: int | None = None, chunk: int = 1024 * 1024) -> AsyncGenerator[bytes, None]:
+    """Yield file contents from ``start`` for ``length`` bytes (or to EOF).
 
     The blocking ``fileobj.read`` is offloaded to a threadpool so a large
-    video does not stall other requests on the same uvicorn worker.
+    video does not stall other requests on the same uvicorn worker. When
+    ``length`` is set, exactly that many bytes are yielded (L5).
     """
     try:
         if start:
             fileobj.seek(start)
-        while True:
-            data = await run_in_threadpool(fileobj.read, chunk)
+        remaining = length
+        while remaining is None or remaining > 0:
+            read_size = min(chunk, remaining) if remaining is not None else chunk
+            data = await run_in_threadpool(fileobj.read, read_size)
             if not data:
                 break
+            if remaining is not None:
+                remaining -= len(data)
             yield data
     finally:
         fileobj.close()
@@ -222,27 +246,45 @@ async def download_video(
         raise HTTPException(status_code=404, detail="Output file not found on storage")
 
     # Parse Range header (single range only).
+    # L5: honor the end byte so bytes=start-end returns exactly
+    # end-start+1 bytes with correct Content-Range/Content-Length.
     start = 0
+    end = size - 1 if size else 0
     range_header = request.headers.get("Range")
     if range_header and range_header.startswith("bytes="):
+        spec = range_header[len("bytes="):].strip()
         try:
-            start = int(range_header[len("bytes=") :].split("-")[0])
+            start_str, _, end_str = spec.partition("-")
+            if not start_str:
+                # Suffix range: bytes=-N (last N bytes)
+                suffix = int(end_str)
+                start = max(0, size - suffix)
+                end = size - 1
+            else:
+                start = int(start_str)
+                if end_str:
+                    end = min(int(end_str), size - 1)
+                else:
+                    end = size - 1  # open-ended: bytes=start-
         except (ValueError, IndexError):
             start = 0
-    start = max(0, min(start, size - 1)) if size else 0
+            end = size - 1 if size else 0
+    start = max(0, min(start, end)) if size else 0
+    content_length = end - start + 1 if size else 0
 
-    status_code = 206 if start > 0 else 200
+    is_range = range_header is not None and range_header.startswith("bytes=")
+    status_code = 206 if is_range else 200
     headers = {
         "Content-Type": "video/mp4",
         "Content-Disposition": f'attachment; filename="{task_id}.mp4"',
         "Accept-Ranges": "bytes",
-        "Content-Length": str(size - start),
+        "Content-Length": str(content_length),
     }
-    if start > 0:
-        headers["Content-Range"] = f"bytes {start}-{size - 1}/{size}"
+    if is_range:
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
 
     return StreamingResponse(
-        _iterfile(fileobj, start=start),
+        _iterfile(fileobj, start=start, length=content_length),
         status_code=status_code,
         media_type="video/mp4",
         headers=headers,
@@ -250,22 +292,29 @@ async def download_video(
 
 
 @router.get("/{task_id}/events")
-async def video_events(task_id: uuid.UUID):
+async def video_events(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
     """SSE endpoint for real-time task progress updates.
 
-    Backed by a Redis Stream (``oh:logs:<id>``): a single cursor replays
-    history and tails new entries, so a line can never be delivered both as a
-    replay and as a live message (the old list+pubsub race).
+    Uses ``redis.asyncio`` for the blocking read so no thread-pool slot is
+    occupied (P3). Returns ``404`` for a non-existent task so no ghost
+    connection waits (N4). Historical replay is capped to the last 500 entries.
     """
+    # Validate task existence before opening the stream (N4).
+    task = await db.get(VideoTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
     from sse_starlette.sse import EventSourceResponse
 
     async def _event_generator() -> AsyncGenerator[dict, None]:
         try:
-            import redis as redis_lib
+            import redis.asyncio as aioredis
 
-            r = redis_lib.from_url(settings.broker_url)
+            r = aioredis.from_url(settings.broker_url)
         except Exception:
-            # If Redis is unavailable, just end the stream
             yield {"event": "error", "data": json.dumps({"error": "Redis unavailable"})}
             return
 
@@ -279,8 +328,8 @@ async def video_events(task_id: uuid.UUID):
             return val.decode("utf-8", errors="replace") if isinstance(val, bytes) else str(val)
 
         try:
-            # Replay existing log entries (oldest -> newest).
-            history = await run_in_threadpool(r.xrange, log_key, min="-", max="+")
+            # Capped historical replay (last 500 entries, oldest -> newest).
+            history = await r.xrange(log_key, min="-", max="+", count=500)
             last_id = "0-0"
             for entry_id, fields in history:
                 last_id = entry_id
@@ -291,10 +340,8 @@ async def video_events(task_id: uuid.UUID):
                 yield {"event": "log", "data": line}
 
             # Tail new entries until the done marker arrives.
-            # xread is a blocking call, so offload it to the threadpool to keep
-            # the event loop responsive.
             while True:
-                resp = await run_in_threadpool(r.xread, {log_key: last_id}, block=5000)
+                resp = await r.xread({log_key: last_id}, block=5000)
                 if not resp:
                     continue
                 for _stream, messages in resp:
@@ -308,8 +355,13 @@ async def video_events(task_id: uuid.UUID):
                             }
                             return
                         yield {"event": "log", "data": line}
+        except Exception:
+            yield {"event": "error", "data": json.dumps({"error": "Redis unavailable"})}
         finally:
-            r.close()
+            try:
+                await r.aclose()
+            except AttributeError:
+                pass
 
     return EventSourceResponse(_event_generator())
 
@@ -357,7 +409,9 @@ async def delete_video(
             message="Task termination requested",
         )
 
-    # For completed / failed / canceled tasks: delete resources
+    # For completed / failed / canceled tasks: delete resources but PRESERVE
+    # the terminal status (N2). The old code rewrote status to CANCELED,
+    # corrupting audit/stat counts. Now only resources are cleared.
     if task.output_path:
         storage.delete(task.output_path)
 
@@ -370,12 +424,13 @@ async def delete_video(
         if wp.exists():
             shutil.rmtree(wp, ignore_errors=True)
 
-    task.status = TaskStatus.CANCELED
     task.output_path = None
+    task.workspace_path = None
     await db.commit()
 
     return VideoDeleteResponse(
         task_id=task.id,
         status=task.status,
-        message="Task and resources deleted",
+        message="Task resources deleted",
+        deleted=True,
     )

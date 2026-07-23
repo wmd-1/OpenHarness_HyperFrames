@@ -53,8 +53,14 @@ def upgrade() -> None:
     # "RETRYING" (uppercase) and SQLAlchemy persists the member NAME, so the
     # native enum label must match exactly (uppercase) to stay consistent with
     # the labels created in 001 (QUEUED/RUNNING/SUCCEEDED/FAILED/CANCELED).
+    #
+    # X9: ALTER TYPE ADD VALUE cannot run inside a transaction block and is
+    # not idempotent by default. We (1) commit the migration transaction so the
+    # DDL runs outside it, and (2) use IF NOT EXISTS so environments that
+    # already ran the old non-idempotent version of 002 do not error on retry.
     if op.get_context().dialect.name == "postgresql":
-        op.execute("ALTER TYPE taskstatus ADD VALUE 'RETRYING'")
+        op.execute("COMMIT")
+        op.execute("ALTER TYPE taskstatus ADD VALUE IF NOT EXISTS 'RETRYING'")
 
 
 def downgrade() -> None:

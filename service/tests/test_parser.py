@@ -167,7 +167,8 @@ class TestProbeMp4:
         mock_run.return_value = mock_result
 
         meta = probe_mp4(mp4)
-        assert meta.fps == int(24000 / 1001)  # 23
+        # O3: round() instead of int() truncation — 24000/1001 ≈ 23.976 → 24
+        assert meta.fps == round(24000 / 1001)  # 24
         assert meta.resolution == "1280x720"
 
     def test_probe_nonexistent_file(self):

@@ -41,7 +41,12 @@ logger = logging.getLogger(__name__)
 WORKER_REGISTRY_TTL = 20  # seconds; Redis key lifetime — must exceed the refresh interval
 WORKER_REGISTRY_INTERVAL = 10  # seconds between registry refreshes
 HEARTBEAT_INTERVAL = 10  # seconds between heartbeat refreshes for owned tasks
-STALE_AFTER = 60  # seconds; a task with no heartbeat for this long is "lost"
+# X5: STALE_AFTER must be >= 4 × HEARTBEAT_INTERVAL so a worker can miss up to
+# 3 consecutive heartbeat refreshes (GC pause, network blip, CPU spike) before
+# its tasks are considered lost and reclaimed. This prevents premature reclaim
+# under transient slowness.
+STALE_AFTER = 60  # seconds; 6 × HEARTBEAT_INTERVAL (tolerates 3 missed beats)
+assert STALE_AFTER >= 4 * HEARTBEAT_INTERVAL, "STALE_AFTER must tolerate >= 3 missed beats"
 RECOVER_INTERVAL = 30  # seconds between recovery scans
 
 
@@ -148,8 +153,12 @@ def recover_lost_tasks(
 
     reclaimed = 0
     with make_session() as db:
-        rows = db.execute(select(VideoTask.id).where(*scan_conditions)).scalars().all()
-        for tid in rows:
+        # X6: query priority alongside id so re-enqueue routes through the
+        # scheduler with the correct priority tier (high/normal/low).
+        rows = db.execute(
+            select(VideoTask.id, VideoTask.priority).where(*scan_conditions)
+        ).all()
+        for tid, priority in rows:
             flip_conditions = [
                 VideoTask.id == tid,
                 VideoTask.status == TaskStatus.RUNNING,
@@ -170,7 +179,11 @@ def recover_lost_tasks(
             if res.rowcount == 1:
                 reclaimed += 1
                 try:
-                    worker_tasks.generate_video_task.delay(str(tid))
+                    # X6: route through the scheduler (not delay()) so the
+                    # re-enqueued task lands in the correct priority queue.
+                    from app.workers.scheduler import get_scheduler
+
+                    get_scheduler().enqueue(str(tid), priority=priority)
                 except Exception:
                     logger.warning("Failed to re-enqueue reclaimed task %s", tid)
     return reclaimed
@@ -213,7 +226,17 @@ def _recover_loop(stop: threading.Event, interval: int = RECOVER_INTERVAL) -> No
 
 @_celery_signals.worker_process_init.connect
 def _on_worker_process_init(**kwargs) -> None:
-    """Each prefork worker process advertises its own liveness + heartbeats."""
+    """Each prefork worker process advertises its own liveness + heartbeats.
+
+    Also configures structured logging so every log line in the worker
+    subprocess carries task/worker context (X7).
+    """
+    try:
+        from app.observability.logging import configure_logging
+
+        configure_logging()
+    except Exception:
+        logger.warning("Failed to configure logging in worker process", exc_info=True)
     try:
         start_liveness_thread()
     except Exception:

@@ -9,7 +9,6 @@ module imports cleanly in environments where S3 is not used.
 """
 from __future__ import annotations
 
-import io
 from pathlib import Path
 from typing import BinaryIO
 
@@ -47,15 +46,18 @@ class S3VideoStorage:
 
     def save(self, task_id: str, src: Path) -> str:
         key = f"{task_id}.mp4"
+        # X2: stream the file via upload_fileobj (multipart) instead of
+        # put_object(Body=fh.read()) which buffers the whole file in memory.
         with open(src, "rb") as fh:
-            self._client.put_object(Bucket=self._bucket, Key=key, Body=fh.read())
+            self._client.upload_fileobj(fh, self._bucket, key)
         return key
 
     def open(self, key: str) -> tuple[BinaryIO, int]:
+        # X2: return the lazy StreamingBody instead of pre-reading the whole
+        # object into a BytesIO. This prevents OOM on large video downloads.
         resp = self._client.get_object(Bucket=self._bucket, Key=key)
-        data = resp["Body"].read()
         size = resp["ContentLength"]
-        return io.BytesIO(data), size
+        return resp["Body"], size
 
     def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self._bucket, Key=key)

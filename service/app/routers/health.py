@@ -1,11 +1,19 @@
-"""/healthz and /readyz endpoints (scale-multi-instance Phase 5)."""
+"""/healthz and /readyz endpoints (scale-multi-instance Phase 5).
+
+Separation of concerns (X8/O1):
+- ``/healthz`` — liveness probe. Always 200 while the process is up. Reports
+  dependency status in the body (ok/degraded) but never returns 5xx.
+- ``/readyz`` — readiness probe. Returns 503 when Redis or DB is down so the
+  load balancer stops routing traffic to a degraded replica.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,13 +36,21 @@ async def _db_ok() -> bool:
 
 
 async def _redis_ok() -> bool:
-    try:
-        import redis as redis_lib
+    """Async Redis ping with a 2s timeout (X8).
 
-        r = redis_lib.from_url(settings.broker_url)
-        r.ping()
-        r.close()
-        return True
+    Uses ``redis.asyncio`` so the event loop is not blocked by a sync
+    ``ping()`` call. Returns ``False`` on any failure (connection refused,
+    timeout, etc.).
+    """
+    try:
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(settings.broker_url, socket_timeout=2, socket_connect_timeout=2)
+        try:
+            await asyncio.wait_for(r.ping(), timeout=2.0)
+            return True
+        finally:
+            await r.aclose()
     except Exception:
         return False
 
@@ -58,8 +74,6 @@ async def _s3_ok() -> bool | None:
 
         def _probe() -> bool:
             try:
-                # A head-style probe: existence check on a sentinel key exercises
-                # the S3 client without requiring the key to actually exist.
                 storage.exists("__health_probe__")
                 return True
             except Exception:
@@ -72,7 +86,11 @@ async def _s3_ok() -> bool | None:
 
 @router.get("/healthz", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
-    """Liveness + dependency check. S3 unreachable => degraded, not 5xx."""
+    """Liveness probe. Always 200 — dependency status is reported in the body.
+
+    ``/healthz`` never returns 5xx so the orchestrator does not restart the
+    process during a transient Redis/DB outage (X8/O1).
+    """
     db_status = "ok" if await _db_ok() else "error"
     redis_status = "ok" if await _redis_ok() else "error"
     s3_status = await _s3_ok()
@@ -86,12 +104,22 @@ async def health_check() -> HealthResponse:
 
 
 @router.get("/readyz", response_model=ReadyResponse)
-async def ready_check(db: AsyncSession = Depends(get_db)) -> ReadyResponse:
-    """Readiness: queue-consumption status (pending / running / heartbeat lag).
+async def ready_check(
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> ReadyResponse:
+    """Readiness probe. Returns 503 when Redis or DB is down (O1).
 
-    Always 200 while the service process is up — readiness reflects whether the
-    replica can consume work, not whether upstream deps are healthy.
+    When dependencies are healthy, returns 200 with queue-consumption stats
+    (pending / running / heartbeat lag). When Redis or DB is unreachable,
+    returns 503 so the load balancer stops routing traffic.
     """
+    db_ok = await _db_ok()
+    redis_ok = await _redis_ok()
+
+    if not db_ok or not redis_ok:
+        response.status_code = 503
+
     pending = await db.scalar(
         select(func.count()).where(VideoTask.status.in_([TaskStatus.QUEUED, TaskStatus.RETRYING]))
     )
@@ -110,7 +138,7 @@ async def ready_check(db: AsyncSession = Depends(get_db)) -> ReadyResponse:
         lag = (datetime.now(timezone.utc) - lb).total_seconds()
 
     return ReadyResponse(
-        status="ok",
+        status="ok" if (db_ok and redis_ok) else "degraded",
         pending=int(pending or 0),
         running=int(running or 0),
         heartbeat_lag_seconds=float(lag) if lag is not None else None,

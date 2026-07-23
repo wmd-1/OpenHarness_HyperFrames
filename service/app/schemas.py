@@ -16,8 +16,8 @@ from app.security import vet_extra_oh_args
 class VideoCreateRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
     timeout_seconds: int = Field(default=900, ge=30, le=3600)
-    extra_oh_args: list[str] = Field(default_factory=list)
-    idempotency_key: str | None = None
+    extra_oh_args: list[str] = Field(default_factory=list, max_length=50)
+    idempotency_key: str | None = Field(default=None, max_length=256)
 
     @field_validator("extra_oh_args")
     @classmethod
@@ -53,14 +53,12 @@ class VideoTaskResponse(BaseModel):
     skill: str
     status: TaskStatus
     timeout_seconds: int
-    output_path: str | None = None
     file_size_bytes: int | None = None
     duration_seconds: float | None = None
     resolution: str | None = None
     fps: int | None = None
     exit_code: int | None = None
     error_message: str | None = None
-    log_tail: str | None = None
     created_at: datetime | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -72,6 +70,8 @@ class VideoDeleteResponse(BaseModel):
     task_id: uuid.UUID
     status: TaskStatus
     message: str
+    # True when DELETE cleaned resources on a terminal task (vs. canceled a running one).
+    deleted: bool = False
 
 
 class HealthResponse(BaseModel):

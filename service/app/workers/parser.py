@@ -40,17 +40,25 @@ def locate_output_file(stdout: str, workspace: Path) -> Path:
     2. Fallback: ``rglob('*.mp4')`` in workspace, pick the newest by mtime.
     3. If still not found → raise :class:`OutputNotFoundError`.
     """
+    ws_resolved = workspace.resolve()
     for pattern in (_RE_ZH, _RE_EN, _RE_PLAIN):
         m = pattern.search(stdout)
         if m:
             candidate = Path(m.group(1))
             if not candidate.is_absolute():
                 candidate = workspace / candidate
+            # O4: scope to workspace — reject paths that escape the task dir.
+            try:
+                resolved = candidate.resolve()
+                resolved.relative_to(ws_resolved)
+            except ValueError:
+                # resolved path is outside workspace; skip and keep searching
+                continue
             if candidate.exists():
                 return candidate
 
-    # Fallback: find newest mp4 in workspace
-    mp4s = sorted(workspace.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+    # Fallback: find newest mp4 in workspace (already scoped via ws_resolved)
+    mp4s = sorted(ws_resolved.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
     if mp4s:
         return mp4s[0]
 
@@ -98,7 +106,8 @@ def probe_mp4(path: Path) -> VideoMeta:
                 if "/" in rfr:
                     num, den = rfr.split("/", 1)
                     if int(den) != 0:
-                        meta.fps = int(int(num) / int(den))
+                        # O3: round() instead of int() truncation so 29.97 → 30.
+                        meta.fps = round(int(num) / int(den))
                 break
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         pass

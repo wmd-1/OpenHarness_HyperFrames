@@ -76,8 +76,11 @@ async def client(db_session):
 
 
 def _fake_redis():
+    """Return (sync, async) fake Redis clients sharing one server."""
     server = fakeredis.FakeServer()
-    return fakeredis.FakeStrictRedis(server=server)
+    sync_r = fakeredis.FakeStrictRedis(server=server)
+    async_r = fakeredis.FakeAsyncRedis(server=server)
+    return sync_r, async_r
 
 
 async def test_sse_streams_logs_then_done(client, db_session):
@@ -87,13 +90,14 @@ async def test_sse_streams_logs_then_done(client, db_session):
     await db_session.refresh(task)
     tid = str(task.id)
 
-    fake = _fake_redis()
+    sync_r, async_r = _fake_redis()
     # Pretend the worker already wrote logs + a done marker into the stream.
-    fake.xadd(f"oh:logs:{tid}", {"line": "step 1"})
-    fake.xadd(f"oh:logs:{tid}", {"line": "step 2"})
-    fake.xadd(f"oh:logs:{tid}", {"line": "__DONE__"})
+    sync_r.xadd(f"oh:logs:{tid}", {"line": "step 1"})
+    sync_r.xadd(f"oh:logs:{tid}", {"line": "step 2"})
+    sync_r.xadd(f"oh:logs:{tid}", {"line": "__DONE__"})
 
-    with patch("redis.from_url", return_value=fake):
+    # SSE endpoint uses redis.asyncio, so patch the async from_url (P3).
+    with patch("redis.asyncio.from_url", return_value=async_r):
         resp = await client.get(f"/v1/videos/{tid}/events")
 
     assert resp.status_code == 200
@@ -114,12 +118,12 @@ async def test_sse_no_duplicate_on_concurrent_publish(client, db_session):
     await db_session.refresh(task)
     tid = str(task.id)
 
-    fake = _fake_redis()
-    fake.xadd(f"oh:logs:{tid}", {"line": "only-once"})
+    sync_r, async_r = _fake_redis()
+    sync_r.xadd(f"oh:logs:{tid}", {"line": "only-once"})
     # Terminate the stream so the SSE generator returns (no live tail needed here).
-    fake.xadd(f"oh:logs:{tid}", {"line": "__DONE__"})
+    sync_r.xadd(f"oh:logs:{tid}", {"line": "__DONE__"})
 
-    with patch("redis.from_url", return_value=fake):
+    with patch("redis.asyncio.from_url", return_value=async_r):
         resp = await client.get(f"/v1/videos/{tid}/events")
 
     assert resp.status_code == 200

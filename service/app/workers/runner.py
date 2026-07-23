@@ -11,11 +11,16 @@ from subprocess import PIPE, STDOUT, Popen
 from threading import Thread
 from typing import Callable
 
+# Cap accumulated stdout so a verbose oh run does not exhaust worker memory (N7/N8).
+_STDOUT_CAP = 1024 * 1024  # 1 MB
+_TRUNCATION_MARKER = "\n... [stdout truncated: exceeded 1 MB] ...\n"
+
 
 @dataclass
 class RunResult:
     exit_code: int
     stdout: str
+    timed_out: bool = False  # N7: distinguishes timeout-kill from normal exit
 
 
 def run_oh(
@@ -27,6 +32,7 @@ def run_oh(
     is_aborted: Callable[[], bool] | None = None,
     oh_bin: str = "/root/.local/bin/oh",
     headless_shell_path: str = "/opt/chrome-headless-shell-linux64/chrome-headless-shell",
+    watchdog_poll_interval: float = 2.0,  # N15: coarsened from 0.5 s
 ) -> RunResult:
     """Spawn ``oh -p <prompt>`` as a subprocess and collect output.
 
@@ -68,7 +74,7 @@ def run_oh(
         text=True,
         bufsize=1,
         env=env,
-        preexec_fn=os.setsid,
+        start_new_session=True,  # N12: safe process-group creation
     )
 
     # ``setsid`` makes ``oh`` its own session/process-group leader, so
@@ -83,32 +89,46 @@ def run_oh(
             pass
 
     def _watchdog() -> None:
-        # Poll the abort predicate while the process is alive.
+        # N15: poll the abort predicate while the process is alive, using the
+        # configurable interval (default 2 s) instead of a hard-coded 0.5 s.
         while proc.poll() is None:
             if is_aborted is not None and is_aborted():
                 _kill_group(signal.SIGTERM)
                 return
-            time.sleep(0.5)
+            time.sleep(watchdog_poll_interval)
 
     watchdog_thread = Thread(target=_watchdog, daemon=True)
     watchdog_thread.start()
 
     lines: list[str] = []
+    accumulated_bytes = 0
+    stdout_capped = False
 
     def _reader() -> None:
+        nonlocal accumulated_bytes, stdout_capped
         assert proc.stdout is not None
         for line in proc.stdout:
-            lines.append(line)
+            # Always forward to the log stream (streaming is unaffected by the cap).
             if on_log_line is not None:
                 on_log_line(line)
+            # Only accumulate up to the cap to bound memory (N7/N8).
+            if not stdout_capped:
+                accumulated_bytes += len(line.encode("utf-8"))
+                if accumulated_bytes > _STDOUT_CAP:
+                    lines.append(_TRUNCATION_MARKER)
+                    stdout_capped = True
+                else:
+                    lines.append(line)
 
     reader_thread = Thread(target=_reader, daemon=True)
     reader_thread.start()
 
+    timed_out = False
     # Wait with timeout
     try:
         proc.wait(timeout=timeout)
     except Exception:
+        timed_out = True  # N7: timeout-kill is distinguishable
         # Kill the entire process group
         _kill_group(signal.SIGTERM)
         try:
@@ -123,4 +143,5 @@ def run_oh(
     return RunResult(
         exit_code=proc.returncode if proc.returncode is not None else -1,
         stdout="".join(lines),
+        timed_out=timed_out,
     )

@@ -6,7 +6,8 @@ CLI. Because ``--permission-mode full_auto`` (and ``--output``) are emitted
 append a conflicting flag and downgrade permissions or redirect artifacts.
 
 We therefore keep a conservative allowlist of safe flags and a hard blocklist of
-safety-critical flags that must never be caller-controlled.
+safety-critical flags that must never be caller-controlled.  Additionally,
+flag values are type-checked and shell-metachar-rejected (N17/S4).
 """
 
 from __future__ import annotations
@@ -19,6 +20,14 @@ ALLOWED_OH_FLAGS: dict[str, bool] = {
     "--no-cache": False,
     "--verbose": False,
     # ⚠️ Only add flags that are provably safe to expose to callers.
+}
+
+# flag -> (type, max_value_length) for value validation (N17/S4).
+# type: "float", "int", or "str".
+TYPED_FLAGS: dict[str, tuple[str, int]] = {
+    "--temperature": ("float", 50),
+    "--max-turns": ("int", 10),
+    "--model": ("str", 256),
 }
 
 # Flags that must never be caller-controlled.
@@ -38,9 +47,47 @@ FORBIDDEN_OH_FLAGS = {
     "--chromium",
 }
 
+# Shell metacharacters that must never appear in flag values.
+_SHELL_METACHARS = set(";&|`$(){}[]<>#!~\n\r\t\\\"'")
+
 
 class InvalidOhArgError(ValueError):
     """Raised when ``extra_oh_args`` contains a disallowed or malformed token."""
+
+
+def _validate_flag_value(flag: str, value: str) -> None:
+    """Validate the value of a typed flag (N17/S4).
+
+    Rejects shell metacharacters in all values, checks type and length
+    for typed flags.
+    """
+    # Reject shell metacharacters in all values.
+    if any(c in _SHELL_METACHARS for c in value):
+        raise InvalidOhArgError(
+            f"value for {flag!r} contains shell metacharacters"
+        )
+
+    # Type-check typed flags.
+    if flag in TYPED_FLAGS:
+        expected_type, max_len = TYPED_FLAGS[flag]
+        if len(value) > max_len:
+            raise InvalidOhArgError(
+                f"value for {flag!r} exceeds max length {max_len}"
+            )
+        if expected_type == "float":
+            try:
+                float(value)
+            except ValueError:
+                raise InvalidOhArgError(
+                    f"value for {flag!r} must be a float, got {value!r}"
+                )
+        elif expected_type == "int":
+            try:
+                int(value)
+            except ValueError:
+                raise InvalidOhArgError(
+                    f"value for {flag!r} must be an int, got {value!r}"
+                )
 
 
 def vet_extra_oh_args(raw: list[str] | None) -> list[str]:
@@ -54,8 +101,8 @@ def vet_extra_oh_args(raw: list[str] | None) -> list[str]:
 
     Raises:
         InvalidOhArgError: if any token is not a ``--flag``, is on the
-            forbidden list, is not in the allowlist, or is missing a required
-            value.
+            forbidden list, is not in the allowlist, is missing a required
+            value, or has a malformed/unsafe value (N17/S4).
     """
     if not raw:
         return []
@@ -75,7 +122,9 @@ def vet_extra_oh_args(raw: list[str] | None) -> list[str]:
         if ALLOWED_OH_FLAGS[tok]:
             if i + 1 >= n:
                 raise InvalidOhArgError(f"flag {tok!r} requires a value")
-            out.append(raw[i + 1])
+            val = raw[i + 1]
+            _validate_flag_value(tok, val)  # N17/S4
+            out.append(val)
             i += 2
         else:
             i += 1

@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, Index, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -23,6 +23,9 @@ class TaskStatus(str, enum.Enum):
 
 class VideoTask(Base):
     __tablename__ = "video_tasks"
+    __table_args__ = (
+        Index("ix_video_tasks_created_at_status", "created_at", "status"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, default=uuid.uuid4

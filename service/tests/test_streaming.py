@@ -10,6 +10,7 @@ Covers:
 import shutil
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -55,9 +56,12 @@ async def stream_env(db_session):
 
     app.dependency_overrides[get_db] = _override_db
     app.dependency_overrides[get_storage] = lambda: storage
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac, key, payload
+    # download_video uses storage_for_kind(task.storage_kind) — not
+    # Depends(get_storage) — so patch it to return the test storage.
+    with patch("app.routers.videos.storage_for_kind", return_value=storage):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac, key, payload
     app.dependency_overrides.clear()
     shutil.rmtree(tmp, ignore_errors=True)
 
@@ -94,3 +98,46 @@ async def test_download_range_returns_206(stream_env, db_session):
     assert resp.content == payload[10:]
     assert resp.headers["content-range"] == f"bytes 10-{len(payload) - 1}/{len(payload)}"
     assert int(resp.headers["content-length"]) == len(payload) - 10
+
+
+async def test_download_range_with_end_byte_returns_exact_bytes(stream_env, db_session):
+    """Range: bytes=10-20 MUST return exactly 11 bytes (end-start+1) (L5).
+
+    The old code ignored the end byte and always streamed to EOF.
+    """
+    client, key, payload = stream_env
+    task = VideoTask(prompt="x", status=TaskStatus.SUCCEEDED, output_path=key)
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    resp = await client.get(
+        f"/v1/videos/{task.id}/file",
+        headers={"Range": "bytes=10-20"},
+    )
+
+    assert resp.status_code == 206
+    assert len(resp.content) == 11, "must return exactly end-start+1 = 11 bytes"
+    assert resp.content == payload[10:21]
+    assert resp.headers["content-range"] == f"bytes 10-20/{len(payload)}"
+    assert int(resp.headers["content-length"]) == 11
+
+
+async def test_download_range_suffix_returns_last_n_bytes(stream_env, db_session):
+    """Range: bytes=-10 MUST return the last 10 bytes (L5)."""
+    client, key, payload = stream_env
+    task = VideoTask(prompt="x", status=TaskStatus.SUCCEEDED, output_path=key)
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    resp = await client.get(
+        f"/v1/videos/{task.id}/file",
+        headers={"Range": "bytes=-10"},
+    )
+
+    assert resp.status_code == 206
+    assert len(resp.content) == 10
+    assert resp.content == payload[-10:]
+    assert resp.headers["content-range"] == f"bytes {len(payload) - 10}-{len(payload) - 1}/{len(payload)}"
+    assert int(resp.headers["content-length"]) == 10

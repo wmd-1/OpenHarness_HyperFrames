@@ -1,6 +1,8 @@
 """Application configuration via pydantic-settings."""
 
 from pathlib import Path
+
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,10 +15,14 @@ class Settings(BaseSettings):
     )
 
     # --- Database ---
-    db_url: str = "postgresql+asyncpg://oh:oh@localhost:5432/oh"
-    db_sync_url: str = "postgresql+psycopg://oh:oh@localhost:5432/oh"
-    # Async-native URL used for Alembic migrations (matches the async engine).
-    db_migration_url: str = "postgresql+asyncpg://oh:oh@postgres:5432/oh"
+    # O2: unified default host (localhost) across db_url / db_migration_url.
+    # N16: no plaintext credentials in defaults — operators must supply user /
+    # password via environment (OH_DB_URL etc.) or a .env file.  The startup
+    # check in main.py warns when no credentials are present.
+    db_url: str = "postgresql+asyncpg://localhost:5432/oh"
+    db_sync_url: str = "postgresql+psycopg://localhost:5432/oh"
+    # Async-native URL used for Alembic migrations (O2: same host as db_url).
+    db_migration_url: str = "postgresql+asyncpg://localhost:5432/oh"
 
     # --- Redis / Celery ---
     broker_url: str = "redis://localhost:6379/0"
@@ -45,6 +51,9 @@ class Settings(BaseSettings):
     task_timeout_default: int = 900  # seconds
     task_timeout_min: int = 30
     task_timeout_max: int = 3600
+    # N15: watchdog abort-poll interval (seconds).  Coarsened from 0.5 s to
+    # reduce thread wake-ups; 2–5 s is responsive enough for cancellation.
+    watchdog_poll_interval: float = 2.0
 
     # --- API ---
     api_host: str = "0.0.0.0"
@@ -68,10 +77,24 @@ class Settings(BaseSettings):
     worker_queues: str = "high,normal,low"
     # Global cap on concurrently running ``oh`` render subprocesses per worker
     # process (protects Chrome/ffmpeg memory under horizontal scale-out).
+    # Advisory only — not enforced by a process-local semaphore (X3). Under
+    # Celery prefork, actual concurrency is controlled by ``-c`` (child
+    # processes) and ``prefetch=1`` (one task per child at a time). This
+    # value is a capacity-planning hint for dashboards/alerting.
     max_concurrent_renders: int = 4
 
     # --- API Key (optional) ---
-    api_key: str | None = None
+    api_key: SecretStr | None = None
+    # When True, the API key middleware is always registered and requests
+    # without a valid X-API-Key are rejected with 401 (S1/S2). Default False
+    # preserves backward-compatible open access.
+    require_auth: bool = False
+
+    # --- Rate limiting (S3) ---
+    # Token-bucket capacity (max burst) and refill rate (tokens/second)
+    # per client IP on POST /v1/videos.
+    rate_limit_capacity: int = 10
+    rate_limit_refill: float = 1.0
 
     # --- CORS ---
     # Comma-separated explicit origins. Empty => no CORS allowed.

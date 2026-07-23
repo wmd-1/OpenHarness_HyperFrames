@@ -96,3 +96,69 @@ def test_cleanup_expired_reclaims_artifacts_and_nulls_pointers(sync_db):
         assert f.workspace_path is not None
 
     shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_cleanup_is_resilient_to_individual_failures(sync_db):
+    """One task's cleanup failure MUST NOT abort the entire sweep (N13/P6).
+
+    If storage.delete() raises for one task, the remaining tasks must still
+    be processed and their pointers nulled.
+    """
+    import tempfile
+
+    tmp = tempfile.mkdtemp()
+    storage = LocalVideoStorage(root=Path(tmp))
+
+    old_time = datetime.now(timezone.utc) - timedelta(days=30)
+
+    # Task 1: will fail during storage.delete (key doesn't exist on disk)
+    task1 = VideoTask(
+        prompt="fail",
+        status=TaskStatus.SUCCEEDED,
+        created_at=old_time,
+        output_path="missing-key.mp4",
+        workspace_path=str(Path(tmp) / "ws1"),
+    )
+    # Task 2: normal, will succeed
+    task2_key = "good.mp4"
+    (Path(tmp) / task2_key).write_bytes(b"good")
+    task2 = VideoTask(
+        prompt="good",
+        status=TaskStatus.SUCCEEDED,
+        created_at=old_time,
+        output_path=task2_key,
+        workspace_path=str(Path(tmp) / "ws2"),
+    )
+    Path(tmp, "ws1").mkdir(exist_ok=True)
+    Path(tmp, "ws2").mkdir(exist_ok=True)
+
+    with Session(sync_db) as s:
+        s.add_all([task1, task2])
+        s.commit()
+        task1_id = task1.id
+        task2_id = task2.id
+
+    fake = fakeredis.FakeStrictRedis()
+    with patch.object(worker_tasks, "LocalVideoStorage", return_value=storage), patch.object(
+        worker_tasks, "_redis_client", return_value=fake
+    ):
+        worker_tasks.cleanup_expired_tasks.run()
+
+    # Task 2 should be cleaned up despite task 1's failure.
+    with Session(sync_db) as s:
+        t2 = s.get(VideoTask, task2_id)
+        assert t2.output_path is None
+        assert t2.workspace_path is None
+
+    assert not (Path(tmp) / task2_key).exists()
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_cleanup_uses_batched_query(sync_db):
+    """cleanup_expired_tasks MUST process in batches, not load all at once (P6)."""
+    import inspect
+
+    source = inspect.getsource(worker_tasks.cleanup_expired_tasks)
+    assert "limit" in source.lower(), "cleanup must use .limit() for batched query (P6)"
+    assert "while True" in source or "while" in source, "must loop over batches"
