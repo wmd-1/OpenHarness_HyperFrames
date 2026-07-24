@@ -53,7 +53,7 @@
 - [x] 镜像多阶段构建成功：`node:22-alpine` 跑 `npm ci && tsc -b && vite build`（产物 148.80 kB JS）→ `nginx:1.27-alpine` 伺服；`docker-entrypoint.sh` 经 envsubst 渲染 `API_HOST`/`API_PORT`（验证 `server host.docker.internal:8000;` 已替换，nginx 自身 `$host` 等变量保留）
 
 > **验证证据（2026-07-17，Docker 29.6.1 + compose v5.3.0）：**
-> - 3.0：`docker compose build web` 成功产出 `openharness_hyperprames_web:v0.1.9_v0.7.20_v1.3_v2.0`（77.9MB）；容器内 `app.conf.template`(3629B) + 可执行 `docker-entrypoint.sh`(1031B) 就位；`/usr/share/nginx/html` 含 `index.html`(414B) + `assets/index-D-86QV1-.js`(149026B) + `index-Cx_i25wQ.css`(3077B)。
+> - 3.0：`docker compose build web` 成功产出 `openharness_hyperprames_web:v0.1.9_v0.7.42_v1.3_v2.0`（77.9MB）；容器内 `app.conf.template`(3629B) + 可执行 `docker-entrypoint.sh`(1031B) 就位；`/usr/share/nginx/html` 含 `index.html`(414B) + `assets/index-D-86QV1-.js`(149026B) + `index-Cx_i25wQ.css`(3077B)。
 > - 3.1：经 `:5173` → `GET /healthz` 返回桩 JSON；`POST /v1/videos` → `201 Created` 透传；`GET /v1/videos` 列表正常。
 > - 3.2：`GET /v1/videos/{id}/events` → `text/event-stream`、`Transfer-Encoding: chunked`、`Cache-Control: no-cache`，事件实时流出（queued→running→succeeded→task.done），证明 `proxy_buffering off` 生效。
 > - 3.3：`GET /v1/videos/{id}/file` 带 `Range: bytes=0-99` → `206 Partial Content`、`Content-Range: bytes 0-99/72000`、`Accept-Ranges: bytes`，返回 100B 媒体分片。

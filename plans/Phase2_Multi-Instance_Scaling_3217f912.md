@@ -532,7 +532,7 @@ client DELETE /v1/videos/{id}
 | s3 客户端超时 | `service/app/storage/s3.py` | `Config(connect_timeout=3, read_timeout=5)`（e2e Bug④，§10.2 修正） |
 | health 探测上限 | `service/app/routers/health.py` | S3 ping `asyncio.wait_for(..., 2.0)`（e2e Bug⑤，§13 修正） |
 | 单测 | `tests/service/` | 78 passed / 1 skipped（含 claim 幂等 / reclaim 幂等 / success guard 防覆盖 / presigned redirect / 跨副本取消 / `/readyz`） |
-| **e2e 验证台** | `docker-compose.e2e.yml` + `Dockerfile.e2e` + `e2e/run_e2e.sh` + `e2e/oh_stub.sh` | 基于 `openharness_hyperprames_qwen-tts_pptx:v0.1.9_v0.7.20_v1.3_v2.0` 派生 `oh-e2e:latest`；`--scale api=2 --scale worker=2` 起栈，覆盖 R7–R13；报告 `e2e/e2e_report_v8.txt`（**19/19 PASS**）。独立于 `docker-compose.prod.yml`，仅供本地多副本验收 |
+| **e2e 验证台** | `docker-compose.e2e.yml` + `Dockerfile.e2e` + `e2e/run_e2e.sh` + `e2e/oh_stub.sh` | 基于 `openharness_hyperprames_qwen-tts_pptx:v0.1.9_v0.7.42_v1.3_v2.0` 派生 `oh-e2e:latest`；`--scale api=2 --scale worker=2` 起栈，覆盖 R7–R13；报告 `e2e/e2e_report_v8.txt`（**19/19 PASS**）。独立于 `docker-compose.prod.yml`，仅供本地多副本验收 |
 
 ---
 

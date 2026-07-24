@@ -171,7 +171,7 @@ files:
 | #14 | `app/workers/tasks.py` | `cleanup_expired_tasks` nulls `output_path` / `workspace_path` |
 
 **Quality Gate status:** ✅ **Validated.** The full suite was executed inside the
-target image `openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.20_v1.3_v2.0`
+target image `openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.42_v1.3_v2.0`
 (Python 3.11.15 venv at `/root/.openharness-venv`; dev deps `pytest pytest-asyncio
 fakeredis aiosqlite httpx redis` installed ad-hoc inside a kept-alive container).
 **50 passed** (`40` original + `10` added) via `pytest tests/service -o asyncio_mode=auto`

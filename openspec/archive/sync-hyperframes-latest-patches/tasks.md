@@ -52,7 +52,7 @@
 
 - [x] 4.1 静态校验（§6.1，路径改 media-use）：node --check + grep 计数全部通过
 - [x] 4.2 确认 `Dockerfile.fix` 含 `npx hyperframes browser ensure`（已在位）
-- [x] 4.3 确认 `.env.example` 与 `docker-compose.yml` 版本标签 `v0.1.9_v0.7.20_v1.3_v2.0`（已在位）
+- [x] 4.3 确认 `.env.example` 与 `docker-compose.yml` 版本标签 `v0.1.9_v0.7.42_v1.3_v2.0`（已在位）
 
 **Quality Gate:**
 - [x] 全部 grep/node --check 通过

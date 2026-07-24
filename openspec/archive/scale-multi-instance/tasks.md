@@ -172,7 +172,7 @@
 
 ## 验收（整体，对照 design source §5 / §17）
 
-> **PASSED — 端到端多副本验收（2026-07-13）**：`e2e/run_e2e.sh` 基于 `openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.20_v1.3_v2.0` 派生的 `oh-e2e:latest` 镜像，用 `docker compose --scale api=2 --scale worker=2`（TEST F 再缩到 1）拉起完整拓扑（api×2 / worker×2 / beat / postgres / redis / minio），以 `oh-stub`（离线渲染）跑通全部 6 类验收，最终 **19/19 PASS**（v8 轮，2026-07-13T12:05Z）。代码层 Phase 1–7 Quality Gate 仍在；`pytest tests/service` **78 passed / 1 skipped**。
+> **PASSED — 端到端多副本验收（2026-07-13）**：`e2e/run_e2e.sh` 基于 `openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.42_v1.3_v2.0` 派生的 `oh-e2e:latest` 镜像，用 `docker compose --scale api=2 --scale worker=2`（TEST F 再缩到 1）拉起完整拓扑（api×2 / worker×2 / beat / postgres / redis / minio），以 `oh-stub`（离线渲染）跑通全部 6 类验收，最终 **19/19 PASS**（v8 轮，2026-07-13T12:05Z）。代码层 Phase 1–7 Quality Gate 仍在；`pytest tests/service` **78 passed / 1 skipped**。
 
 - [x] **多副本拓扑可用**：`--scale api=2 --scale worker=2` 起栈，两副本 `/healthz`/`/readyz`/`/metrics` 均 200，S3 字段存在（TEST A，R11/R12）。
 - [x] **渲染→S3 302 下载**：提交任务在两副本之一 claim+渲染成功，`GET /file` 返回 302 预签名 MinIO URL（TEST B，R3/R7/R10）。

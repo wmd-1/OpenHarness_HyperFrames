@@ -155,7 +155,7 @@ Implementation file map (when applied):
 **Archived:** 2026-07-09 11:18
 **Duration:** 0 days (proposed and implemented same day: created 2026-07-09, archived 2026-07-09)
 **Outcome:** Successfully implemented and verified — full suite **50 passed** in the
-`openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.20_v1.3_v2.0` image (WSL2 Docker).
+`openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.42_v1.3_v2.0` image (WSL2 Docker).
 
 ### Files Modified
 - `service/app/security.py` (new) — `extra_oh_args` allowlist validation (#1)

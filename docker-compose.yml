@@ -27,7 +27,7 @@ services:
       args:
         PYTHON_VERSION: "3.11"
         UV_VERSION: "0.7.3"
-    image: openharness_hyperframes_qwen-tts_pptx:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.20_v1.3_v2.0}
+    image: openharness_hyperframes_qwen-tts_pptx:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.42_v1.3_v2.0}
     container_name: openharness
     environment:
       - PYTHONUNBUFFERED=1
@@ -69,7 +69,7 @@ services:
   # ---- 交互终端 ----
   shell:
     extends: openharness
-    container_name: openharness-shell-${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.20_v1.3_v2.0}
+    container_name: openharness-shell-${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.42_v1.3_v2.0}
     entrypoint: ["bash"]
 
   # ---- PostgreSQL ----
@@ -197,7 +197,7 @@ services:
         # 留空 => 前端走同源相对路径，由 nginx 反代到 api 服务。
         # 若前端与 API 部署在不同域名，可在此填写公网 API 地址。
         VITE_API_BASE: "${VITE_API_BASE:-}"
-    image: openharness_hyperframes_web:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.20_v1.3_v2.0}
+    image: openharness_hyperframes_web:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.42_v1.3_v2.0}
     container_name: openharness-web
     environment:
       # Backend coordinates for the standalone nginx reverse-proxy.

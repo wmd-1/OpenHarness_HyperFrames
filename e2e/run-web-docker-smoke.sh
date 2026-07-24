@@ -8,7 +8,7 @@
 #
 # Image selection (all tests are IMAGE-BASED):
 #   - WEB_IMAGE=<image:tag>  reuse an existing image without rebuilding, e.g.
-#       WEB_IMAGE=openharness_hyperframes_web:v0.1.9_v0.7.20_v1.3_v2.0 \
+#       WEB_IMAGE=openharness_hyperframes_web:v0.1.9_v0.7.42_v1.3_v2.0 \
 #         bash e2e/run-web-docker-smoke.sh
 #   - unset                  build a fresh image from ./web (default)
 # =============================================================================

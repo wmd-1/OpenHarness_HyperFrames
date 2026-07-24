@@ -15,7 +15,7 @@
 #   bash e2e/run-web-docker-tests.sh
 #     -> builds test stage + fresh runtime image, then smoke-tests it.
 #
-#   WEB_IMAGE=openharness_hyperframes_web:v0.1.9_v0.7.20_v1.3_v2.0 \
+#   WEB_IMAGE=openharness_hyperframes_web:v0.1.9_v0.7.42_v1.3_v2.0 \
 #     bash e2e/run-web-docker-tests.sh
 #     -> unit tests still run in the build image, but the smoke test reuses
 #        the EXISTING runtime image (no runtime rebuild).
