@@ -31,7 +31,7 @@ from app.schemas import (
     TurnResponse,
     TurnSubmitRequest,
 )
-from app.session.supervisor import SessionBusy, SessionNotFound, get_supervisor
+from app.session.supervisor import CapacityFullError, SessionBusy, SessionNotFound, get_supervisor
 from app.storage.s3 import storage_for_kind
 
 router = APIRouter(prefix="/v1/sessions", tags=["sessions"])
@@ -82,13 +82,16 @@ async def create_session(
     if live_for_tenant >= settings.tenant_max_concurrent:
         raise HTTPException(status_code=429, detail="Concurrent session quota exceeded")
 
-    conv = await sup.create_session(
-        db=db,
-        tenant_id=tenant_id,
-        permission_policy=body.permission_policy,
-        extra_args=body.extra_oh_args,
-        actor_key_id=actor,
-    )
+    try:
+        conv = await sup.create_session(
+            db=db,
+            tenant_id=tenant_id,
+            permission_policy=body.permission_policy,
+            extra_args=body.extra_oh_args,
+            actor_key_id=actor,
+        )
+    except CapacityFullError:
+        raise HTTPException(status_code=503, detail="node capacity full")
     return _to_response(conv, request)
 
 

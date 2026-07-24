@@ -6,6 +6,7 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 
 def test_ws_session_ready_then_turn_complete(sync_client):
@@ -107,3 +108,86 @@ def test_ws_reconnect_replays_missed_turns(sync_client):
         replayed = ws.receive_json()
         assert replayed["type"] == "turn_complete"
         assert replayed.get("replayed") is True
+
+
+def test_ws_rate_limit_returns_4429(sync_client, monkeypatch):
+    """Exceeding the WS connection-establishment rate limit -> close 4429 (openspec B)."""
+    from app.routers import ws as ws_module
+
+    state = {"n": 0}
+
+    def _limited(client_ip):
+        state["n"] += 1
+        return state["n"] <= 1  # first allowed, subsequent denied
+
+    monkeypatch.setattr(ws_module, "check_rate_limit", _limited)
+    bad_sid = "00000000-0000-0000-0000-000000000000"
+
+    # First connection passes the limiter, then closes (no session -> 4404).
+    with pytest.raises(WebSocketDisconnect):
+        with sync_client.websocket_connect(f"/v1/sessions/{bad_sid}/ws"):
+            pass
+    # Second connection is denied before accept -> 4429.
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with sync_client.websocket_connect(f"/v1/sessions/{bad_sid}/ws"):
+            pass
+    assert exc.value.code == 4429
+
+
+@pytest.mark.asyncio
+async def test_ws_capacity_full_returns_4500(sync_client, monkeypatch):
+    """COLD session rehydrate fails on capacity full -> WS close 4500 (openspec A)."""
+    import uuid
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    from app import db as _app_db
+    from app.models import Conversation, SessionStatus
+    from app.session.supervisor import (
+        CapacityFullError,
+        SessionNotFound,
+        get_supervisor,
+    )
+
+    sid = "11111111-1111-1111-1111-111111111111"
+
+    # Deterministic COLD conversation the handler will read. We stub the DB
+    # session to avoid cross-event-loop sqlite visibility flakiness.
+    conv = Conversation(
+        id=uuid.UUID(sid),
+        tenant_id="default",
+        status=SessionStatus.COLD,
+        oh_session_id="oh-" + sid,
+        workspace_path=None,
+        permission_policy="full_auto",
+        extra_oh_args="[]",
+    )
+
+    @asynccontextmanager
+    async def _fake_session_factory():
+        fake = AsyncMock()
+        fake.get = AsyncMock(return_value=conv)
+        yield fake
+
+    def _get_raises(_s):
+        raise SessionNotFound(str(_s))
+
+    async def _raise_capacity(*_a, **_k):
+        raise CapacityFullError("capacity full and no idle session to evict")
+
+    monkeypatch.setattr(_app_db, "async_session", _fake_session_factory)
+
+    async def _fake_proxy(*_a, **_k):
+        return False
+
+    monkeypatch.setattr("app.session.proxy.proxy_ws", _fake_proxy)
+    # Live process absent from registry -> handler takes the rehydrate branch.
+    monkeypatch.setattr(get_supervisor(), "get", _get_raises)
+    # Make rehydrate fail as if the node were at capacity.
+    monkeypatch.setattr(get_supervisor(), "rehydrate", _raise_capacity)
+
+    # 4500 is sent after accept(); the client observes it as a close message.
+    with sync_client.websocket_connect(f"/v1/sessions/{sid}/ws") as ws:
+        msg = ws.receive()
+    assert msg["type"] == "websocket.close", msg
+    assert msg["code"] == 4500, msg

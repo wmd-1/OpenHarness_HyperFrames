@@ -24,7 +24,8 @@ from sqlalchemy import select
 from app.config import settings
 from app import db
 from app.models import Conversation, ConversationTurn, SessionStatus, TurnStatus
-from app.session.supervisor import SessionNotFound, get_supervisor
+from app.ratelimit import _client_ip, check_rate_limit
+from app.session.supervisor import CapacityFullError, SessionNotFound, get_supervisor
 
 router = APIRouter(tags=["ws"])
 
@@ -83,6 +84,11 @@ async def session_ws(
         await websocket.close(code=4401, reason="Invalid API key")
         return
 
+    # Rate limit WS connection establishment (same IP token bucket as POST).
+    if not check_rate_limit(_client_ip(websocket)):
+        await websocket.close(code=4429, reason="Rate limit exceeded")
+        return
+
     try:
         sid_uuid = uuid.UUID(sid)
     except ValueError:
@@ -135,7 +141,11 @@ async def session_ws(
                 )
                 live.state = SessionStatus.COLD
                 sup._sessions[sid_uuid] = live
-                await sup.rehydrate(live, db=session)
+                try:
+                    await sup.rehydrate(live, db=session)
+                except CapacityFullError:
+                    await websocket.close(code=4500, reason="session unavailable")
+                    return
                 conv2.status = SessionStatus.LIVE
                 await session.commit()
 
@@ -143,7 +153,11 @@ async def session_ws(
         async with db.async_session() as session:
             conv3 = await session.get(Conversation, sid_uuid)
             if conv3 is not None:
-                await sup.create_session_from_existing(conv3, tenant_id, db=session)
+                try:
+                    await sup.create_session_from_existing(conv3, tenant_id, db=session)
+                except CapacityFullError:
+                    await websocket.close(code=4500, reason="session unavailable")
+                    return
                 live = sup.get(sid_uuid)
 
     if live is None:

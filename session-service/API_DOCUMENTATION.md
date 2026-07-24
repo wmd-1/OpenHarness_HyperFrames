@@ -4,7 +4,7 @@
 >
 > - 服务名称：**OpenHarness Interactive Session Service**
 > - 版本：`0.1.0`（`app/main.py`）
-> - 框架：FastAPI，默认端口 `8001`（`OH_API_PORT`）
+> - 框架：FastAPI，默认端口 `8001`（`config.api_port` 对应 `OH_API_PORT`；但 `main.py` 不消费该字段，实际绑定端口由 ASGI 启动器/部署命令决定）
 > - 交互式文档：`/docs`（Swagger UI）、`/redoc`、`/openapi.json`（FastAPI 自带）
 > - 代码来源：`app/routers/sessions.py`、`app/routers/ws.py`、`app/routers/health.py`、`app/observability/metrics.py`、`app/schemas.py`、`app/config.py`、`app/models.py`、`app/security.py`、`app/session/supervisor.py`
 
@@ -35,13 +35,15 @@
 
 ### 1.3 限流与配额
 
-仅作用于 `POST /v1/sessions`：
+主要作用于 `POST /v1/sessions`（IP 令牌桶 + 租户并发配额）。
+
+> ✅ **WS 连接限流已实现**：openspec 要求 **per-tenant WS 连接建立** 同样受同一令牌桶限流；`app/routers/ws.py` 在 `accept()` 前校验，超限以关闭码 `4429`（`Rate limit exceeded`）关闭连接。`POST /v1/sessions` 的限流同上。
 
 | 机制 | 规则 | 超限响应 |
 | --- | --- | --- |
 | IP 令牌桶限流 | 容量 `OH_RATE_LIMIT_CAPACITY`（默认 10），每秒补充 `OH_RATE_LIMIT_REFILL`（默认 1.0）；Redis 不可用时放行（fail-open） | `429` `{"detail": "Rate limit exceeded"}` |
 | 租户并发配额 | 每租户最多 `OH_TENANT_MAX_CONCURRENT`（默认 8）个 LIVE 会话 | `429` `{"detail": "Concurrent session quota exceeded"}` |
-| 节点容量 | 单节点最多 `OH_MAX_LIVE_SESSIONS`（默认 16）个 live 子进程；满时自动将最久空闲会话驱逐为 COLD；无可驱逐会话时抛错（表现为 `500`） | `500` |
+| 节点容量 | 单节点最多 `OH_MAX_LIVE_SESSIONS`（默认 16）个 live 子进程；满时自动将最久空闲会话驱逐为 COLD；无可驱逐会话时返回 `503`（按 openspec 要求，与 `/readyz` 一致） | `503` |
 
 ### 1.4 通用错误响应结构
 
@@ -96,7 +98,7 @@ Router 前缀：`/v1/sessions`，tag：`sessions`。
 
 - 仅允许 `--flag` 形式 token。
 - 白名单：`--temperature`(float)、`--max-turns`(int)、`--model`(str)、`--no-cache`、`--verbose`、`--effort`(str) ← 注意比 video-service 多了 `--effort`。
-- 禁止（服务端固定注入，不可覆盖）：`--permission-mode`、`--output`、`--output-format`、`-p`、`--prompt`、`--workspace`、`--cwd`、`--root`、`--headed`、`--no-headless`、`--browser`、`--chromium`、`--api-key`、`-k`、`--resume`、`-r`、`--backend-only`。
+- 禁止（服务端固定注入，不可覆盖）：`--permission-mode`、`--permission_mode`（下划线变体）、`--output`、`--output-format`、`-p`、`--prompt`、`--workspace`、`--cwd`、`--root`、`--headed`、`--no-headless`、`--browser`、`--chromium`、`--api-key`、`-k`、`--resume`、`-r`、`--backend-only`。
 - 带值标志必须携带值；值禁含 shell 元字符，并做类型/长度校验。
 
 #### 请求体示例
@@ -144,7 +146,7 @@ Router 前缀：`/v1/sessions`，tag：`sessions`。
 | `401` | 鉴权失败（启用鉴权时） |
 | `422` | 请求体校验失败（含 `extra_oh_args` 非法） |
 | `429` | IP 限流 或 租户并发配额超限（`detail` 区分） |
-| `500` | 节点容量已满且无可驱逐会话 |
+| `503` | 节点容量已满且无可驱逐会话（按 openspec；与 `/readyz` 一致） |
 
 ---
 
@@ -333,6 +335,7 @@ Router 前缀：`/v1/sessions`，tag：`sessions`。
 | `4401` | 鉴权失败（`Invalid API key`） |
 | `4403` | 会话已关闭/过期（`Session is closed`） |
 | `4404` | 会话不存在或不属于当前租户（`Session not found`） |
+| `4429` | 限流（WS 连接建立频率超限，与 `POST /v1/sessions` 同一 IP 令牌桶） |
 | `4500` | 会话不可用（复活失败等，`session unavailable`） |
 
 #### 客户端 → 服务端消息（JSON 文本帧）

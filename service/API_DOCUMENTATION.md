@@ -6,7 +6,7 @@
 > - 版本：`0.1.0`（`app/main.py`）
 > - 框架：FastAPI
 > - 交互式文档：`/docs`（Swagger UI）、`/redoc`、`/openapi.json`（FastAPI 默认自带）
-> - 代码来源：`service/app/routers/videos.py`、`service/app/routers/health.py`、`service/app/observability/metrics.py`、`service/app/schemas.py`、`service/app/config.py`、`service/app/models.py`
+> - 代码来源：`service/app/main.py`、`service/app/routers/videos.py`、`service/app/routers/health.py`、`service/app/observability/metrics.py`、`service/app/schemas.py`、`service/app/config.py`、`service/app/models.py`、`service/app/security.py`
 
 ---
 
@@ -18,6 +18,7 @@
 
 - **触发条件**：当 `OH_REQUIRE_AUTH=true`，或配置了 `OH_API_KEY` 时，鉴权中间件被注册并生效。
 - **鉴权方式**：请求头携带 `X-API-Key: <api_key>`，服务端使用 `secrets.compare_digest` 做常量时间比对。
+- **仅支持请求头**：后端中间件**只读取 `X-API-Key` 请求头**，不会解析 `?api_key=` 查询参数。即便是 `GET /file`、`GET /events` 也必须通过该请求头鉴权；前端请勿用查询参数携带 key（会被判 401）。
 - **失败响应**：`401 Unauthorized`，响应体 `{"detail": "Invalid API key"}`。
 - **豁免路径**：`/healthz` 与 `/readyz` 始终无需鉴权（用于探活/就绪探针）。
 - **默认行为**：若 `require_auth=false` 且未配置 `api_key`，则中间件不注册，所有接口开放访问（向后兼容）。
@@ -106,8 +107,9 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 
 - 仅允许 `--flag` 形式的 token。
 - 允许的白名单标志：`--temperature`(float)、`--max-turns`(int)、`--model`(str)、`--no-cache`、`--verbose`。
-- 禁止的标志（永不可由调用方控制）：`--permission-mode`、`--output`、`--output-format`、`-p`、`--prompt`、`--workspace`、`--cwd`、`--root`、`--headed`、`--no-headless`、`--browser`、`--chromium` 等。
+- 禁止的标志（永不可由调用方控制）：`--permission-mode`、`--permission_mode`、`--output`、`--output-format`、`-p`、`--prompt`、`--workspace`、`--cwd`、`--root`、`--headed`、`--no-headless`、`--browser`、`--chromium` 等。
 - 需要值的标志必须携带值；值不得含 shell 元字符；typed 标志需满足类型与长度限制。
+- **只写字段**：`extra_oh_args` 仅作为请求输入被接受并落库，**不会**出现在 `GET /v1/videos/{id}` 的响应中（回显/审计需另查）。
 
 #### 请求体示例
 
@@ -189,6 +191,8 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 | `started_at` | datetime \| null | 开始时间 |
 | `finished_at` | datetime \| null | 完成时间 |
 
+> **注意**：`GET /v1/videos/{id}` 的响应**不含** `links` 字段（仅 `POST /v1/videos` 的创建响应才带 `links`）。前端需按 `task_id` 自行拼装 `/file`（下载）与 `/events`（SSE）的 URL。
+
 #### 响应示例
 
 ```json
@@ -228,6 +232,7 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 - **鉴权**：需要（当鉴权启用时）
 - **成功状态码**：`200 OK` / `206 Partial Content` / `302 Found`（S3 重定向）
 - **说明**：支持 HTTP Range 分段下载。默认 `mode=redirect` 时，若产物在 S3 且可生成预签名 URL，返回 302 重定向；否则直接流式返回字节。
+- **Range 生效范围**：Range 仅在本服务直接流式返回时由本服务处理（本地存储、`?mode=stream`、或 S3 预签名失败回退）。`mode=redirect` 且命中 S3 预签名 302 时，Range 由目标 S3 端点处理，本服务不再改写分段逻辑。
 
 #### 请求参数
 
@@ -296,7 +301,7 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 - **HTTP 方法**：`DELETE`
 - **鉴权**：需要（当鉴权启用时）
 - **成功状态码**：`200 OK`
-- **说明**：语义随任务状态而变——`queued` 取消入队；`running` 请求终止；终止态（成功/失败/已取消）则删除产物资源但保留终态状态。
+- **说明**：语义随任务状态而变——`queued` 取消入队；`running` 请求终止；终止态（成功/失败/已取消）则删除产物资源但保留终态状态；`retrying` 同样走「删除产物资源 + 保留状态」分支（清理 `output_path`/`workspace_path` 但保留 `retrying` 状态）。注意：若 `retrying` 任务正被 beat 回收重新入队，删除可能使其指向已清理的产物/工作区，建议调用方先 `GET` 确认状态再删除。
 
 #### 请求参数
 
@@ -348,7 +353,7 @@ Tag：`health`。**这两个接口始终豁免鉴权。**
 | `status` | string | 总体状态：`ok` 或 `degraded` |
 | `db` | string | 数据库状态：`ok` / `error` |
 | `redis` | string | Redis 状态：`ok` / `error` |
-| `s3` | string \| null | S3 状态；仅当 `storage_kind == "s3"` 时出现，否则为 `null` |
+| `s3` | string \| null | S3 状态；该字段**始终出现**——非 S3 部署（`storage_kind != "s3"`）时值为 `null`，S3 部署时取 `ok` / `error` |
 
 #### 响应示例
 
@@ -433,3 +438,6 @@ Tag：`metrics`。
 - `POST /v1/videos` 中 `skill` 字段由服务端固定写入 `hyperframes`，非客户端可控。
 - 时间字段（`created_at` 等）为带时区的 ISO 8601 datetime。
 - `error_message`、`log_tail` 等敏感/大字段的返回策略请与后端确认（`log_tail` 未在响应 schema 中暴露）。
+- 部分模型字段仅服务端可见、不在任何响应 schema 中返回：`extra_oh_args`（请求只写，落库但不回显）、`cancellation_requested`（取消时置位但不返回）、`worker_id` / `priority` / `heartbeat_at` / `storage_kind` 等内部字段。
+- 任务优先级 `priority` 为**服务端内部固定值**（默认 `5`，对应 `normal` 队列），**不**通过 API 暴露，客户端无法设置；多实例的队列分层（`high` / `normal` / `low`）由后端按 `priority` 自动路由。
+- 鉴权仅支持 `X-API-Key` 请求头，所有端点（含 `/file`、`/events`）均不接受 `?api_key=` 查询参数。

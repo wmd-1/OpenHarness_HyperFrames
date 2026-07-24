@@ -70,3 +70,40 @@ async def test_rest_turn_completes(client):
     data = resp.json()
     assert data["status"] == "completed"
     assert data["turn_index"] == 0
+
+
+@pytest.mark.asyncio
+async def test_create_session_503_when_capacity_full(client, monkeypatch):
+    """Node capacity exhausted with no idle session to evict -> 503 (openspec A)."""
+    from app.session.supervisor import CapacityFullError, get_supervisor
+
+    sup = get_supervisor()
+
+    def _raise_capacity(*_args, **_kwargs):
+        raise CapacityFullError("capacity full and no idle session to evict")
+
+    monkeypatch.setattr(sup, "_ensure_capacity", _raise_capacity)
+    # Unique XFF isolates this test from the shared rate-limit bucket.
+    resp = await client.post(
+        "/v1/sessions", json={}, headers={"X-Forwarded-For": "203.0.113.1"}
+    )
+    assert resp.status_code == 503
+    assert "capacity full" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_create_session_rate_limited_returns_429(client, monkeypatch):
+    """POST /v1/sessions is rate-limited (shared token bucket) -> 429 (openspec B)."""
+    from app.routers import sessions as sessions_module
+
+    state = {"n": 0}
+
+    def _limited(client_ip):
+        state["n"] += 1
+        return state["n"] <= 1  # first allowed, subsequent denied
+
+    monkeypatch.setattr(sessions_module, "check_rate_limit", _limited)
+    r1 = await client.post("/v1/sessions", json={})
+    assert r1.status_code == 201
+    r2 = await client.post("/v1/sessions", json={})
+    assert r2.status_code == 429

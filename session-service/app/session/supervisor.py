@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import shutil
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -48,6 +49,10 @@ class SessionBusy(Exception):
 
 class TurnCapExceeded(Exception):
     pass
+
+
+class CapacityFullError(Exception):
+    """Node live-session capacity exhausted; no idle session to evict -> HTTP 503."""
 
 
 class BackendCrashed(Exception):
@@ -91,6 +96,7 @@ class LiveSession:
 
         # WS connection tracking (for idle eviction).
         self.ws_connections: set[Any] = set()
+        self.idle_since: float | None = None  # monotonic clock when entered idle (no ws)
         self._idle_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._log_task: asyncio.Task[None] | None = None
@@ -300,7 +306,10 @@ class SessionSupervisor:
             if s.is_live() and not s.ws_connections and not s.busy
         ]
         if not candidates:
-            raise RuntimeError("capacity full and no idle session to evict")
+            raise CapacityFullError("capacity full and no idle session to evict")
+        # Evict the longest-idle session (spec 4.4): sort by idle entry time.
+        # Sessions that have never gone idle (idle_since is None) rank last.
+        candidates.sort(key=lambda s: s.idle_since if s.idle_since is not None else float("inf"))
         target = candidates[0]
         await self._evict(target)
 
@@ -599,6 +608,7 @@ class SessionSupervisor:
         live = self.get(sid)
         live.ws_connections.add(ws)
         self._cancel_idle_timer(live)
+        live.idle_since = None  # has an active connection now
         if live.state == SessionState.IDLE:
             live.state = transition(SessionState.IDLE, SessionState.LIVE)
         return live
@@ -611,6 +621,7 @@ class SessionSupervisor:
         live.ws_connections.discard(ws)
         if not live.ws_connections and live.state == SessionState.LIVE:
             live.state = transition(SessionState.LIVE, SessionState.IDLE)
+            live.idle_since = time.monotonic()
             self._start_idle_timer(live)
 
     def _start_idle_timer(self, live: LiveSession) -> None:
