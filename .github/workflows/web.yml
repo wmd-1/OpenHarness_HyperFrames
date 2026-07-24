@@ -1,56 +1,42 @@
 name: web-frontend-ci
 
+# All tests are IMAGE-BASED: lint + vitest run inside the Docker build
+# (`--target test` stage), and the runtime image is smoke-tested in a
+# container. No Node.js toolchain is installed on the CI host.
+
 on:
   push:
     branches: [master]
     paths:
       - 'web/**'
+      - 'e2e/run-web-docker-*.sh'
       - '.github/workflows/web.yml'
   pull_request:
     branches: [master]
     paths:
       - 'web/**'
+      - 'e2e/run-web-docker-*.sh'
       - '.github/workflows/web.yml'
 
 jobs:
-  ci:
-    name: Lint / Test / Build
+  image-tests:
+    name: Image-based Lint / Test / Build / Smoke
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Test (vitest)
-        run: npm run test
-
-      - name: Build (tsc -b && vite build)
-        run: npm run build
-
-  image:
-    name: Docker image build (verify)
-    runs-on: ubuntu-latest
-    needs: ci
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build web image (no push)
-        run: docker build -t openharness-hyperprames-web:ci ./web
+      - name: Unit tests + lint (inside image, --target test)
+        run: docker build --target test -t openharness-web:test ./web
+
+      - name: Build runtime image
+        run: docker build -t openharness-web:smoke ./web
+
+      - name: Docker smoke test (security headers)
+        run: WEB_IMAGE=openharness-web:smoke bash e2e/run-web-docker-smoke.sh
+
+      - name: Dependency audit (high+, inside image)
+        run: docker run --rm openharness-web:test npm audit --audit-level=high
+        continue-on-error: true

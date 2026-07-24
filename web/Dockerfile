@@ -33,6 +33,12 @@ ARG VITE_API_BASE=""
 ENV VITE_API_BASE=${VITE_API_BASE}
 RUN npm run build
 
+# ---- Stage: test (lint + unit tests, run INSIDE the image) -----------------
+# All tests are image-based: `docker build --target test .` executes the full
+# lint + vitest suite inside the container. The build fails if any test fails.
+FROM build AS test
+RUN npm run lint && npm run test
+
 # ---- Stage2: serve with nginx (standalone) -----------------------------
 FROM nginx:1.27-alpine AS runtime
 
@@ -40,8 +46,10 @@ FROM nginx:1.27-alpine AS runtime
 RUN apk add --no-cache gettext \
     && rm -f /etc/nginx/conf.d/default.conf
 
-# nginx config template (backend host/port injected at runtime via envsubst)
-# and the entrypoint that renders it.
+# nginx config template (backend host/port injected at runtime via envsubst).
+# Security headers (CSP, X-Frame-Options, X-Content-Type-Options, ...) and
+# `server_tokens off` are defined inside the template, so they are applied to
+# every response when the container starts. See nginx.conf.template.
 COPY nginx.conf.template /etc/nginx/templates/app.conf.template
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

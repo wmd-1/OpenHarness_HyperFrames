@@ -46,7 +46,7 @@ describe("App", () => {
     render(<App />);
     const btn = screen.getByRole("button", { name: /生成视频/ });
     fireEvent.click(btn);
-    expect(await screen.findByText(/请输入 prompt/)).toBeTruthy();
+    expect(await screen.findByText(/提示词.*不能为空/)).toBeTruthy();
     expect(api.createVideo).not.toHaveBeenCalled();
   });
 
@@ -66,7 +66,7 @@ describe("App", () => {
       "make a cat video",
       expect.any(Number),
       [],
-      undefined
+      expect.any(String)
     );
   });
 });

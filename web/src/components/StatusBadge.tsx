@@ -1,17 +1,21 @@
-import type { TaskStatus } from "../types";
+import { type TaskStatus } from "../api";
+import { EscapeHtml } from "./EscapeHtml";
 
-const LABEL: Record<TaskStatus, string> = {
-  queued: "排队中",
-  running: "运行中",
-  succeeded: "成功",
-  failed: "失败",
-  canceled: "已取消",
-};
+// Only these values drive the badge styling; anything else renders as "unknown"
+// with neutral styling (never an attacker-controlled string).
+const KNOWN: ReadonlySet<string> = new Set([
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "canceled",
+]);
 
 export function StatusBadge({ status }: { status: TaskStatus }) {
+  const safe = KNOWN.has(status) ? status : "unknown";
   return (
-    <span className={"status " + status} data-testid={"status-" + status}>
-      {LABEL[status] ?? status}
+    <span className={`status ${safe}`}>
+      <EscapeHtml text={safe} />
     </span>
   );
 }

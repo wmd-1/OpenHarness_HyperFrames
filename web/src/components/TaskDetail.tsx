@@ -1,60 +1,81 @@
-import { useTasks } from "../store";
+import { useState } from "react";
+import { useTasks, type Task } from "../store";
+import { fileUrl } from "../api";
 import { StatusBadge } from "./StatusBadge";
+import { EscapeHtml } from "./EscapeHtml";
+import { ErrorBanner } from "./ErrorBanner";
+import { validateFilename } from "../utils/sanitize";
 
-const TERMINAL = ["succeeded", "failed", "canceled"];
+export function TaskDetail({ task }: { task: Task }) {
+  const { cancelTask, deleteTask, downloadVideo } = useTasks();
+  const [filename, setFilename] = useState(`${task.id}.mp4`);
+  const [localError, setLocalError] = useState<string | null>(null);
 
-export function TaskDetail() {
-  const { activeId, tasks, order, logs, remove, error, clearError, fileUrlFor } =
-    useTasks();
+  const isTerminal = ["succeeded", "failed", "canceled"].includes(task.status);
+  const isSucceeded = task.status === "succeeded";
 
-  if (order.length === 0) {
-    return (
-      <div className="card empty">
-        暂无任务。在左侧提交一个 prompt 开始生成视频。
-      </div>
-    );
-  }
-  if (!activeId) {
-    return <div className="card empty">选择一个任务查看详情。</div>;
-  }
-  const task = tasks[activeId];
-  if (!task) {
-    return <div className="card empty">任务不存在或已被删除。</div>;
-  }
-
-  const terminal = TERMINAL.includes(task.status);
-  const lines = logs[activeId] ?? [];
+  const onDownload = async () => {
+    setLocalError(null);
+    const v = validateFilename(filename.trim() ? filename : `${task.id}.mp4`);
+    if (!v.ok) {
+      setLocalError(v.error ?? "文件名不合法");
+      return;
+    }
+    await downloadVideo(task.id, v.safeName);
+  };
 
   return (
-    <div className="card">
-      <div className="row between">
-        <h2>任务 {activeId.slice(0, 8)}</h2>
-        <StatusBadge status={task.status} />
-      </div>
-      {error && (
-        <div className="error" onClick={clearError} role="alert">
-          ⚠ {error}
+    <div className="card detail">
+      <div className="row between" style={{ alignItems: "center" }}>
+        <div>
+          <StatusBadge status={task.status} />
+          <EscapeHtml as="code" className="taskitem-id" text={task.id} />
         </div>
+        <div className="row">
+          {!isTerminal && (
+            <button className="danger" onClick={() => cancelTask(task.id)}>
+              取消
+            </button>
+          )}
+          <button className="danger" onClick={() => deleteTask(task.id)}>
+            删除
+          </button>
+        </div>
+      </div>
+
+      {task.error && <ErrorBanner error={task.error} />}
+      {localError && (
+        <ErrorBanner error={localError} onDismiss={() => setLocalError(null)} />
       )}
-      {task.error && <div className="error">{task.error}</div>}
-      {task.status === "succeeded" && (
-        <video src={fileUrlFor(activeId)} controls className="player" />
+
+      {isSucceeded && task.links.file && (
+        <video className="player" src={fileUrl(task.id)} controls />
       )}
-      <div className="row">
-        <button className="danger" onClick={() => void remove(activeId)}>
-          {terminal ? "删除任务" : "取消任务"}
+
+      <div className="row" style={{ marginTop: 12 }}>
+        <input
+          type="text"
+          placeholder="下载文件名，例如 hyperframes.mp4"
+          value={filename}
+          onChange={(e) => setFilename(e.target.value)}
+          aria-label="下载文件名"
+        />
+        <button onClick={onDownload} disabled={!isSucceeded}>
+          下载视频
         </button>
       </div>
-      {lines.length > 0 && (
+
+      {task.logs.length > 0 && (
         <>
-          <h3>日志</h3>
-          <pre className="logs">
-            {lines.map((l, i) => (
+          <h3>实时日志</h3>
+          <div className="logs">
+            {task.logs.map((log, i) => (
               <div key={i}>
-                <span className="ts">[{l.t}]</span> {l.msg}
+                <span className="ts">{log.ts}</span>
+                <EscapeHtml text={log.line} />
               </div>
             ))}
-          </pre>
+          </div>
         </>
       )}
     </div>
