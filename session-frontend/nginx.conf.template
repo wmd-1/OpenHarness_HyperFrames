@@ -1,0 +1,99 @@
+# OpenHarness Session Frontend - nginx config (rendered at runtime by
+# docker-entrypoint.sh via envsubst; only ${SESSION_HOST}/${SESSION_PORT}
+# are substituted, nginx's own $variables stay literal).
+server_tokens off;
+
+upstream session_backend {
+  server ${SESSION_HOST}:${SESSION_PORT};
+}
+
+# WebSocket upgrade mapping (conf.d files are included at http{} level).
+map $http_upgrade $connection_upgrade {
+  default upgrade;
+  ''      close;
+}
+
+server {
+  listen 80;
+  server_name _;
+
+  # --- Security headers ----------------------------------------------------
+  # Applied to every response, including error responses.
+  # connect-src allows same-origin ws/wss for the session WebSocket; older
+  # browsers do not treat 'self' as covering ws://, hence the explicit
+  # ws:/wss: schemes.
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header X-Frame-Options "DENY" always;
+  add_header Referrer-Policy "no-referrer" always;
+  add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+  add_header X-XSS-Protection "0" always;
+  add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+
+  root /usr/share/nginx/html;
+  index index.html;
+
+  # SPA entrypoint must never be cached aggressively.
+  # NOTE: nginx drops inherited server-level add_header directives as soon as
+  # a location declares its own add_header, so the security headers MUST be
+  # repeated here.
+  location = /index.html {
+    add_header Cache-Control "no-cache";
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+    add_header X-XSS-Protection "0" always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+  }
+
+  # Hashed build assets are immutable -> long-lived cache.
+  location /assets/ {
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+    add_header X-XSS-Protection "0" always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+  }
+
+  # Health probes are proxied same-origin to the session-service.
+  location /healthz {
+    proxy_pass http://session_backend/healthz;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location /readyz {
+    proxy_pass http://session_backend/readyz;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  # REST + WebSocket API, proxied same-origin to the session-service.
+  location /v1 {
+    # Avoid leaking `api_key` (passed as a WS query parameter) into logs.
+    access_log off;
+    proxy_pass http://session_backend;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # Long-lived WebSocket sessions: generous read/send timeouts.
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_buffering off;
+  }
+
+  # SPA fallback: unknown paths serve index.html.
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}

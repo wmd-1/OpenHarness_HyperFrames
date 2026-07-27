@@ -1,0 +1,44 @@
+name: session-frontend-ci
+
+# All tests are IMAGE-BASED: lint + vitest run inside the Docker build
+# (`--target test` stage), the runtime image is smoke-tested in a container,
+# and Playwright E2E runs inside the `--target e2e` image. No Node.js
+# toolchain is installed on the CI host.
+#
+# The e2e stage defaults to the local `oh-e2e-test:latest` base image which
+# is not available on GitHub runners, so CI overrides it with the official
+# Playwright image (browsers included, PW_CHROMIUM_PATH cleared).
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'session-frontend/**'
+      - 'e2e/run-session-frontend-docker-tests.sh'
+      - '.github/workflows/session-frontend.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'session-frontend/**'
+      - 'e2e/run-session-frontend-docker-tests.sh'
+      - '.github/workflows/session-frontend.yml'
+
+jobs:
+  image-tests:
+    name: Image-based Lint / Test / Smoke / E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Full image-based pipeline (test + runtime + smoke + e2e)
+        run: |
+          E2E_BASE_IMAGE=mcr.microsoft.com/playwright:v1.50.1-noble \
+          PW_CHROMIUM_PATH= \
+          bash e2e/run-session-frontend-docker-tests.sh
+
+      - name: Dependency audit (high+, inside image)
+        run: docker run --rm openharness-session-frontend:test npm audit --audit-level=high
+        continue-on-error: true

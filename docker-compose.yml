@@ -153,6 +153,9 @@ services:
   session:
     extends: openharness
     container_name: openharness-session
+    # 镜像默认 workdir 是 /opt/oh-service（视频服务），必须切到挂载的
+    # session-service 目录，否则 uvicorn 会导入错误的 app 包。
+    working_dir: /opt/oh-session-service
     entrypoint: ["/root/.openharness-venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1"]
     depends_on:
       postgres:
@@ -216,6 +219,27 @@ services:
       - session
     ports:
       - "5173:80"
+    restart: unless-stopped
+
+  # Session Service 专用前端（Chat/Terminal 双模式，WS 流式 + 审批流）。
+  # 启动：docker compose up -d --build session-frontend（会一并拉起 session 依赖）
+  # 访问：http://localhost:5174（nginx 同源反代 REST + WebSocket 到 session:8001）
+  session-frontend:
+    build:
+      context: ./session-frontend
+      dockerfile: Dockerfile
+    image: openharness_session_frontend:v0.1.0
+    container_name: openharness-session-frontend
+    environment:
+      # Session-service coordinates for the standalone nginx reverse-proxy.
+      # Defaults match the compose services; override to point the
+      # standalone frontend image at any external/remote session-service.
+      SESSION_HOST: session
+      SESSION_PORT: "8001"
+    depends_on:
+      - session
+    ports:
+      - "5174:80"
     restart: unless-stopped
 
 volumes:

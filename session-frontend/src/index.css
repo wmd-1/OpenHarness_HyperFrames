@@ -1,0 +1,115 @@
+@import 'tailwindcss';
+
+/*
+ * Theme system:每个主题是一组 CSS 变量（由 ThemeProvider 写入 <html> 的
+ * inline style，主题定义见 src/theme/themes.ts）。这里声明 default 主题
+ * 的兜底值，并把变量映射为 Tailwind 颜色 token。
+ */
+:root {
+  --app-bg: #f8fafc;
+  --app-surface: #ffffff;
+  --app-surface-alt: #f1f5f9;
+  --app-border: #e2e8f0;
+  --app-text: #0f172a;
+  --app-text-muted: #64748b;
+  --app-accent: #2563eb;
+  --app-accent-fg: #ffffff;
+  --app-success: #16a34a;
+  --app-warning: #d97706;
+  --app-error: #dc2626;
+  --app-user-bubble: #2563eb;
+  --app-user-bubble-fg: #ffffff;
+  --app-assistant-bubble: #ffffff;
+}
+
+@theme inline {
+  --color-base: var(--app-bg);
+  --color-surface: var(--app-surface);
+  --color-raised: var(--app-surface-alt);
+  --color-line: var(--app-border);
+  --color-fg: var(--app-text);
+  --color-muted: var(--app-text-muted);
+  --color-accent: var(--app-accent);
+  --color-accent-fg: var(--app-accent-fg);
+  --color-ok: var(--app-success);
+  --color-warn: var(--app-warning);
+  --color-err: var(--app-error);
+  --color-user-bubble: var(--app-user-bubble);
+  --color-user-bubble-fg: var(--app-user-bubble-fg);
+  --color-assistant-bubble: var(--app-assistant-bubble);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-base text-fg antialiased;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'PingFang SC',
+    'Microsoft YaHei',
+    sans-serif;
+}
+
+/* 流式回复的打字光标动画 */
+@keyframes blink-cursor {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.typing-cursor::after {
+  content: '▋';
+  margin-left: 2px;
+  color: var(--app-accent);
+  animation: blink-cursor 1s step-end infinite;
+}
+
+/* markdown 正文基础排版（react-markdown 输出） */
+.markdown-body pre {
+  @apply bg-raised border-line overflow-x-auto rounded-md border p-3 text-sm;
+}
+
+.markdown-body code {
+  @apply bg-raised rounded px-1 py-0.5 text-[0.85em];
+}
+
+.markdown-body pre code {
+  @apply bg-transparent p-0;
+}
+
+.markdown-body p,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body pre,
+.markdown-body blockquote {
+  @apply my-2;
+}
+
+.markdown-body ul {
+  @apply list-disc pl-5;
+}
+
+.markdown-body ol {
+  @apply list-decimal pl-5;
+}
+
+.markdown-body a {
+  @apply text-accent underline;
+}
+
+.markdown-body blockquote {
+  @apply border-line text-muted border-l-2 pl-3;
+}
