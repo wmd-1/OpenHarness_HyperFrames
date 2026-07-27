@@ -1,11 +1,10 @@
 # OpenHarness 对 HyperFrames skill 的定制补丁同步指南
 
-> 用途：本文档记录 OpenHarness 在**上游 HyperFrames skill** 基础上做的两类定制（**QwenTTS**、**Chrome 路径**），供以后从 hyperframes 的 github 拉取最新版 skill 后，照此重新应用补丁。
+> 用途：本文档记录 OpenHarness 在**上游 HyperFrames skill** 基础上做的定制（**QwenTTS**），供以后从 hyperframes 的 github 拉取最新版 skill 后，照此重新应用补丁。
 >
 > 对应提交：
 >
 > - `de72011` — v1.3：升级到 HyperFrames v0.7.2 技能集 + 将 QwenTTS 接入共享音频引擎
-> - `4feb2ff` — 在 skill 文档中添加 OpenHarness 运行时的 Chrome 配置说明
 
 ---
 
@@ -64,7 +63,7 @@ OpenHarness_HyperFrames/                # 仓库根 = 构建上下文
 
 1. **拉取上游最新** → 运行根目录的 `./sync_hyperframes_skills.sh` 填充 `hyperframes_github_skills_latest/`（脚本从 `heygen-com/hyperframes` main 分支拉 tar、解压 `skills/` 到目标目录，内置代理与重试；也可手动 `npx skills add heygen-com/hyperframes` 或直接 clone github 仓库的 skills 目录）。
 2. **用 latest 覆盖实际使用目录**：把 `hyperframes_github_skills_latest/` 的内容覆盖到 `hyperframes_github_skills/`。
-3. **重新应用 OpenHarness 补丁**：按本文档第 3、4 节，在 `hyperframes_github_skills/` 上逐文件打回 QwenTTS + Chrome 定制。
+3. **重新应用 OpenHarness 补丁**：按本文档第 3 节，在 `hyperframes_github_skills/` 上逐文件打回 QwenTTS 定制。
 4. **同步构建配置**：按第 5 节更新 `Dockerfile.fix` / `.env.example` 的版本标签。
 5. **重建镜像**：`docker build -f Dockerfile.fix --build-arg BASE_IMAGE=<旧tag> -t <新tag> .`（见第 5 节）。
 6. **验证**：按第 6 节确认补丁生效。
@@ -323,62 +322,13 @@ Default: `CustomVoice` (predefined speakers like `vivian`).
 
 ---
 
-## 4. 补丁二：Chrome 路径（OpenHarness 运行时已预配置）
+## 4. 补丁二（保留 build 兜底）：build 时预装 bundled chrome
 
-### 4.1 意图
+> 补丁二的 skill 文档 callout（⑪/⑫/⑬/⑭，见 §9）已按「运行时已预配置」去除；但 **build 时预装 bundled chrome**（原 §4.5）作为兜底予以**保留**——它与「运行时已预配置」并不冲突，且是防止模型首次未读文档就跑 `doctor`/`ensure` 时卡在下载的必要防线。
 
-OpenHarness Docker 运行时已把 Chrome headless shell 预配置好（`PRODUCER_HEADLESS_SHELL_PATH` / `CHROME_HEADLESS_BIN` 均指向 `/opt/chrome-headless-shell-linux64/chrome-headless-shell`）。需在 skill 文档里告诉模型：**直接 `render`，别自己设 Chrome 路径、别跑 `browser ensure`、别给 `render` 传 `--browser-path`**，避免模型纠结于 Chrome 诊断而跑偏。
+### 4.1 `Dockerfile` / `Dockerfile.fix` — build 时预装 pinned bundled chrome
 
-### 4.2 涉及文件
-
-| 文件                                             | 补丁内容                                                                                                            |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `hyperframes-cli/SKILL.md`                     | render 步骤加 OpenHarness runtime callout                                                                           |
-| `hyperframes-cli/references/doctor-browser.md` | 顶部 callout + "Using a specific Chrome for render" 段 + doctor 误报 caveat + Common issues 的 OpenHarness 预装说明 |
-| `Dockerfile` / `Dockerfile.fix`              | build 时`npx hyperframes browser ensure` 预装 pinned bundled chrome（见 4.5）                                     |
-
-### 4.3 `hyperframes-cli/SKILL.md` — render 步骤 callout
-
-在 Render 步骤（`7. **Render** — pick the variant:`）下、变体列表前，插入：
-
-```markdown
-   > **OpenHarness runtime:** Chrome is **already configured** via `PRODUCER_HEADLESS_SHELL_PATH` (`/opt/chrome-headless-shell-linux64/chrome-headless-shell`, injected by the runtime). **Just run `render` — don't set a chrome path, don't run `browser ensure`, and don't pass `--browser-path`** to `render` (that flag is ignored by `render`; it's `preview`/`play` only). Read `references/doctor-browser.md` only if `render` actually fails with a Chrome error.
-```
-
-### 4.4 `hyperframes-cli/references/doctor-browser.md` — 3 处插入
-
-**注入点 ① — 文件顶部 callout**（在 `Environment diagnosis...` 行之后）：
-
-```markdown
-> **⚠ OpenHarness runtime note** — Chrome is **already configured for you** in the OpenHarness Docker runtime: `PRODUCER_HEADLESS_SHELL_PATH` and `CHROME_HEADLESS_BIN` are both pre-set to `/opt/chrome-headless-shell-linux64/chrome-headless-shell` (injected by `service/app/workers/runner.py` and `docker-compose.yml`). **Do not set the Chrome path yourself, do not run `browser ensure`, and do not pass `--browser-path` to `render`. Just run `npx hyperframes render`.** Only read the rest of this file if `render` actually fails with a Chrome error.
-```
-
-**注入点 ② — 新增 `## Using a specific Chrome for render` 段落**（紧接顶部 callout 之后）：
-
-```markdown
-## Using a specific Chrome for `render`
-
-`render` does **not** accept `--browser-path` — that flag is `preview`/`play` only (see `preview-render.md`). To point `render` at a specific Chrome / chrome-headless-shell binary, set the **`PRODUCER_HEADLESS_SHELL_PATH`** environment variable:
-
-```bash
-PRODUCER_HEADLESS_SHELL_PATH=/opt/chrome-headless-shell-linux64/chrome-headless-shell \
-  npx hyperframes render --quality draft --output out.mp4
-```
-
-- `npx hyperframes browser ensure` downloads the **pinned bundled** Chrome (for reproducible pixel output across machines) — it does **not** adopt an existing binary, so it is the wrong tool when a Chrome path is already supplied by the environment.
-- `--browser-path` / `--user-data-dir` / `--remote-debugging-port` are `preview`/`play` flags and are ignored by `render`.
-
-```
-
-**注入点 ③ — Common issues 里给 "Missing bundled Chrome" 加 caveat**：
-
-```markdown
-- **Missing bundled Chrome** — run `npx hyperframes browser ensure`. **Caveat:** doctor's `Chrome` check only inspects the **bundled** build — it does **not** read `PRODUCER_HEADLESS_SHELL_PATH`. If you point `render` at a binary via that env var, doctor will still report Chrome as "not found"; that is **expected**. Gate on whether `render` actually succeeds, not on doctor's Chrome line. **OpenHarness:** bundled Chrome is pre-installed at image build time (see `Dockerfile` / `Dockerfile.fix`), so it should never be missing at runtime — if `doctor` reports it missing, the image is stale; **rebuild** rather than running `browser ensure` at runtime (which would re-download and can hang).
-```
-
-### 4.5 `Dockerfile` / `Dockerfile.fix` — build 时预装 pinned bundled chrome
-
-**意图**：4.4 的文档 callout 只能"劝"模型别跑 `browser ensure`，但第一次运行 skill 时模型常常没读文档就先跑 `doctor`/`ensure`。`ensure`/`doctor` 只认 bundled chrome（`~/.cache/hyperframes/chrome/`），**不读 `PRODUCER_HEADLESS_SHELL_PATH`**；镜像若没预装，`ensure` 会去下载 ~150MB pinned chrome，容器网络慢时**卡在下载**（现象："卡在检查浏览器"）。把下载移到 build 时一次性完成，运行时 `ensure` 即 find 到、no-op，`doctor` 的 Chrome 检查也通过。
+**意图**：模型第一次运行 skill 时常常没读文档就先跑 `doctor`/`ensure`。`ensure`/`doctor` 只认 bundled chrome（`~/.cache/hyperframes/chrome/`），**不读 `PRODUCER_HEADLESS_SHELL_PATH`**；镜像若没预装，`ensure` 会去下载 ~150MB pinned chrome，容器网络慢时**卡在下载**（现象："卡在检查浏览器"）。把下载移到 build 时一次性完成，运行时 `ensure` 即 find 到、no-op，`doctor` 的 Chrome 检查也通过。
 
 **根因**：`render` 用 `PRODUCER_HEADLESS_SHELL_PATH`（指向 `/opt/chrome-headless-shell`）没问题；但 `ensure`/`doctor` 走另一条路（bundled chrome），第一次空缓存就触发下载。两套 chrome 互不相干——文档 callout 拦不住"第一次没读文档就行动"的模型，所以需要 build 层兜底。
 
@@ -403,8 +353,6 @@ RUN HYPERFRAMES_NO_AUTO_INSTALL=0 npx hyperframes browser ensure
 ```
 
 > **为何 `HYPERFRAMES_NO_AUTO_INSTALL=0`**：主 [Dockerfile](../Dockerfile#L58-L60) 设了 `HYPERFRAMES_NO_AUTO_INSTALL=1` 禁止运行时自动安装（避免 render 时偷偷下载）。语义上它管"自动"安装，显式 `browser ensure` 应不受限——但保险起见 build 时显式覆盖为 `0`，确保 ensure 真下载。**运行时的 `=1` 不动**，仍禁止自动安装。
->
-> **两套 chrome 共存**：`/opt/chrome-headless-shell-linux64/`（用户预下载的 last-known-good，`render` 用）+ `~/.cache/hyperframes/chrome/`（hyperframes pinned，`ensure`/`doctor` 用）。两者独立、不冲突。镜像增大约 150MB（与已预下载的 TTS/whisper 模型同策略）。
 
 ---
 
@@ -419,7 +367,7 @@ ARG BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.42_v1.3_v2.0
 FROM ${BASE_IMAGE}
 ```
 
-> tag 4 段含义：`v0.1.9`（OH）_ `v0.7.42`（HyperFrames npm）_ `v1.3`（QwenTTS/Chrome 补丁）_ `v2.0`（pptx 适配）。`.env.example` 的 `OH_VERSION_HYPERFRAMES_VERSION` 必须与此产出 tag 完全一致，否则 `docker compose up` 会因找不到镜像而误触发主 `Dockerfile` 全量构建（主 Dockerfile 钉 `hyperframes@0.6.102` 且无 pptx 的 COPY/pip，产出会缺 pptx skill 与依赖）。
+> tag 4 段含义：`v0.1.9`（OH）_ `v0.7.42`（HyperFrames npm）_ `v1.3`（QwenTTS 补丁）_ `v2.0`（pptx 适配）。`.env.example` 的 `OH_VERSION_HYPERFRAMES_VERSION` 必须与此产出 tag 完全一致，否则 `docker compose up` 会因找不到镜像而误触发主 `Dockerfile` 全量构建（主 Dockerfile 钉 `hyperframes@0.6.102` 且无 pptx 的 COPY/pip，产出会缺 pptx skill 与依赖）。
 
 示例命令（注释里）：
 
@@ -479,9 +427,6 @@ node --check hyperframes_github_skills/media-use/audio/scripts/audio.mjs
 
 # QwenTTS 注入点计数（tts.mjs 应 ≈ 20 处 qwentts）
 grep -c -i qwentts hyperframes_github_skills/media-use/audio/scripts/lib/tts.mjs
-
-# Chrome callout 在
-grep -c "OpenHarness runtime note" hyperframes_github_skills/hyperframes-cli/references/doctor-browser.md
 ```
 
 ### 6.2 容器侧（确认 api 服务加载的就是改过的 skill）
@@ -497,10 +442,7 @@ docker exec openharness-api grep -c qwentts /opt/oh-skills-builtin/media-use/aud
 # 运行时加载的 skill 也含 QwenTTS（证明已同步到卷）
 docker exec openharness-api grep -c qwentts /root/.openharness/skills/media-use/audio/scripts/lib/tts.mjs
 
-# Chrome callout 在
-docker exec openharness-api grep -c "OpenHarness runtime note" /root/.openharness/skills/hyperframes-cli/references/doctor-browser.md
-
-# bundled chrome 已预装（ensure 应秒级 no-op，doctor 不报 missing）
+# bundled chrome 已预装（build 时 ensure 烧进镜像，运行时 ensure 应秒级 no-op，doctor 不报 missing）
 docker exec openharness-api ls /root/.cache/hyperframes/chrome/
 docker exec openharness-api timeout 30 npx hyperframes browser ensure 2>&1 | tail -3
 ```
@@ -638,6 +580,7 @@ python3 -m py_compile scripts/pptx_path.py scripts/chart_extractor.py \
 | 2026-07-07 | —                 | 修正版本标签不一致：`.env.example` + `docker-compose.yml` 默认 fallback 对齐 `Dockerfile.fix` 产出 tag `v0.1.9_v0.7.42_v1.3_v2.0`（原先 `.env.example` 为 `v1.4`，按模板部署会找不到镜像而误触发主 Dockerfile 全量构建）；重写第 5 节版本标签（镜像名补 `_pptx`、补 `Model_Download` 示例）；第 1 节 `latest` 描述修正（不再"当前为空"）                                                                                                                                                    |
 | 2026-07-08 | —                 | **按第 2 节工作流重新同步 + 重打补丁（OpenSpec 驱动）**：升级 HyperFrames skill 至 v0.7.42；用 `hyperframes_github_skills_latest/` 镜像覆盖 `hyperframes_github_skills/`；关键适配——**上游把 `hyperframes-media` 重命名为 `media-use`**，共享 TTS 库移到 `media-use/audio/scripts/lib/tts.mjs`，全部 QwenTTS / Chrome 补丁按"意图"重映射到 `media-use` / `hyperframes-cli`；静态验证全过（`node --check`、qwentts 计数 20、`OpenHarness runtime` callout 各 1）。详见第 10 节 |
 | 2026-07-23 | —                 | 文档随 monorepo 搬迁至仓库根 `docs/`：相对链接 `../../`→`../`、§1.1 布局图补 `docs/`、§2 引用新增 `sync_hyperframes_skills.sh`；修脚本 `DEST_DIR` 误指 `OpenHarness/` 子目录；刷新 Dockerfile/Dockerfile.fix 过时行号锚点；§3/§6/§7 的 `hyperframes-media/` 路径统一为 `media-use/audio/`（落实 §10.1 待办）。详见第 12 节 |
+| 2026-07-27 | —                 | 去除补丁二（Chrome 路径）的 **skill 文档 callout**（`hyperframes-cli/SKILL.md` ⑪、`hyperframes-cli/references/doctor-browser.md` ⑫/⑬/⑭）：因 OpenHarness 运行时已预配置 `PRODUCER_HEADLESS_SHELL_PATH` / `CHROME_HEADLESS_BIN`。**保留** build 时预装 bundled chrome（`Dockerfile` / `Dockerfile.fix` 的 `npx hyperframes browser ensure`，见 §4.1）作兜底——防模型首次未读文档就跑 `doctor`/`ensure` 时卡在 ~150MB 下载；本文档 §4 重开为"build 兜底"小节（仅 §4.1），验证（§6.2）恢复 bundled chrome 检查。 |
 
 ---
 
