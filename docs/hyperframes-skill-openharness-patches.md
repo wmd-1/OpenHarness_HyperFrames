@@ -580,7 +580,7 @@ python3 -m py_compile scripts/pptx_path.py scripts/chart_extractor.py \
 | 2026-07-07 | —                 | 修正版本标签不一致：`.env.example` + `docker-compose.yml` 默认 fallback 对齐 `Dockerfile.fix` 产出 tag `v0.1.9_v0.7.42_v1.3_v2.0`（原先 `.env.example` 为 `v1.4`，按模板部署会找不到镜像而误触发主 Dockerfile 全量构建）；重写第 5 节版本标签（镜像名补 `_pptx`、补 `Model_Download` 示例）；第 1 节 `latest` 描述修正（不再"当前为空"）                                                                                                                                                    |
 | 2026-07-08 | —                 | **按第 2 节工作流重新同步 + 重打补丁（OpenSpec 驱动）**：升级 HyperFrames skill 至 v0.7.42；用 `hyperframes_github_skills_latest/` 镜像覆盖 `hyperframes_github_skills/`；关键适配——**上游把 `hyperframes-media` 重命名为 `media-use`**，共享 TTS 库移到 `media-use/audio/scripts/lib/tts.mjs`，全部 QwenTTS / Chrome 补丁按"意图"重映射到 `media-use` / `hyperframes-cli`；静态验证全过（`node --check`、qwentts 计数 20、`OpenHarness runtime` callout 各 1）。详见第 10 节 |
 | 2026-07-23 | —                 | 文档随 monorepo 搬迁至仓库根 `docs/`：相对链接 `../../`→`../`、§1.1 布局图补 `docs/`、§2 引用新增 `sync_hyperframes_skills.sh`；修脚本 `DEST_DIR` 误指 `OpenHarness/` 子目录；刷新 Dockerfile/Dockerfile.fix 过时行号锚点；§3/§6/§7 的 `hyperframes-media/` 路径统一为 `media-use/audio/`（落实 §10.1 待办）。详见第 12 节 |
-| 2026-07-27 | —                 | 去除补丁二（Chrome 路径）的 **skill 文档 callout**（`hyperframes-cli/SKILL.md` ⑪、`hyperframes-cli/references/doctor-browser.md` ⑫/⑬/⑭）：因 OpenHarness 运行时已预配置 `PRODUCER_HEADLESS_SHELL_PATH` / `CHROME_HEADLESS_BIN`。**保留** build 时预装 bundled chrome（`Dockerfile` / `Dockerfile.fix` 的 `npx hyperframes browser ensure`，见 §4.1）作兜底——防模型首次未读文档就跑 `doctor`/`ensure` 时卡在 ~150MB 下载；本文档 §4 重开为"build 兜底"小节（仅 §4.1），验证（§6.2）恢复 bundled chrome 检查。 |
+| 2026-07-27 | —                 | **补丁二精简（我的操作）**：① 去除 skill 文档 Chrome 路径 callout（`hyperframes-cli/SKILL.md` ⑪、`hyperframes-cli/references/doctor-browser.md` ⑫/⑬/⑭）——运行时已预配置 `PRODUCER_HEADLESS_SHELL_PATH` / `CHROME_HEADLESS_BIN`；② 应需求**保留** build 时预装 bundled chrome 兜底，恢复 `Dockerfile`（第 69 行）与 `Dockerfile.fix`（第 44 行）的 `RUN HYPERFRAMES_NO_AUTO_INSTALL=0 npx hyperframes browser ensure`；③ 文档同步：原 §4 整节删除后重开为"§4 保留 build 兜底"（仅 §4.1），§6.2 恢复 bundled chrome 检查。详见 §13。 |
 
 ---
 
@@ -725,3 +725,29 @@ Dockerfile / Dockerfile.fix 在 monorepo 构建输入对齐时增删了若干块
 
 ### 12.4 路径统一（落实 §10.1 待办）
 §3 / §6 / §7 里残留的 `hyperframes-media/...` 旧路径统一改为重命名后的 `media-use/audio/...`（`SKILL.md` 对应 `media-use/SKILL.md`）。§10.1 的映射表与 §9 / §10 变更历史作为“重命名事件”记录，保留旧名不改。
+
+---
+
+## 13. 补丁二精简 + 保留 build 兜底（2026-07-27，我的操作）
+
+本次针对「补丁二：Chrome 路径」做了两件事，操作明细如下：
+
+**① 去除 skill 文档 Chrome 路径 callout（运行时已预配置）**
+
+- 删除 `hyperframes-cli/SKILL.md` Render 步骤的 OpenHarness runtime callout（⑪）。
+- 删除 `hyperframes-cli/references/doctor-browser.md`：顶部 callout（⑫）、`## Using a specific Chrome for render` 段（⑬）、Common issues "Missing bundled Chrome" 的 OpenHarness caveat（⑭）。
+- 理由：OpenHarness 运行时已通过 `PRODUCER_HEADLESS_SHELL_PATH` / `CHROME_HEADLESS_BIN`（`docker-compose.yml` + `Dockerfile` ENV）预配置 `/opt/chrome-headless-shell-linux64/`，`render` 直接可用，无需文档劝模型别设路径。
+
+**② 保留 build 时预装 bundled chrome（应需求）**
+
+- 恢复 `Dockerfile`：在 `npm install -g hyperframes ... && npx skills add heygen-com/hyperframes` 之后加 `RUN HYPERFRAMES_NO_AUTO_INSTALL=0 npx hyperframes browser ensure`（第 69 行）。
+- 恢复 `Dockerfile.fix`：在 `HYPERFRAMES_VERSION` 升级块之后加同款 `RUN ... browser ensure`（第 44 行）。
+- 理由：`ensure`/`doctor` 只认 bundled chrome（`~/.cache/hyperframes/chrome/`），不读 `PRODUCER_HEADLESS_SHELL_PATH`；空缓存首次跑 `doctor`/`ensure` 会下载 ~150MB 卡住。build 层兜底与"运行时已预配置"不冲突，作为必要防线保留。
+
+**③ 文档同步**
+
+- 删除原 §4「补丁二：Chrome 路径」整节，重开为 **§4 补丁二（保留 build 兜底）：build 时预装 bundled chrome**，仅含 §4.1（原 §4.5 全文：意图 / 根因 / 两处 Dockerfile 片段 / `HYPERFRAMES_NO_AUTO_INSTALL=0` 说明）。
+- §6.2 验证恢复 bundled chrome 检查（`ls /root/.cache/hyperframes/chrome/` + `browser ensure` no-op 确认）。
+- §9 变更历史新增本条（标注「我的操作」）。
+
+> 净效果：`render` 走运行时预配置的 `PRODUCER_HEADLESS_SHELL_PATH`；`doctor`/`ensure` 走的 bundled chrome 在 build 时一次性预装好，两套 chrome 互不干扰、互不卡下载。
