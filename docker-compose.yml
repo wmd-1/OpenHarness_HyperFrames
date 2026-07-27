@@ -41,12 +41,12 @@ services:
       # API Keys — 通过 .env 文件传入
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      # QwenTTS (本地 TTS 服务) — 通过 .env 文件传入
+      # QwenTTS (本地 TTS 服务，Base 声音克隆) — 通过 .env 文件传入
       - QWENTTS_URL=${QWENTTS_URL:-}
-      - QWENTTS_MODE=${QWENTTS_MODE:-speech}
-      - QWENTTS_MODEL=${QWENTTS_MODEL:-}
+      - QWENTTS_REF_AUDIO=${QWENTTS_REF_AUDIO:-}
+      - QWENTTS_REF_TEXT=${QWENTTS_REF_TEXT:-}
       - QWENTTS_VOICE=${QWENTTS_VOICE:-}
-      - QWENTTS_INSTRUCTIONS=${QWENTTS_INSTRUCTIONS:-}
+      - QWENTTS_CLONE_SCRIPT=${QWENTTS_CLONE_SCRIPT:-}
     volumes:
       # 框架源码挂载（OpenHarness/ 子目录）— 修改宿主机代码，容器内立即生效
       # PYTHONPATH=/app/src 使 Python 优先从这里导入，覆盖 pip 安装的版本
@@ -57,6 +57,8 @@ services:
       # 持久化配置和会话
       - openharness-config:/root/.openharness
       - ./OpenHarness/output_hyperprames/videos:/app/videos
+      # QwenTTS 参考音频（宿主机目录 → 容器内只读），QWENTTS_REF_AUDIO 指向 /opt/tts-ref/ 下的文件
+      - ${QWENTTS_REF_AUDIO_HOST_DIR:-./assets/tts-ref}:/opt/tts-ref:ro
     stdin_open: true
     tty: true
     shm_size: 256g
@@ -129,12 +131,12 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OH_CORS_ORIGINS=${OH_CORS_ORIGINS:-}
-      # QwenTTS (本地 TTS 服务) — 通过 .env 文件传入
+      # QwenTTS (本地 TTS 服务，Base 声音克隆) — 通过 .env 文件传入
       - QWENTTS_URL=${QWENTTS_URL:-}
-      - QWENTTS_MODE=${QWENTTS_MODE:-speech}
-      - QWENTTS_MODEL=${QWENTTS_MODEL:-}
+      - QWENTTS_REF_AUDIO=${QWENTTS_REF_AUDIO:-}
+      - QWENTTS_REF_TEXT=${QWENTTS_REF_TEXT:-}
       - QWENTTS_VOICE=${QWENTTS_VOICE:-}
-      - QWENTTS_INSTRUCTIONS=${QWENTTS_INSTRUCTIONS:-}
+      - QWENTTS_CLONE_SCRIPT=${QWENTTS_CLONE_SCRIPT:-}
     volumes:
       - ./OpenHarness/src:/app/src
       - ./OpenHarness/ohmo:/app/ohmo
@@ -142,6 +144,8 @@ services:
       - oh-videos:/var/openharness/videos
       - oh-workspaces:/workspaces
       - openharness-config:/root/.openharness
+      # QwenTTS 参考音频（与 openharness 服务同源）
+      - ${QWENTTS_REF_AUDIO_HOST_DIR:-./assets/tts-ref}:/opt/tts-ref:ro
 
   # ---- FastAPI 交互会话服务 (oh --backend-only 桥接) ----
   # 独立进程，复用同一 Postgres/Redis（Redis 用 db=1 避免与视频服务键空间冲突），

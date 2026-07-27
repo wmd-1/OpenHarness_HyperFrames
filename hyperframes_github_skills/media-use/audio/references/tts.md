@@ -8,7 +8,7 @@
 
 | Order | Provider          | Env trigger                                 | Voice IDs                                   | Word timestamps                           | Audio format         |
 | ----- | ----------------- | ------------------------------------------- | ------------------------------------------- | ----------------------------------------- | -------------------- |
-| 1     | QwenTTS (local)   | `$QWENTTS_URL` set                          | QwenTTS voice names (e.g. `vivian`)         | No                                        | ffmpeg → wav 44.1k   |
+| 1     | QwenTTS (local)   | `$QWENTTS_URL` set                          | Voice clone from `$QWENTTS_REF_AUDIO` (auto-named `clone_<hash>`) | No                                        | ffmpeg → wav 44.1k   |
 | 2     | HeyGen (Starfish) | `$HEYGEN_API_KEY` / `~/.heygen/credentials` | UUIDs from `GET /v3/voices?engine=starfish` | **Yes** (`word_timestamps[]` in response) | mp3 → wav via ffmpeg |
 | 3     | ElevenLabs        | `$ELEVENLABS_API_KEY`                       | UUIDs from elevenlabs.io dashboard          | No                                        | mp3 → wav via ffmpeg |
 | 4     | Kokoro-82M        | always (local fallback)                     | `am_michael`, `af_heart`, … (54 voices)     | No                                        | wav direct           |
@@ -59,45 +59,32 @@ node skills/media-use/audio/scripts/heygen-tts.mjs --list   # public starfish vo
 
 ## QwenTTS (local deployment)
 
-When `$QWENTTS_URL` is set (e.g. `http://localhost:8091`), QwenTTS becomes the highest-priority provider. Served via vLLM-Omni with the OpenAI-compatible `/v1/audio/speech` API.
+When `$QWENTTS_URL` is set (e.g. `http://localhost:8091`), QwenTTS becomes the highest-priority provider. Served via vLLM-Omni with the `Qwen/Qwen3-TTS-12Hz-1.7B-Base` voice-clone model; synthesis is delegated to the clone script `qwen3_tts_clone.py` (baked into the image at `/opt/qwen3-tts-script/`).
 
-### Model variants
+### How it works (voice clone via script)
 
-Each task type requires a matching model checkpoint:
-
-| Task Type     | Model                                    | Description                                        |
-| ------------- | ---------------------------------------- | -------------------------------------------------- |
-| `CustomVoice` | `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice`  | Predefined speaker voices + optional style/emotion  |
-| `VoiceDesign` | `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign`  | Generate speech from natural language voice description |
-| `Base`        | `Qwen/Qwen3-TTS-12Hz-1.7B-Base`         | Voice cloning from reference audio + transcript     |
-
-Default: `CustomVoice` (predefined speakers like `vivian`).
-
-### Modes
-
-| Mode      | Env var            | Endpoint                | Response format            |
-| --------- | ------------------ | ----------------------- | -------------------------- |
-| `speech`  | `QWENTTS_MODE=speech` (default) | `/v1/audio/speech`       | Binary WAV stream          |
-| `chat`    | `QWENTTS_MODE=chat`             | `/v1/chat/completions`   | JSON with base64 audio     |
+1. The script uploads `$QWENTTS_REF_AUDIO` + `$QWENTTS_REF_TEXT` once to `/v1/audio/voices` (idempotent — the voice name is a SHA1 of the audio content, so the same reference audio is reused across sentences, processes and sessions without re-uploading or re-computing reference features).
+2. Each sentence is then synthesized via `/v1/audio/speech` with `voice=<name>` — no audio payload, no feature recompute (server-side speaker cache).
+3. Output wav is normalized to 44.1kHz mono via ffmpeg.
 
 ### Environment variables
 
-| Variable              | Required | Default                                    | Description                                     |
-| --------------------- | -------- | ------------------------------------------ | ----------------------------------------------- |
-| `QWENTTS_URL`         | Yes      | —                                          | Service base URL (e.g. `http://localhost:8091`)  |
-| `QWENTTS_MODE`        | No       | `speech`                                   | `speech` (binary stream) or `chat` (base64 JSON)|
-| `QWENTTS_VOICE`       | No       | `vivian`                                   | Voice name (speech mode only; list via `/v1/audio/voices`) |
-| `QWENTTS_INSTRUCTIONS`| No       | —                                          | Style/emotion instruction (e.g. `"Speak with great enthusiasm"`, CustomVoice model only) |
+| Variable                | Required | Default                                       | Description                                     |
+| ----------------------- | -------- | --------------------------------------------- | ----------------------------------------------- |
+| `QWENTTS_URL`           | Yes      | —                                             | Service base URL (e.g. `http://localhost:8091`)  |
+| `QWENTTS_REF_AUDIO`     | Yes      | —                                             | Reference audio path inside the container (wav/mp3/flac/ogg, 1–30s) |
+| `QWENTTS_REF_TEXT`      | Yes      | —                                             | Transcript of the reference audio (ICL clone)   |
+| `QWENTTS_VOICE`         | No       | content-hash `clone_<sha1>`                   | Explicit voice name override (rarely needed)    |
+| `QWENTTS_CLONE_SCRIPT`  | No       | `/opt/qwen3-tts-script/qwen3_tts_clone.py`    | Clone script path override                      |
 
 ### Notes
 
+- The server must be serving the **Base** model variant (`Qwen/Qwen3-TTS-12Hz-1.7B-Base`); it has **no built-in voices** — a reference audio is mandatory. Missing `QWENTTS_REF_AUDIO`/`QWENTTS_REF_TEXT` throws immediately (misconfiguration); runtime failures (server unreachable, synthesis error) fall back gracefully with `{ok:false}`.
 - All output is normalized to WAV 44.1kHz mono via ffmpeg (QwenTTS may output 24kHz PCM natively).
-- `model` and `response_format` are omitted from the request (server defaults to loaded model + wav format).
 - `language` is omitted by default (server Auto-detects); when `--lang` is non-English, mapped to full name (e.g. `zh` → `"Chinese"`). Supported: Auto, Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian.
 - QwenTTS does not return word timestamps — chain `transcribe` after for caption data.
-- Voice names are QwenTTS-specific and not interchangeable with Kokoro/HeyGen/ElevenLabs.
+- Uploaded voices persist server-side (default `~/.cache/vllm-omni/speakers`); list via `GET /v1/audio/voices`, delete via `DELETE /v1/audio/voices/<name>`.
 - When `QWENTTS_URL` is unset, the provider chain falls through to HeyGen → ElevenLabs → Kokoro.
-- The server serves one model variant at a time; switching task types requires a server restart.
 
 ## When to use which provider
 

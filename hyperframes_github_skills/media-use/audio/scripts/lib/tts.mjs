@@ -1,9 +1,10 @@
 // tts.mjs — multi-provider TTS for the media audio engine. The provider chain,
 // auto-detected from env, is the one documented in ../SKILL.md:
 //
-//   1. QwenTTS (local)    — $QWENTTS_URL (highest priority when set). OpenAI-
-//        compatible /v1/audio/speech (speech mode) or /v1/chat/completions
-//        (chat mode) served by vLLM-Omni. No word timings → caller transcribes.
+//   1. QwenTTS (local)    — $QWENTTS_URL (highest priority when set). Voice clone
+//        via qwen3_tts_clone.py (vLLM-Omni Base model: uploads $QWENTTS_REF_AUDIO
+//        once to /v1/audio/voices, then reuses the cached voice for every call).
+//        No word timings → caller transcribes.
 //   2. HeyGen (Starfish)  — $HEYGEN_API_KEY / $HYPERFRAMES_API_KEY / ~/.heygen.
 //        Direct v3 REST (NOT `hyperframes tts`, which in the published build is
 //        Kokoro-only and silently ignores a HeyGen key). Returns word_timestamps
@@ -48,6 +49,10 @@ export function pickProvider(userProvider) {
       throw new Error(`invalid provider "${userProvider}" (qwentts | heygen | elevenlabs | kokoro)`);
     if (userProvider === "qwentts" && !qwenttsAvailable())
       throw new Error("provider=qwentts but $QWENTTS_URL is not set");
+    if (userProvider === "qwentts" && !process.env.QWENTTS_REF_AUDIO)
+      throw new Error(
+        "provider=qwentts but $QWENTTS_REF_AUDIO is not set (Base voice clone needs a reference audio)",
+      );
     if (userProvider === "heygen" && !heygenAvailable())
       throw new Error(
         "provider=heygen but no HeyGen credentials (set $HEYGEN_API_KEY or run `npx hyperframes auth login`)",
@@ -71,7 +76,9 @@ export function pickProvider(userProvider) {
 // their own defaults.
 export async function resolveVoiceId({ provider, userVoice, lang = "en" }) {
   if (userVoice) return userVoice;
-  if (provider === "qwentts") return process.env.QWENTTS_VOICE || "vivian";
+  // Voice name optional for qwentts: the clone script derives a stable
+  // content-hash name (clone_<sha1>) from $QWENTTS_REF_AUDIO when unset.
+  if (provider === "qwentts") return process.env.QWENTTS_VOICE || null;
   if (provider === "elevenlabs") return "21m00Tcm4TlvDq8ikWAM"; // Rachel
   if (provider === "kokoro") {
     if (lang === "en") return "am_michael";
@@ -228,54 +235,60 @@ function transcodeToWav(bytes, destWav) {
   return ff.status === 0 && existsSync(destWav);
 }
 
-// QwenTTS (local, vLLM-Omni OpenAI-compatible /v1/audio/speech) — highest-priority
-// provider when $QWENTTS_URL is set. speech mode → binary stream; chat mode →
-// base64 in choices[0].message.audio.data. Both normalized to 44.1k mono wav via
-// transcodeToWav (same path as the HeyGen mp3). No word timestamps → caller
-// transcribes. Never throws; failures return { ok:false }.
+// QwenTTS (local, vLLM-Omni Qwen3-TTS Base voice clone) — highest-priority
+// provider when $QWENTTS_URL is set. Delegates to qwen3_tts_clone.py (upload
+// mode): the script uploads $QWENTTS_REF_AUDIO + $QWENTTS_REF_TEXT once to
+// /v1/audio/voices (idempotent, content-hash voice name) and synthesizes each
+// sentence via the cached voice — reference features are computed once and
+// reused across calls. Output normalized to 44.1k mono wav via transcodeToWav
+// (same path as the HeyGen mp3). No word timestamps → caller transcribes.
+// Missing REF_AUDIO/REF_TEXT throws (misconfiguration, Base-only deployment
+// has no fallback voice); runtime failures return { ok:false }.
 const QWENTTS_LANG_FULL_NAME = {
   en: "English", zh: "Chinese", ja: "Japanese", ko: "Korean", de: "German",
   fr: "French", ru: "Russian", pt: "Portuguese", es: "Spanish", it: "Italian",
 };
 
+const QWENTTS_CLONE_SCRIPT_DEFAULT = "/opt/qwen3-tts-script/qwen3_tts_clone.py";
+
 async function synthesizeQwenTTS({ text, voiceId, lang, wavAbs }) {
-  const baseUrl = (process.env.QWENTTS_URL || "").replace(/\/+$/, "");
-  const mode = (process.env.QWENTTS_MODE || "speech").toLowerCase();
-  const instructions = process.env.QWENTTS_INSTRUCTIONS || undefined;
+  const apiBase = (process.env.QWENTTS_URL || "").replace(/\/+$/, "");
+  const refAudio = process.env.QWENTTS_REF_AUDIO;
+  const refText = process.env.QWENTTS_REF_TEXT;
+  const script = process.env.QWENTTS_CLONE_SCRIPT || QWENTTS_CLONE_SCRIPT_DEFAULT;
+  if (!refAudio)
+    throw new Error(
+      "QwenTTS voice clone: $QWENTTS_REF_AUDIO is not set (Base model has no built-in voices)",
+    );
+  if (!refText)
+    throw new Error(
+      "QwenTTS voice clone: $QWENTTS_REF_TEXT is not set (ICL clone needs the reference transcript)",
+    );
+  const outDir = mkdtempSync(join(tmpdir(), "qwentts-"));
   try {
-    let bytes;
-    if (mode === "chat") {
-      const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [{ role: "user", content: text }],
-          modalities: ["audio"],
-        }),
-      });
-      if (!res.ok) return { ok: false, words: null };
-      const payload = await res.json();
-      const b64 = payload?.choices?.[0]?.message?.audio?.data;
-      if (!b64) return { ok: false, words: null };
-      bytes = Buffer.from(b64, "base64");
-    } else {
-      // language omitted for en (server Auto-detects); non-en mapped to full name.
-      const language = QWENTTS_LANG_FULL_NAME[lang] || (lang !== "en" ? lang : undefined);
-      const body = { input: text, voice: voiceId };
-      if (language) body.language = language;
-      if (instructions) body.instructions = instructions;
-      const res = await fetch(`${baseUrl}/v1/audio/speech`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) return { ok: false, words: null };
-      bytes = Buffer.from(await res.arrayBuffer());
-    }
-    if (!transcodeToWav(bytes, wavAbs)) return { ok: false, words: null };
+    const cloneArgs = [
+      script,
+      "--api-base", apiBase,
+      "--ref-audio", refAudio,
+      "--ref-text", refText,
+      "--text", text,
+      "--output-dir", outDir,
+    ];
+    if (voiceId) cloneArgs.push("--voice-name", voiceId);
+    // language omitted for en (server Auto-detects); non-en mapped to full name.
+    const language = QWENTTS_LANG_FULL_NAME[lang];
+    if (language && lang !== "en") cloneArgs.push("--language", language);
+    const { cmd, args } = pythonInvocation(cloneArgs);
+    const r = spawnSync(cmd, args, { stdio: "ignore", timeout: 600_000 });
+    if (r.status !== 0) return { ok: false, words: null };
+    const wav = join(outDir, "001.wav");
+    if (!existsSync(wav)) return { ok: false, words: null };
+    if (!transcodeToWav(readFileSync(wav), wavAbs)) return { ok: false, words: null };
     return { ok: true, words: null };
   } catch {
     return { ok: false, words: null };
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
   }
 }
 

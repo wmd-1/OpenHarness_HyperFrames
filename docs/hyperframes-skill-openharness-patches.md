@@ -85,14 +85,18 @@ OpenHarness_HyperFrames/                # 仓库根 = 构建上下文
 
 **解法**：在**唯一共享 TTS 库** `media-use/audio/scripts/lib/tts.mjs` 中加一处 QwenTTS 分支，即覆盖全部视频工作流；设 `QWENTTS_URL` 时优先于 HeyGen / ElevenLabs / Kokoro。
 
+> **v1.4 调用方式变更（克隆脚本）**：部署模型固定为 `Qwen/Qwen3-TTS-12Hz-1.7B-Base`（声音克隆，无预置音色）。`synthesizeQwenTTS` 不再直连 `/v1/audio/speech` 的 speech/chat 双模式，改为调用声音克隆脚本 `qwen3_tts_clone.py`（源码在仓库根 `Qwen3-TTS-Script/`，镜像内 `/opt/qwen3-tts-script/`，见 §3.7）：脚本把 `$QWENTTS_REF_AUDIO` 上传一次到 `/v1/audio/voices`（音色名按音频内容 hash 生成、幂等），之后每句按音色名合成，参考特征只计算一次、跨调用复用。未配置参考音频/转写文本时**直接抛错**（Base-only 部署无预置音色可回退）；`QWENTTS_MODE` / `QWENTTS_INSTRUCTIONS` 随 speech/chat 双模式一并废弃。
+
 ### 3.2 涉及文件
 
 | 文件                                      | 补丁性质                                                      |
 | ----------------------------------------- | ------------------------------------------------------------- |
-| `media-use/audio/scripts/lib/tts.mjs` | **核心**：注入 QwenTTS provider（检测/选择/voice/合成） |
+| `media-use/audio/scripts/lib/tts.mjs` | **核心**：注入 QwenTTS provider（检测/选择/voice/克隆脚本合成） |
 | `media-use/audio/scripts/audio.mjs`   | 注释标注 QwenTTS 优先级（代码靠 import tts.mjs 间接支持）     |
 | `media-use/SKILL.md`                  | provider 文档                                                 |
 | `media-use/audio/references/tts.md`   | QwenTTS 详细参考节                                            |
+| `Qwen3-TTS-Script/qwen3_tts_clone.py`（仓库根） | 声音克隆脚本本体，`COPY` 进镜像（§3.7），**非 skill 文件**，不随上游同步覆盖 |
+| [Dockerfile.fix](../Dockerfile.fix)       | `COPY` 克隆脚本 + venv 安装 `httpx`（§3.7）                   |
 
 ### 3.3 `media-use/audio/scripts/lib/tts.mjs` — 注入 QwenTTS provider（6 处）
 
@@ -101,9 +105,10 @@ OpenHarness_HyperFrames/                # 仓库根 = 构建上下文
 **注入点 ① — 文件顶部 provider chain 注释**：在 provider 列表最前面加 QwenTTS 第 1 条（原上游第 1 条 HeyGen 顺延为第 2）：
 
 ```js
-//   1. QwenTTS (local)    — $QWENTTS_URL (highest priority when set). OpenAI-
-//        compatible /v1/audio/speech (speech mode) or /v1/chat/completions
-//        (chat mode) served by vLLM-Omni. No word timings → caller transcribes.
+//   1. QwenTTS (local)    — $QWENTTS_URL (highest priority when set). Voice clone
+//        via qwen3_tts_clone.py (vLLM-Omni Base model: uploads $QWENTTS_REF_AUDIO
+//        once to /v1/audio/voices, then reuses the cached voice for every call).
+//        No word timings → caller transcribes.
 ```
 
 **注入点 ② — `qwenttsAvailable()` 检测函数**（与 `heygenAvailable` 等并列）：
@@ -117,7 +122,7 @@ export function qwenttsAvailable() {
 **注入点 ③ — `pickProvider()` 把 QwenTTS 设为链首**：
 
 - 校验白名单加 `"qwentts"`；
-- 加 `provider=qwentts` 但未设 `QWENTTS_URL` 的校验；
+- 加 `provider=qwentts` 但未设 `QWENTTS_URL` / `QWENTTS_REF_AUDIO` 的校验（Base 克隆必须有参考音频，缺则**报错**而非静默回退）；
 - 自动选择链首加 `qwenttsAvailable() ? "qwentts" :`。
 
 ```js
@@ -129,6 +134,8 @@ export function pickProvider(userProvider) {
       throw new Error(`invalid provider "${userProvider}" (qwentts | heygen | elevenlabs | kokoro)`);
     if (userProvider === "qwentts" && !qwenttsAvailable())
       throw new Error("provider=qwentts but $QWENTTS_URL is not set");
+    if (userProvider === "qwentts" && !process.env.QWENTTS_REF_AUDIO)
+      throw new Error("provider=qwentts but $QWENTTS_REF_AUDIO is not set (Base voice clone needs a reference audio)");
     if (userProvider === "heygen" && !heygenAvailable())
       throw new Error(
         "provider=heygen but no HeyGen credentials (set $HEYGEN_API_KEY or run `hyperframes auth login`)",
@@ -147,10 +154,12 @@ export function pickProvider(userProvider) {
 }
 ```
 
-**注入点 ④ — `resolveVoiceId()` 加 qwentts 分支**（返回 `QWENTTS_VOICE` 或默认 `vivian`）：
+**注入点 ④ — `resolveVoiceId()` 加 qwentts 分支**（返回 `QWENTTS_VOICE`；未设则返回 `null`，由克隆脚本按参考音频内容 hash 自动生成稳定音色名 `clone_<sha1>`）：
 
 ```js
-  if (provider === "qwentts") return process.env.QWENTTS_VOICE || "vivian";
+  // Voice name optional for qwentts: the clone script derives a stable
+  // content-hash name (clone_<sha1>) from $QWENTTS_REF_AUDIO when unset.
+  if (provider === "qwentts") return process.env.QWENTTS_VOICE || null;
 ```
 
 **注入点 ⑤ — `synthesizeOne()` 加 qwentts 分发**（在 heygen 分支之前）：
@@ -161,65 +170,70 @@ export function pickProvider(userProvider) {
 
 **注入点 ⑥ — `synthesizeQwenTTS()` 实现 + `QWENTTS_LANG_FULL_NAME` 常量**：
 
-- `speech` 模式（默认）`POST /v1/audio/speech`，二进制流；
-- `chat` 模式 `POST /v1/chat/completions`，`choices[0].message.audio.data` 取 base64；
-- 均经 `transcodeToWav` 归一化为 44.1k 单声道 wav；
-- **不可达时优雅返回 `{ok:false}`，不抛异常、不写半成品**（这是修复根因 2 的关键——避免静默失败连锁回退）。
+- 不直连 HTTP，而是 spawn 声音克隆脚本 `qwen3_tts_clone.py`（upload 模式）：脚本内部先 `GET /v1/audio/voices` 幂等检查，音色未上传时 `POST /v1/audio/voices` 上传 `$QWENTTS_REF_AUDIO` + `$QWENTTS_REF_TEXT`，再按音色名调 `/v1/audio/speech` 合成；音色名按音频内容 SHA1 生成，**同一参考音频跨句/跨进程/跨会话自动复用**，参考特征只计算一次；
+- 每句合成到临时目录（脚本输出 `001.wav`），再经 `transcodeToWav` 归一化为 44.1k 单声道 wav；
+- **配置缺失（无 `QWENTTS_REF_AUDIO` / `QWENTTS_REF_TEXT`）直接抛错**（Base-only 部署无预置音色可用，静默回退只会产出错误音色，宁可 fail-fast）；**运行期失败（服务不可达/合成失败/超时）仍优雅返回 `{ok:false}`，不写半成品**（保留修复根因 2 的关键语义）。
 
 ```js
-// QwenTTS (local, vLLM-Omni OpenAI-compatible /v1/audio/speech) — highest-priority
-// provider when $QWENTTS_URL is set. speech mode → binary stream; chat mode →
-// base64 in choices[0].message.audio.data. Both normalized to 44.1k mono wav via
-// transcodeToWav (same path as the HeyGen mp3). No word timestamps → caller
-// transcribes. Never throws; failures return { ok:false }.
+// QwenTTS (local, vLLM-Omni Qwen3-TTS Base voice clone) — highest-priority
+// provider when $QWENTTS_URL is set. Delegates to qwen3_tts_clone.py (upload
+// mode): the script uploads $QWENTTS_REF_AUDIO + $QWENTTS_REF_TEXT once to
+// /v1/audio/voices (idempotent, content-hash voice name) and synthesizes each
+// sentence via the cached voice — reference features are computed once and
+// reused across calls. Output normalized to 44.1k mono wav via transcodeToWav
+// (same path as the HeyGen mp3). No word timestamps → caller transcribes.
+// Missing REF_AUDIO/REF_TEXT throws (misconfiguration, Base-only deployment
+// has no fallback voice); runtime failures return { ok:false }.
 const QWENTTS_LANG_FULL_NAME = {
   en: "English", zh: "Chinese", ja: "Japanese", ko: "Korean", de: "German",
   fr: "French", ru: "Russian", pt: "Portuguese", es: "Spanish", it: "Italian",
 };
 
+const QWENTTS_CLONE_SCRIPT_DEFAULT = "/opt/qwen3-tts-script/qwen3_tts_clone.py";
+
 async function synthesizeQwenTTS({ text, voiceId, lang, wavAbs }) {
-  const baseUrl = (process.env.QWENTTS_URL || "").replace(/\/+$/, "");
-  const mode = (process.env.QWENTTS_MODE || "speech").toLowerCase();
-  const instructions = process.env.QWENTTS_INSTRUCTIONS || undefined;
+  const apiBase = (process.env.QWENTTS_URL || "").replace(/\/+$/, "");
+  const refAudio = process.env.QWENTTS_REF_AUDIO;
+  const refText = process.env.QWENTTS_REF_TEXT;
+  const script = process.env.QWENTTS_CLONE_SCRIPT || QWENTTS_CLONE_SCRIPT_DEFAULT;
+  if (!refAudio)
+    throw new Error(
+      "QwenTTS voice clone: $QWENTTS_REF_AUDIO is not set (Base model has no built-in voices)",
+    );
+  if (!refText)
+    throw new Error(
+      "QwenTTS voice clone: $QWENTTS_REF_TEXT is not set (ICL clone needs the reference transcript)",
+    );
+  const outDir = mkdtempSync(join(tmpdir(), "qwentts-"));
   try {
-    let bytes;
-    if (mode === "chat") {
-      const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [{ role: "user", content: text }],
-          modalities: ["audio"],
-        }),
-      });
-      if (!res.ok) return { ok: false, words: null };
-      const payload = await res.json();
-      const b64 = payload?.choices?.[0]?.message?.audio?.data;
-      if (!b64) return { ok: false, words: null };
-      bytes = Buffer.from(b64, "base64");
-    } else {
-      // language omitted for en (server Auto-detects); non-en mapped to full name.
-      const language = QWENTTS_LANG_FULL_NAME[lang] || (lang !== "en" ? lang : undefined);
-      const body = { input: text, voice: voiceId };
-      if (language) body.language = language;
-      if (instructions) body.instructions = instructions;
-      const res = await fetch(`${baseUrl}/v1/audio/speech`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) return { ok: false, words: null };
-      bytes = Buffer.from(await res.arrayBuffer());
-    }
-    if (!transcodeToWav(bytes, wavAbs)) return { ok: false, words: null };
+    const cloneArgs = [
+      script,
+      "--api-base", apiBase,
+      "--ref-audio", refAudio,
+      "--ref-text", refText,
+      "--text", text,
+      "--output-dir", outDir,
+    ];
+    if (voiceId) cloneArgs.push("--voice-name", voiceId);
+    // language omitted for en (server Auto-detects); non-en mapped to full name.
+    const language = QWENTTS_LANG_FULL_NAME[lang];
+    if (language && lang !== "en") cloneArgs.push("--language", language);
+    const { cmd, args } = pythonInvocation(cloneArgs);
+    const r = spawnSync(cmd, args, { stdio: "ignore", timeout: 600_000 });
+    if (r.status !== 0) return { ok: false, words: null };
+    const wav = join(outDir, "001.wav");
+    if (!existsSync(wav)) return { ok: false, words: null };
+    if (!transcodeToWav(readFileSync(wav), wavAbs)) return { ok: false, words: null };
     return { ok: true, words: null };
   } catch {
     return { ok: false, words: null };
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
   }
 }
 ```
 
-> `synthesizeQwenTTS` 依赖同文件已有的 `transcodeToWav`（上游基础设施，把任意音频字节 ffmpeg 成 44.1k 单声道 wav）。无需新增。
+> `synthesizeQwenTTS` 依赖同文件已有的 `transcodeToWav`（上游基础设施，把任意音频字节 ffmpeg 成 44.1k 单声道 wav）、顶部已有的命名导入 `spawnSync` / `mkdtempSync` / `readFileSync` / `rmSync` / `existsSync` / `tmpdir` / `join`，以及 `./python.mjs` 的 `pythonInvocation`（跨平台 python3 解析，ElevenLabs 分支同型用法，容器内命中 PATH 最前的 `/root/.openharness-venv/bin/python3`，即 §3.7 装了 `httpx` 的 venv）。上游 v0.7.42 这些 import 均已存在，无需新增；若未来上游版本缺失再按名补。
 
 ### 3.4 `media-use/audio/scripts/audio.mjs` — 注释标注（2 处）
 
@@ -265,7 +279,7 @@ async function synthesizeQwenTTS({ text, voiceId, lang, wavAbs }) {
 **(a) Provider chain 表加 QwenTTS 第 1 行**：
 
 ```markdown
-| 1     | QwenTTS (local)   | `$QWENTTS_URL` set                          | QwenTTS voice names (e.g. `vivian`)         | No                                        | ffmpeg → wav 44.1k   |
+| 1     | QwenTTS (local)   | `$QWENTTS_URL` set                          | Voice clone from `$QWENTTS_REF_AUDIO` (auto-named `clone_<hash>`) | No                                        | ffmpeg → wav 44.1k   |
 ```
 
 **(b) 整节 `## QwenTTS (local deployment)`**（插入位置：在 HeyGen 节之后、`## When to use which provider` 之前）：
@@ -273,45 +287,32 @@ async function synthesizeQwenTTS({ text, voiceId, lang, wavAbs }) {
 ```markdown
 ## QwenTTS (local deployment)
 
-When `$QWENTTS_URL` is set (e.g. `http://localhost:8091`), QwenTTS becomes the highest-priority provider. Served via vLLM-Omni with the OpenAI-compatible `/v1/audio/speech` API.
+When `$QWENTTS_URL` is set (e.g. `http://localhost:8091`), QwenTTS becomes the highest-priority provider. Served via vLLM-Omni with the `Qwen/Qwen3-TTS-12Hz-1.7B-Base` voice-clone model; synthesis is delegated to the clone script `qwen3_tts_clone.py` (baked into the image at `/opt/qwen3-tts-script/`).
 
-### Model variants
+### How it works (voice clone via script)
 
-Each task type requires a matching model checkpoint:
-
-| Task Type     | Model                                    | Description                                        |
-| ------------- | ---------------------------------------- | -------------------------------------------------- |
-| `CustomVoice` | `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice`  | Predefined speaker voices + optional style/emotion  |
-| `VoiceDesign` | `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign`  | Generate speech from natural language voice description |
-| `Base`        | `Qwen/Qwen3-TTS-12Hz-1.7B-Base`         | Voice cloning from reference audio + transcript     |
-
-Default: `CustomVoice` (predefined speakers like `vivian`).
-
-### Modes
-
-| Mode      | Env var            | Endpoint                | Response format            |
-| --------- | ------------------ | ----------------------- | -------------------------- |
-| `speech`  | `QWENTTS_MODE=speech` (default) | `/v1/audio/speech`       | Binary WAV stream          |
-| `chat`    | `QWENTTS_MODE=chat`             | `/v1/chat/completions`   | JSON with base64 audio     |
+1. The script uploads `$QWENTTS_REF_AUDIO` + `$QWENTTS_REF_TEXT` once to `/v1/audio/voices` (idempotent — the voice name is a SHA1 of the audio content, so the same reference audio is reused across sentences, processes and sessions without re-uploading or re-computing reference features).
+2. Each sentence is then synthesized via `/v1/audio/speech` with `voice=<name>` — no audio payload, no feature recompute (server-side speaker cache).
+3. Output wav is normalized to 44.1kHz mono via ffmpeg.
 
 ### Environment variables
 
-| Variable              | Required | Default                                    | Description                                     |
-| --------------------- | -------- | ------------------------------------------ | ----------------------------------------------- |
-| `QWENTTS_URL`         | Yes      | —                                          | Service base URL (e.g. `http://localhost:8091`)  |
-| `QWENTTS_MODE`        | No       | `speech`                                   | `speech` (binary stream) or `chat` (base64 JSON)|
-| `QWENTTS_VOICE`       | No       | `vivian`                                   | Voice name (speech mode only; list via `/v1/audio/voices`) |
-| `QWENTTS_INSTRUCTIONS`| No       | —                                          | Style/emotion instruction (e.g. `"Speak with great enthusiasm"`, CustomVoice model only) |
+| Variable                | Required | Default                                       | Description                                     |
+| ----------------------- | -------- | --------------------------------------------- | ----------------------------------------------- |
+| `QWENTTS_URL`           | Yes      | —                                             | Service base URL (e.g. `http://localhost:8091`)  |
+| `QWENTTS_REF_AUDIO`     | Yes      | —                                             | Reference audio path inside the container (wav/mp3/flac/ogg, 1–30s) |
+| `QWENTTS_REF_TEXT`      | Yes      | —                                             | Transcript of the reference audio (ICL clone)   |
+| `QWENTTS_VOICE`         | No       | content-hash `clone_<sha1>`                   | Explicit voice name override (rarely needed)    |
+| `QWENTTS_CLONE_SCRIPT`  | No       | `/opt/qwen3-tts-script/qwen3_tts_clone.py`    | Clone script path override                      |
 
 ### Notes
 
+- The server must be serving the **Base** model variant (`Qwen/Qwen3-TTS-12Hz-1.7B-Base`); it has **no built-in voices** — a reference audio is mandatory. Missing `QWENTTS_REF_AUDIO`/`QWENTTS_REF_TEXT` throws immediately (misconfiguration); runtime failures (server unreachable, synthesis error) fall back gracefully with `{ok:false}`.
 - All output is normalized to WAV 44.1kHz mono via ffmpeg (QwenTTS may output 24kHz PCM natively).
-- `model` and `response_format` are omitted from the request (server defaults to loaded model + wav format).
 - `language` is omitted by default (server Auto-detects); when `--lang` is non-English, mapped to full name (e.g. `zh` → `"Chinese"`). Supported: Auto, Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian.
 - QwenTTS does not return word timestamps — chain `transcribe` after for caption data.
-- Voice names are QwenTTS-specific and not interchangeable with Kokoro/HeyGen/ElevenLabs.
+- Uploaded voices persist server-side (default `~/.cache/vllm-omni/speakers`); list via `GET /v1/audio/voices`, delete via `DELETE /v1/audio/voices/<name>`.
 - When `QWENTTS_URL` is unset, the provider chain falls through to HeyGen → ElevenLabs → Kokoro.
-- The server serves one model variant at a time; switching task types requires a server restart.
 ```
 
 **(c) `## When to use which provider` 表加 QwenTTS 行**：
@@ -319,6 +320,18 @@ Default: `CustomVoice` (predefined speakers like `vivian`).
 ```markdown
 | Self-hosted / local-first TTS, no cloud dependency         | **QwenTTS** (`$QWENTTS_URL`)                        |
 ```
+
+### 3.7 克隆脚本进镜像（Dockerfile.fix）
+
+克隆脚本不是 skill 文件（不在 `hyperframes_github_skills/`，不受上游同步覆盖），住仓库根 `Qwen3-TTS-Script/`，随镜像构建 `COPY` 到 `/opt/qwen3-tts-script/`，并把其唯一依赖 `httpx` 装进 OpenHarness venv（与 §8.3 pptx 依赖安装同型）：
+
+```dockerfile
+# ---- QwenTTS 声音克隆脚本（tts.mjs 的 synthesizeQwenTTS 通过它调用 Base 模型）----
+COPY Qwen3-TTS-Script/qwen3_tts_clone.py /opt/qwen3-tts-script/qwen3_tts_clone.py
+RUN /root/.openharness-venv/bin/pip install --no-cache-dir httpx
+```
+
+参考音频不烧进镜像（部署环境自带）：通过 `docker-compose.yml` volume 挂载进容器，`QWENTTS_REF_AUDIO` 指向容器内路径（见 §5.3）。
 
 ---
 
@@ -401,17 +414,26 @@ OH_VERSION_HYPERFRAMES_VERSION=v0.1.9_v0.7.42_v1.3_v2.0
 
 ### 5.3 `docker-compose.yml` — QwenTTS 环境变量
 
-`api` 与 `openharness` 服务都需透传 QwenTTS 环境变量（已有，同步新版时保留）：
+`api` 与 `openharness` 服务都需透传 QwenTTS 环境变量（v1.4 克隆脚本版：`QWENTTS_MODE` / `QWENTTS_MODEL` / `QWENTTS_INSTRUCTIONS` 已废弃移除，新增参考音频三项）：
 
 ```yaml
 environment:
   - QWENTTS_URL=${QWENTTS_URL:-}
-  - QWENTTS_MODE=${QWENTTS_MODE:-speech}
-  - QWENTTS_MODEL=${QWENTTS_MODEL:-}
+  - QWENTTS_REF_AUDIO=${QWENTTS_REF_AUDIO:-}
+  - QWENTTS_REF_TEXT=${QWENTTS_REF_TEXT:-}
   - QWENTTS_VOICE=${QWENTTS_VOICE:-}
-  - QWENTTS_INSTRUCTIONS=${QWENTTS_INSTRUCTIONS:-}
+  - QWENTTS_CLONE_SCRIPT=${QWENTTS_CLONE_SCRIPT:-}
   - PRODUCER_HEADLESS_SHELL_PATH=/opt/chrome-headless-shell-linux64/chrome-headless-shell
   - CHROME_HEADLESS_BIN=/opt/chrome-headless-shell-linux64/chrome-headless-shell
+```
+
+参考音频挂载（宿主机音频目录 → 容器内只读），`QWENTTS_REF_AUDIO` 指向容器内路径：
+
+```yaml
+volumes:
+  - ${QWENTTS_REF_AUDIO_HOST_DIR:-./assets/tts-ref}:/opt/tts-ref:ro
+# .env 例：QWENTTS_REF_AUDIO=/opt/tts-ref/reference.wav
+#        QWENTTS_REF_TEXT=参考音频的转写文本
 ```
 
 ---
@@ -425,8 +447,11 @@ environment:
 node --check hyperframes_github_skills/media-use/audio/scripts/lib/tts.mjs
 node --check hyperframes_github_skills/media-use/audio/scripts/audio.mjs
 
-# QwenTTS 注入点计数（tts.mjs 应 ≈ 20 处 qwentts）
+# QwenTTS 注入点计数（tts.mjs 应 ≥ 20 处 qwentts）
 grep -c -i qwentts hyperframes_github_skills/media-use/audio/scripts/lib/tts.mjs
+
+# 克隆脚本本体语法（仅需 python3，不需依赖）
+python3 -m py_compile Qwen3-TTS-Script/qwen3_tts_clone.py
 ```
 
 ### 6.2 容器侧（确认 api 服务加载的就是改过的 skill）
@@ -441,6 +466,18 @@ docker exec openharness-api grep -c qwentts /opt/oh-skills-builtin/media-use/aud
 
 # 运行时加载的 skill 也含 QwenTTS（证明已同步到卷）
 docker exec openharness-api grep -c qwentts /root/.openharness/skills/media-use/audio/scripts/lib/tts.mjs
+
+# 克隆脚本已烧进镜像 + httpx 已装进 venv（§3.7）
+docker exec openharness-api ls /opt/qwen3-tts-script/qwen3_tts_clone.py
+docker exec openharness-api /root/.openharness-venv/bin/python -c "import httpx;print('ok')"
+
+# 参考音频已挂载、环境变量已透传
+docker exec openharness-api sh -c 'ls "$QWENTTS_REF_AUDIO" && echo "$QWENTTS_REF_TEXT" | head -c 60'
+
+# 单句克隆冒烟（需 QwenTTS 服务在线；首次上传音色，第二次起应明显变快）
+docker exec openharness-api /root/.openharness-venv/bin/python /opt/qwen3-tts-script/qwen3_tts_clone.py \
+  --api-base "$QWENTTS_URL" --ref-audio "$QWENTTS_REF_AUDIO" --ref-text "$QWENTTS_REF_TEXT" \
+  --text "克隆链路冒烟测试。" --output-dir /tmp/qwentts-smoke
 
 # bundled chrome 已预装（build 时 ensure 烧进镜像，运行时 ensure 应秒级 no-op，doctor 不报 missing）
 docker exec openharness-api ls /root/.cache/hyperframes/chrome/
@@ -581,6 +618,7 @@ python3 -m py_compile scripts/pptx_path.py scripts/chart_extractor.py \
 | 2026-07-08 | —                 | **按第 2 节工作流重新同步 + 重打补丁（OpenSpec 驱动）**：升级 HyperFrames skill 至 v0.7.42；用 `hyperframes_github_skills_latest/` 镜像覆盖 `hyperframes_github_skills/`；关键适配——**上游把 `hyperframes-media` 重命名为 `media-use`**，共享 TTS 库移到 `media-use/audio/scripts/lib/tts.mjs`，全部 QwenTTS / Chrome 补丁按"意图"重映射到 `media-use` / `hyperframes-cli`；静态验证全过（`node --check`、qwentts 计数 20、`OpenHarness runtime` callout 各 1）。详见第 10 节 |
 | 2026-07-23 | —                 | 文档随 monorepo 搬迁至仓库根 `docs/`：相对链接 `../../`→`../`、§1.1 布局图补 `docs/`、§2 引用新增 `sync_hyperframes_skills.sh`；修脚本 `DEST_DIR` 误指 `OpenHarness/` 子目录；刷新 Dockerfile/Dockerfile.fix 过时行号锚点；§3/§6/§7 的 `hyperframes-media/` 路径统一为 `media-use/audio/`（落实 §10.1 待办）。详见第 12 节 |
 | 2026-07-27 | —                 | **补丁二精简（我的操作）**：① 去除 skill 文档 Chrome 路径 callout（`hyperframes-cli/SKILL.md` ⑪、`hyperframes-cli/references/doctor-browser.md` ⑫/⑬/⑭）——运行时已预配置 `PRODUCER_HEADLESS_SHELL_PATH` / `CHROME_HEADLESS_BIN`；② 应需求**保留** build 时预装 bundled chrome 兜底，恢复 `Dockerfile`（第 69 行）与 `Dockerfile.fix`（第 44 行）的 `RUN HYPERFRAMES_NO_AUTO_INSTALL=0 npx hyperframes browser ensure`；③ 文档同步：原 §4 整节删除后重开为"§4 保留 build 兜底"（仅 §4.1），§6.2 恢复 bundled chrome 检查。详见 §13。 |
+| 2026-07-27 | —                 | **QwenTTS 调用方式改为克隆脚本（v1.4）**：部署固定 `Qwen3-TTS-12Hz-1.7B-Base`（无预置音色），`synthesizeQwenTTS` 改为 spawn `qwen3_tts_clone.py` 做声音克隆（upload 模式）；环境变量换血（新增 `QWENTTS_REF_AUDIO`/`QWENTTS_REF_TEXT`/`QWENTTS_CLONE_SCRIPT`，废弃 `QWENTTS_MODE`/`QWENTTS_MODEL`/`QWENTTS_INSTRUCTIONS`）；文档同步 §3.1–§3.7 / §5.3 / §6，并已落地实际文件、静态验证全过。详见 §14 |
 
 ---
 
@@ -603,75 +641,20 @@ python3 -m py_compile scripts/pptx_path.py scripts/chart_extractor.py \
 - `media-use/SKILL.md` 第 18 行注有 "hyperframes-media retired"，印证重命名。
 - **对文档的影响**：第 3 节 / 第 6 节 / 第 7 节里的 `hyperframes-media/...` 路径原指向上游旧名；已于 2026-07-23 统一改为 `media-use/audio/...`（§3.2 涉及文件表、§6.1 验证命令、§7 引用，见第 12 节）。
 
-### 10.2 操作步骤与结果
+### 10.2 操作摘要与结果（精简）
 
-**① 备份 + 镜像覆盖（对应 §2 第 1–2 步）**
+- **备份 + 镜像覆盖（§2 第 1–2 步）**：备份后用 `hyperframes_github_skills_latest/` 先删后拷精确镜像 `hyperframes_github_skills/`。技能集合与 latest 一致：**新增** `figma` / `hyperframes-keyframes` / 新版 `media-use`；**移除** 已退休的 `hyperframes-media` / `graphic-overlays`（无 OpenHarness 标记、未被任何 Dockerfile/compose 引用，纯上游漂移）。镜像后 tts.mjs 的 `qwentts` 计数为 **0**（干净基线）。
+- **重打补丁**：QwenTTS 注入点 ①–⑩ 按 §3 逐字重放（路径映射为 `media-use/audio/`）；Chrome 路径 callout ⑪–⑭ 按当时的 §4 重放。当次静态验证全过（`node --check` ×2、qwentts 计数 20、`OpenHarness runtime` callout 各 1）。
+- **构建配置核对（§5）**：仅校验未改动——`Dockerfile.fix` 已含 `browser ensure` 兜底，`.env.example` / `docker-compose.yml` 版本标签一致。
+- **OpenSpec 归档**：变更 `sync-hyperframes-latest-patches` 实施后归档至 `openspec/changes/archive/`，delta 合入主 spec `openspec/specs/media-use-tts.md`（本仓库 `.gitignore` 忽略 `openspec/`，记录本地留存）。
 
-```bash
-# 备份实际使用目录（安全网）
-cp -a hyperframes_github_skills hyperframes_github_skills.bak.20260708_170149
-# 精确镜像 latest 基线（先删后拷，保证集合完全一致）
-rm -rf hyperframes_github_skills && cp -a hyperframes_github_skills_latest hyperframes_github_skills
-```
+> ⚠ 本节为当次操作快照，部分内容已被后续变更取代：Chrome callout ⑪–⑭ 已于 2026-07-27 删除（§13）；`synthesizeQwenTTS` 的 speech/chat 双模式已改为克隆脚本调用（v1.4，§14），qwentts 计数现为 31。**当前终态一律以 §3 / §4 为准。**
 
-- 镜像后技能集合与 latest 一致：**新增** `figma` / `hyperframes-keyframes` / 新版 `media-use`；**移除** 已退休的 `hyperframes-media` / `graphic-overlays` / 旧版 `media-use`（`graphic-overlays` 无 OpenHarness 标记、未被任何 Dockerfile/compose 引用，判定为纯上游漂移，随镜像删除）。
-- 镜像后 `media-use/audio/scripts/lib/tts.mjs` 的 `qwentts` 计数为 **0**（干净基线，符合预期）。
+### 10.3 待办 / 风险提示（2026-07-27 刷新）
 
-**② 重新应用 QwenTTS 补丁（对应 §3，路径适配 media-use）**
-
-| 注入点                                                                                      | 文件                                    | 状态 |
-| ------------------------------------------------------------------------------------------- | --------------------------------------- | ---- |
-| ① 顶部 provider chain 注释（QwenTTS 第 1 条）                                              | `media-use/audio/scripts/lib/tts.mjs` | ✅   |
-| ②`qwenttsAvailable()`                                                                    | 同上                                    | ✅   |
-| ③`pickProvider()` 链首 + 白名单 + 校验                                                   | 同上                                    | ✅   |
-| ④`resolveVoiceId()` qwentts 分支                                                         | 同上                                    | ✅   |
-| ⑤`synthesizeOne()` qwentts 分发                                                          | 同上                                    | ✅   |
-| ⑥`synthesizeQwenTTS()` + `QWENTTS_LANG_FULL_NAME` 常量（置于 `transcodeToWav` 附近） | 同上                                    | ✅   |
-| ⑦ audio.mjs 顶部 switch 注释 QwenTTS exception                                             | `media-use/audio/scripts/audio.mjs`   | ✅   |
-| ⑧ audio.mjs TTS chain 注释 QwenTTS 首位                                                    | 同上                                    | ✅   |
-| ⑨ SKILL.md description / audio-engine 例外 / provider 表第 1 行                            | `media-use/SKILL.md`                  | ✅   |
-| ⑩ tts.md provider chain 表 +`## QwenTTS` 整节 + `When to use` 行                       | `media-use/audio/references/tts.md`   | ✅   |
-
-代码块逐字照搬文档 §3.3 / §3.5 / §3.6，仅文件路径映射为 `media-use`。所有 QwenTTS 逻辑（含 `synthesizeQwenTTS` 的 `speech`/`chat` 双模式与优雅失败 `{ok:false}`）完全保留。
-
-**③ 重新应用 Chrome 路径补丁（对应 §4）**
-
-| 注入点                                                     | 文件                                             | 状态 |
-| ---------------------------------------------------------- | ------------------------------------------------ | ---- |
-| ⑪ Render 步骤 OpenHarness runtime callout（置变体列表前） | `hyperframes-cli/SKILL.md`                     | ✅   |
-| ⑫ 顶部`OpenHarness runtime note` callout                | `hyperframes-cli/references/doctor-browser.md` | ✅   |
-| ⑬`## Using a specific Chrome for render` 段             | 同上                                             | ✅   |
-| ⑭ Common issues "Missing bundled Chrome" caveat           | 同上                                             | ✅   |
-
-**④ 构建配置核对（对应 §5）**——本次仅校验、未改动（git log 显示已在前序提交就绪）：
-
-- `Dockerfile.fix` 已含 `npx hyperframes browser ensure`（§4.5 build 层兜底）✅
-- `.env.example` 版本标签 = `v0.1.9_v0.7.42_v1.3_v2.0`，`docker-compose.yml` 同标签 + `QWENTTS_URL` 透传 ✅
-
-### 10.3 验证结果（对应 §6.1 静态）
-
-| 检查                    | 命令（路径适配 media-use）                                                          | 结果                            |
-| ----------------------- | ----------------------------------------------------------------------------------- | ------------------------------- |
-| JS 语法                 | `node --check media-use/audio/scripts/lib/tts.mjs`                                | ✅ OK                           |
-| JS 语法                 | `node --check media-use/audio/scripts/audio.mjs`                                  | ✅ OK                           |
-| QwenTTS 注入计数        | `grep -ci qwentts media-use/audio/scripts/lib/tts.mjs`                            | **20**（文档目标 ≈20）✅ |
-| Chrome callout          | `grep -c "OpenHarness runtime note" hyperframes-cli/references/doctor-browser.md` | **1** ✅                  |
-| Chrome callout（SKILL） | `grep -c "OpenHarness runtime" hyperframes-cli/SKILL.md`                          | **1** ✅                  |
-| 文档落地                | `grep -ci qwentts media-use/SKILL.md` / `.../tts.md` / `.../audio.mjs`        | 3 / 14 / 2 ✅                   |
-
-> 容器侧验证（§6.2：docker inspect / exec）需运行中容器，本环境无 Docker，未执行；镜像重建后按 §6.2 补验即可。
-
-### 10.4 OpenSpec 流程归档
-
-- 变更 `sync-hyperframes-latest-patches`：`openspec/changes/` 下创建 `proposal.md` + `tasks.md` + `specs/media-use-tts_delta.md`，所有 tasks 标记完成。
-- 归档：`openspec/changes/archive/sync-hyperframes-latest-patches/`，delta 合入主 spec `openspec/specs/media-use-tts.md`，proposal 追加 archive 元数据。
-- ⚠ 注意：本仓库 `.gitignore` 忽略 `openspec/`，故归档的 git commit 被跳过（符合仓库约定，OpenSpec 记录本地留存即可）。
-
-### 10.5 待办 / 风险提示
-
-1. **`hyperframes_github_skills/` 含 214 处 git 改动（镜像 + 补丁），尚未提交**——请 review 后再决定是否 `git add hyperframes_github_skills && commit`。
-2. **备份目录** `hyperframes_github_skills.bak.20260708_170149` 保留为回滚点（review 确认无误后可删）。
-3. ✅ ~~**文档 §3/§6/§7 路径仍为 `hyperframes-media`**~~——已于 2026-07-23 统一改为 `media-use/audio/`（见第 12 节），本条结项。
+1. ✅ ~~`hyperframes_github_skills/` 214 处 git 改动待 review 提交~~——已随后续提交入库（`86be446` 等），结项。
+2. ✅ ~~备份目录 `hyperframes_github_skills.bak.20260708_170149` 保留为回滚点~~——已删除，结项。
+3. ✅ ~~文档 §3/§6/§7 路径仍为 `hyperframes-media`~~——已于 2026-07-23 统一改为 `media-use/audio/`（见 §12），结项。
 4. 容器侧 §6.2 验证待补（需 Docker + 运行中镜像）。
 
 ---
@@ -708,23 +691,14 @@ docker compose up --build        # 一键拉起 postgres/redis/api/web
 
 ---
 
-## 12. 文档搬迁 + 脚本修正（2026-07-23）
+## 12. 文档搬迁 + 脚本修正（2026-07-23，精简记录）
 
-monorepo 重构（§11）后，本指南文档从 `OpenHarness/docs/` 搬到仓库根 `docs/`（git `c5be468`，纯移动、内容未改），同时根目录新增 `sync_hyperframes_skills.sh` 自动化拉取。本次据此修订：
+monorepo 重构（§11）后，本指南从 `OpenHarness/docs/` 搬到仓库根 `docs/`（git `c5be468`，纯移动），据此做了四类一次性修订：
 
-### 12.1 链接前缀与文档位置
-- §1.1 “本文档位于”由 `OpenHarness/docs/`（上跳两级 `../../`）改为 `docs/`（上跳一级 `../`）；全文 7 处 `../../Dockerfile*` → `../Dockerfile*`。
-- §1.1 布局图去掉 `OpenHarness/ ... + 本文档` 的“+ 本文档”，补 `docs/` 行。
-
-### 12.2 同步脚本
-- §2 第 1 步改为引用 `./sync_hyperframes_skills.sh`（从 `heygen-com/hyperframes` main 拉 tar、解压 `skills/` 到 `hyperframes_github_skills_latest/`，带代理/重试）。
-- 修脚本 bug：`DEST_DIR` 由 `$SCRIPT_DIR/OpenHarness/hyperframes_github_skills_latest`（monorepo 后该子目录不存在）改为 `$SCRIPT_DIR/hyperframes_github_skills_latest`（仓库根，与 §1 表格基线位置一致）。
-
-### 12.3 行号锚点刷新
-Dockerfile / Dockerfile.fix 在 monorepo 构建输入对齐时增删了若干块，行号整体下移，刷新过时锚点：`Dockerfile#L98`→`#L102`、`Dockerfile#L87`→`#L91`、`Dockerfile:102-104`→`#L106-L108`、`Dockerfile.fix:36`→`#L47`、`Dockerfile.fix:36-38`→`#L90-L93`；`Dockerfile#L58-L60` 实际未变，仅改前缀。
-
-### 12.4 路径统一（落实 §10.1 待办）
-§3 / §6 / §7 里残留的 `hyperframes-media/...` 旧路径统一改为重命名后的 `media-use/audio/...`（`SKILL.md` 对应 `media-use/SKILL.md`）。§10.1 的映射表与 §9 / §10 变更历史作为“重命名事件”记录，保留旧名不改。
+- **链接与布局**：全文 7 处 `../../Dockerfile*` → `../Dockerfile*`；§1.1 布局图补 `docs/` 行。
+- **同步脚本**：§2 第 1 步改为引用根目录 `./sync_hyperframes_skills.sh`；修脚本 bug——`DEST_DIR` 误指 monorepo 后已不存在的 `OpenHarness/` 子目录，改为仓库根 `hyperframes_github_skills_latest/`。
+- **行号锚点**：刷新 Dockerfile / Dockerfile.fix 因构建输入对齐整体下移的过时锚点（一次性修订，明细略）。
+- **路径统一（落实 §10.1 待办）**：§3/§6/§7 残留的 `hyperframes-media/...` 统一改为 `media-use/audio/...`；§10.1 映射表与 §9 变更历史作为“重命名事件”记录，保留旧名不改。
 
 ---
 
@@ -751,3 +725,20 @@ Dockerfile / Dockerfile.fix 在 monorepo 构建输入对齐时增删了若干块
 - §9 变更历史新增本条（标注「我的操作」）。
 
 > 净效果：`render` 走运行时预配置的 `PRODUCER_HEADLESS_SHELL_PATH`；`doctor`/`ensure` 走的 bundled chrome 在 build 时一次性预装好，两套 chrome 互不干扰、互不卡下载。
+
+---
+
+## 14. QwenTTS 改为克隆脚本调用 v1.4（2026-07-27，我的操作）
+
+部署固定 `Qwen/Qwen3-TTS-12Hz-1.7B-Base`（无预置音色，只支持 ICL 声音克隆），`synthesizeQwenTTS` 从直连 `/v1/audio/speech` 的 speech/chat 双模式改为 spawn `Qwen3-TTS-Script/qwen3_tts_clone.py`（upload 模式：参考音频只上传一次、音色名按音频内容 SHA1 生成 `clone_<sha1>`、幂等、跨调用复用服务端 speaker cache）。补丁终态见 §3，本节仅记录操作与决策。
+
+**关键决策**
+
+- **fail-fast，不回退**：`QWENTTS_REF_AUDIO` / `QWENTTS_REF_TEXT` 未配置直接抛错（Base 模型没有可回退的预置音色，静默回退只会掩盖配置错误）；运行期失败（服务不可达/合成失败/超时）仍 `{ok:false}` 优雅降级到下一 provider，不写半成品。
+- **复用文件既有惯用法**：落地时用 `pythonInvocation`（`lib/python.mjs`，与 ElevenLabs 分支同型的跨平台 python 解析）替代草案硬编码的 `spawnSync("python3")`，并用命名导入（`mkdtempSync`/`join`/`tmpdir`）替代 `fs.*`/`path.*` 前缀写法；§3.3 注入点⑥已回写为落地版，保证未来可逐字重放。
+- **脚本 COPY 进镜像**：`Dockerfile.fix` 新增 `COPY Qwen3-TTS-Script/qwen3_tts_clone.py /opt/qwen3-tts-script/` + venv 装 `httpx`（§3.7）；参考音频不烧镜像，经 compose 只读挂载 `${QWENTTS_REF_AUDIO_HOST_DIR:-./assets/tts-ref}:/opt/tts-ref:ro` 进容器。
+- **环境变量换血**：新增 `QWENTTS_REF_AUDIO` / `QWENTTS_REF_TEXT` / `QWENTTS_CLONE_SCRIPT` / `QWENTTS_VOICE`（可选覆盖）；废弃 `QWENTTS_MODE` / `QWENTTS_MODEL` / `QWENTTS_INSTRUCTIONS`。
+
+**落地文件**：`hyperframes_github_skills/media-use/audio/scripts/lib/tts.mjs`（4 处注入）+ `media-use/audio/references/tts.md`、`Dockerfile.fix`、`docker-compose.yml`（openharness/api 环境变量 + `/opt/tts-ref` 挂载，shell 经 extends 继承）、`.env.example`；`SKILL.md` 经核对无需改动。
+
+**验证**：静态全过——`node --check` tts.mjs / audio.mjs、qwentts 计数 **31**、克隆脚本 `py_compile`、`docker compose config`。**待办**：重建镜像后按 §6.2 补容器侧验证（脚本存在、venv `import httpx`、参考音频挂载、单句克隆冒烟）。

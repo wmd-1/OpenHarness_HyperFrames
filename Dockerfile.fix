@@ -53,6 +53,11 @@ COPY pptx2html_github_skills/ /opt/oh-skills-builtin/
 RUN /root/.openharness-venv/bin/pip install --no-cache-dir \
         -r /opt/oh-skills-builtin/pptx-to-html/requirements.txt
 
+# ---- QwenTTS 声音克隆脚本（tts.mjs 的 synthesizeQwenTTS 通过它调用 Base 模型）----
+# 非 skill 文件，不随上游同步覆盖；唯一依赖 httpx 装进 venv。
+COPY Qwen3-TTS-Script/qwen3_tts_clone.py /opt/qwen3-tts-script/qwen3_tts_clone.py
+RUN /root/.openharness-venv/bin/pip install --no-cache-dir httpx
+
 ARG Model_Download=""
 RUN if [ -n "${Model_Download}" ]; then \
     # ---- 预下载 Whisper small 转录模型（~466 MB）到 ~/.cache/hyperframes/whisper/ ----
