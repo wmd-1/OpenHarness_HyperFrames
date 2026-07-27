@@ -27,6 +27,21 @@ log = logging.getLogger(__name__)
 _ROUTE_PREFIX = "session:route:"
 _LOCK_PREFIX = "session:lock:"
 
+# Atomic GET + compare + DEL — releases the lock only if we still hold it
+# (SS-7): a non-atomic GET/compare/DELETE could delete another holder's lock
+# after ours expired in between.
+_RELEASE_LOCK_LUA = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+else
+    return 0
+end
+"""
+
+# Module-level connection pool singleton (SS-2): one pool per process, shared
+# by every routing/lock call instead of a fresh TCP connection per operation.
+_redis: aioredis.Redis | None = None
+
 
 @dataclass
 class RouteEntry:
@@ -48,7 +63,25 @@ class RouteEntry:
 
 
 async def _client() -> aioredis.Redis:
-    return aioredis.from_url(settings.broker_url, decode_responses=True)
+    global _redis
+    if _redis is None:
+        _redis = aioredis.from_url(
+            settings.broker_url,
+            decode_responses=True,
+            max_connections=32,
+        )
+    return _redis
+
+
+async def close_client() -> None:
+    """Dispose the shared pool (shutdown hook / tests)."""
+    global _redis
+    if _redis is not None:
+        try:
+            await _redis.aclose()
+        except Exception:
+            pass
+        _redis = None
 
 
 def _route_key(sid: str) -> str:
@@ -67,13 +100,8 @@ async def register_route(sid: str, pid: int, epoch: int) -> None:
     """Publish/refresh this node's ownership of ``sid`` with a TTL."""
     try:
         r = await _client()
-        try:
-            entry = RouteEntry(node_id=_node_id(), pid=pid, epoch=epoch)
-            await r.set(
-                _route_key(sid), entry.to_json(), ex=settings.route_ttl_seconds
-            )
-        finally:
-            await r.aclose()
+        entry = RouteEntry(node_id=_node_id(), pid=pid, epoch=epoch)
+        await r.set(_route_key(sid), entry.to_json(), ex=settings.route_ttl_seconds)
     except Exception as exc:
         log.debug("register_route failed (sid=%s): %s", sid, exc)
 
@@ -86,10 +114,7 @@ async def heartbeat_route(sid: str, pid: int, epoch: int) -> None:
 async def get_route(sid: str) -> RouteEntry | None:
     try:
         r = await _client()
-        try:
-            raw = await r.get(_route_key(sid))
-        finally:
-            await r.aclose()
+        raw = await r.get(_route_key(sid))
         if not raw:
             return None
         return RouteEntry.from_json(raw)
@@ -101,10 +126,7 @@ async def get_route(sid: str) -> RouteEntry | None:
 async def clear_route(sid: str) -> None:
     try:
         r = await _client()
-        try:
-            await r.delete(_route_key(sid))
-        finally:
-            await r.aclose()
+        await r.delete(_route_key(sid))
     except Exception:
         pass
 
@@ -124,10 +146,7 @@ async def acquire_lock(sid: str, holder: str, ttl: int = 60) -> bool:
     """
     try:
         r = await _client()
-        try:
-            ok = await r.set(_lock_key(sid), holder, nx=True, ex=ttl)
-        finally:
-            await r.aclose()
+        ok = await r.set(_lock_key(sid), holder, nx=True, ex=ttl)
         return bool(ok)
     except Exception as exc:
         log.debug("acquire_lock failed (sid=%s): %s", sid, exc)
@@ -135,14 +154,10 @@ async def acquire_lock(sid: str, holder: str, ttl: int = 60) -> bool:
 
 
 async def release_lock(sid: str, holder: str) -> None:
+    """Release the lock atomically (GET + compare + DEL via Lua, SS-7)."""
     try:
         r = await _client()
-        try:
-            current = await r.get(_lock_key(sid))
-            if current == holder:
-                await r.delete(_lock_key(sid))
-        finally:
-            await r.aclose()
+        await r.eval(_RELEASE_LOCK_LUA, 1, _lock_key(sid), holder)
     except Exception:
         pass
 

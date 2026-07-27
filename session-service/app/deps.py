@@ -8,9 +8,16 @@ from app import db
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Yield an async DB session (auto-close)."""
+    """Yield an async DB session, explicitly closed in ``finally`` (SS-8).
+
+    Matches :func:`app.db.get_async_session` so both dependencies release the
+    connection even when the route handler raises.
+    """
     async with db.async_session() as session:
-        yield session
+        try:
+            yield session
+        finally:
+            await session.close()
 
 
 def get_current_tenant_id() -> str:

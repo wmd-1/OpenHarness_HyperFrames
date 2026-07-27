@@ -20,10 +20,14 @@ import asyncio
 import json
 import logging
 
+from app.config import settings
 from app.session.process import OhBackendProcess
 from app.session.protocol import OHJSON_PREFIX, BackendEvent, FrontendRequest
 
 log = logging.getLogger(__name__)
+
+# Bound for non-protocol log lines forwarded to the log stream (SS-14).
+_LOG_LINE_MAX = 8192
 
 
 class ProtocolAdapter:
@@ -58,11 +62,24 @@ class ProtocolAdapter:
     async def _handle_line(self, line: str) -> None:
         if line.startswith(OHJSON_PREFIX):
             payload = line[len(OHJSON_PREFIX):]
+            # Payload size cap (SS-14): an unbounded upstream payload could
+            # exhaust memory; oversized events are rejected (truncated into the
+            # diagnostic log stream, never parsed).
+            if len(payload) > settings.backend_event_max_bytes:
+                log.warning(
+                    "oversized OHJSON payload (%d bytes > %d), rejected",
+                    len(payload), settings.backend_event_max_bytes,
+                )
+                await self.logs.put(
+                    f"[oversized event rejected: {len(payload)} bytes] "
+                    + payload[:_LOG_LINE_MAX]
+                )
+                return
             try:
                 data = json.loads(payload)
             except json.JSONDecodeError:
                 log.warning("malformed OHJSON line, routing to logs: %r", line[:200])
-                await self.logs.put(line)
+                await self.logs.put(line[:_LOG_LINE_MAX])
                 return
             try:
                 event = BackendEvent.model_validate(data)
@@ -75,7 +92,7 @@ class ProtocolAdapter:
                 })
             await self.events.put(event)
         else:
-            await self.logs.put(line)
+            await self.logs.put(line[:_LOG_LINE_MAX])
 
     # --- Client → subprocess (bare-JSON writes) -------------------------------
 

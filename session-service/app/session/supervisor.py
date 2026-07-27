@@ -24,6 +24,7 @@ from typing import Any, AsyncGenerator
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.models import Conversation, ConversationTurn, SessionStatus, TurnArtifact, TurnStatus
@@ -31,7 +32,7 @@ from app.observability.metrics import SESSIONS_LIVE, track_turn
 from app.session import logs as log_stream
 from app.session import registry as route_registry
 from app.session.adapter import ProtocolAdapter
-from app.session.artifacts import locate_output_file, probe_mp4
+from app.session.artifacts import locate_output_file, probe_mp4_async
 from app.session.lifecycle import IllegalTransition, SessionState, is_live_process, transition
 from app.session.process import OhBackendProcess, derive_oh_session_id
 from app.storage.s3 import storage_for_kind
@@ -114,6 +115,13 @@ class SessionSupervisor:
 
     def __init__(self) -> None:
         self._sessions: dict[uuid.UUID, LiveSession] = {}
+        # Serializes tenant-quota check + create (SS-3): the router holds this
+        # lock across count_live_for_tenant() + create_session() so two
+        # concurrent requests cannot both pass the check (TOCTOU).
+        self.quota_lock = asyncio.Lock()
+        # Per-sid registration locks (SS-4): serialize COLD-reconnect
+        # registration so only one WS client triggers rehydrate.
+        self._registration_locks: dict[uuid.UUID, asyncio.Lock] = {}
 
     # --- registry queries ---------------------------------------------------
 
@@ -133,6 +141,46 @@ class SessionSupervisor:
 
     def live_count(self) -> int:
         return sum(1 for s in self._sessions.values() if s.is_live())
+
+    def count_live_for_tenant(self, tenant_id: str) -> int:
+        """Count this tenant's live sessions (public API, SS-10 encapsulation)."""
+        return sum(
+            1
+            for s in self._sessions.values()
+            if s.tenant_id == tenant_id and s.is_live()
+        )
+
+    async def register_live_session(
+        self, live: LiveSession, *, db: AsyncSession
+    ) -> LiveSession:
+        """Register (and rehydrate if COLD) a session under a per-sid lock.
+
+        Single-writer guarantee (SS-4): when two WS clients reconnect to the
+        same COLD session concurrently, only the first triggers ``--resume``;
+        the second waits on the lock and reuses the already-live session.
+        """
+        lock = self._registration_locks.setdefault(live.sid, asyncio.Lock())
+        async with lock:
+            existing = self._sessions.get(live.sid)
+            if existing is not None and existing.is_live():
+                return existing
+            self._sessions[live.sid] = live
+            try:
+                if live.state == SessionState.COLD:
+                    await self.rehydrate(live, db=db)
+            except Exception:
+                # Failed to come up — drop the placeholder so a later attempt
+                # (or another client) can retry cleanly.
+                if self._sessions.get(live.sid) is live:
+                    self._sessions.pop(live.sid, None)
+                raise
+            return live
+
+    def remove_live_session(self, sid: uuid.UUID | str) -> None:
+        """Drop a session from the registry (public API, SS-10)."""
+        key = uuid.UUID(str(sid)) if not isinstance(sid, uuid.UUID) else sid
+        self._sessions.pop(key, None)
+        self._registration_locks.pop(key, None)
 
     @property
     def capacity(self) -> int:
@@ -550,7 +598,9 @@ class SessionSupervisor:
         except Exception:
             return
         try:
-            meta = probe_mp4(path)
+            # Blocking ffprobe runs in the executor (SS-1) so the event loop
+            # keeps serving concurrent WS/HTTP traffic.
+            meta = await probe_mp4_async(path)
         except Exception:
             meta = None
         storage = storage_for_kind(settings.storage_kind)
@@ -691,9 +741,10 @@ class SessionSupervisor:
         if live.state in (SessionState.LIVE, SessionState.IDLE):
             SESSIONS_LIVE.dec()
         live.state = SessionState.CLOSED
-        # Clean workspace + native snapshot dir.
+        # Clean workspace + native snapshot dir (blocking rmtree offloaded to
+        # the threadpool, SS-17).
         if live.cwd.exists():
-            shutil.rmtree(live.cwd, ignore_errors=True)
+            await run_in_threadpool(shutil.rmtree, live.cwd, ignore_errors=True)
         await route_registry.clear_route(str(sid))
         await route_registry.release_lock(str(sid), f"{settings.node_id or 'local'}:{live.epoch}")
         await log_stream.clear_logs(str(sid))
@@ -715,7 +766,7 @@ class SessionSupervisor:
             conv.status = SessionStatus.CLOSED
             conv.workspace_path = None
         await db.commit()
-        self._sessions.pop(live.sid, None)
+        self.remove_live_session(live.sid)
 
     async def shutdown_all(self) -> None:
         """Graceful gateway shutdown: tear down every live session."""
@@ -756,7 +807,8 @@ class SessionSupervisor:
             async with _db.async_session() as db:
                 conv = await db.get(Conversation, sid)
                 if conv is None or conv.status in (SessionStatus.CLOSED, SessionStatus.EXPIRED):
-                    shutil.rmtree(entry, ignore_errors=True)
+                    # Blocking rmtree offloaded to the threadpool (SS-17).
+                    await run_in_threadpool(shutil.rmtree, entry, ignore_errors=True)
                     cleaned += 1
                     if conv is not None:
                         conv.workspace_path = None

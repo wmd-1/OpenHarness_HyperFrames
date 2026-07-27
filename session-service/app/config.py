@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     route_ttl_seconds: int = 30
     # Bound on the per-session Redis Stream log (approximate maxlen).
     log_stream_maxlen: int = 2000
+    # Max accepted size (bytes) of one OHJSON backend-event payload (SS-14);
+    # oversized payloads are rejected instead of parsed.
+    backend_event_max_bytes: int = 1048576
 
     # --- API ---
     api_host: str = "0.0.0.0"
@@ -86,6 +89,10 @@ class Settings(BaseSettings):
     # --- Rate limiting (mirror service/) ---
     rate_limit_capacity: int = 10
     rate_limit_refill: float = 1.0
+    # Comma-separated peer IPs allowed to set X-Forwarded-For (SS-5). When the
+    # direct peer is not in this list the XFF header is ignored, so clients
+    # cannot forge their rate-limit key. Empty (default) = never trust XFF.
+    trusted_proxy: str = ""
 
     # --- Per-tenant quotas ---
     # Max concurrent LIVE sessions per tenant.

@@ -11,10 +11,14 @@
 
 ## 前置条件
 
-1. **服务已启动**：vllm-omni 以 `--omni` 方式 serve Qwen3-TTS Base 模型，例如：
+1. **服务已启动**：vllm-omni 以 `--omni` 方式 serve Qwen3-TTS Base 模型。既支持 HF 模型名，也支持**下载到本地后挂载路径**部署，例如：
    ```bash
+   # HF 模型名
    vllm serve Qwen/Qwen3-TTS-12Hz-1.7B-Base --omni --port 8091
+   # 或本地挂载路径（如 ModelScope 下载的 Qwen3-TTS-12Hz-1___7B-Base 目录）
+   vllm serve /models/Qwen3-TTS-12Hz-1___7B-Base --omni --port 8091
    ```
+   两种方式脚本都无需额外配置（默认不发送 `model` 字段，不受模型名影响）。
    健康检查：`curl http://localhost:8091/v1/audio/voices` 返回 200 即可用。
 2. **Python 依赖**：仅需 `httpx`（`pip install httpx`）。
 3. **参考音频**：本地 wav/mp3/flac/ogg 文件，时长 **1~30 秒**（服务端硬性校验），
@@ -57,7 +61,7 @@ python qwen3_tts_clone.py \
 |---|---|---|
 | `--api-base` | `http://localhost:8091` | vllm-omni 服务地址 |
 | `--api-key` | `EMPTY` | Bearer token，本地部署一般无需修改 |
-| `--model` / `-m` | `Qwen/Qwen3-TTS-12Hz-1.7B-Base` | 模型名 |
+| `--model` / `-m` | 不发送 | 默认不带 `model` 字段（服务端跳过模型名校验，**本地挂载部署直接可用**）；如需指定，须与 `curl <api-base>/v1/models` 返回的名字一致（本地挂载部署时通常是挂载路径） |
 | `--mode` | `upload` | 参考提示复用方式，见下节 |
 | `--ref-audio` | （必填） | 本地参考音频路径 |
 | `--ref-text` | 无 | 参考音频转写文本；ICL 模式必填，`--x-vector-only` 时可省略 |
@@ -107,6 +111,7 @@ curl -X DELETE http://localhost:8091/v1/audio/voices/<voice_name>
 | `ICL 克隆模式需要 --ref-text` | 提供 `--ref-text`，或改用 `--x-vector-only` |
 | `Reference audio too short/long` | 参考音频需 1~30 秒，换/裁剪音频 |
 | 连接拒绝 / 超时 | 确认服务已启动且 `--api-base` 端口正确 |
+| `Model mismatch: request specifies ...` | 去掉 `--model` 参数（推荐），或改成 `curl <api-base>/v1/models` 返回的实际模型名 |
 | `Base task requires 'ref_audio' ...` | upload 模式下音色名未命中（如服务端音色被删），加 `--force-upload` 重新上传 |
 | 换了 ref_text 但音色没变化 | 音色名相同则复用旧上传，需 `--force-upload` 覆盖 |
 

@@ -33,7 +33,9 @@ class TurnSubmitRequest(BaseModel):
 class ApprovalRequest(BaseModel):
     request_id: str
     allowed: bool = True
-    reply: str | None = None  # "once" | "always" | "reject" (edit_diff)
+    # Enum-constrained (SS-15): an unvalidated reply would pass through to the
+    # subprocess protocol; anything else fails validation with a 422.
+    reply: str | None = Field(default=None, pattern="^(once|always|reject)$")
     answer: str | None = None  # for question modals
 
 

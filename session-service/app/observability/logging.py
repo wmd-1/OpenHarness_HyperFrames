@@ -3,11 +3,44 @@
 from __future__ import annotations
 
 import logging
+import re
 import sys
 
 import structlog
 
 _CONFIGURED = False
+
+# Mask API keys wherever they appear in log output (SS-11): WS clients pass
+# ``?api_key=...`` as a query param (browsers cannot set WS headers), so any
+# logged URL/query would otherwise leak the credential.
+_API_KEY_RE = re.compile(r"(api[_-]?key['\"]?\s*[=:]\s*['\"]?)([^&'\"\s]+)", re.IGNORECASE)
+
+
+def mask_api_key(text: str) -> str:
+    """Replace any ``api_key=<value>`` occurrence with ``api_key=***``."""
+    return _API_KEY_RE.sub(r"\1***", text)
+
+
+def _mask_secrets_processor(logger, method_name, event_dict):
+    """structlog processor: scrub api_key values from every string field."""
+    for key, value in event_dict.items():
+        if isinstance(value, str):
+            event_dict[key] = mask_api_key(value)
+    return event_dict
+
+
+class _MaskSecretsFilter(logging.Filter):
+    """stdlib logging filter: scrub api_key values from formatted messages."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+            if "api" in msg.lower():
+                record.msg = mask_api_key(msg)
+                record.args = ()
+        except Exception:
+            pass
+        return True
 
 
 def configure_logging(level: str = "INFO") -> None:
@@ -16,11 +49,13 @@ def configure_logging(level: str = "INFO") -> None:
         return
     log_level = getattr(logging, level, logging.INFO)
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=log_level)
+    logging.getLogger().addFilter(_MaskSecretsFilter())
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso"),
+            _mask_secrets_processor,
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.JSONRenderer(),

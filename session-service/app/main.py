@@ -35,6 +35,14 @@ async def lifespan(app: FastAPI):
     yield
     # Graceful shutdown: tear down every live session.
     await get_supervisor().shutdown_all()
+    # Dispose shared Redis pools (SS-2 mitigation: no leaked pools on reload).
+    from app import ratelimit
+    from app.session import logs as log_stream
+    from app.session import registry as route_registry
+
+    await ratelimit.close_redis()
+    await route_registry.close_client()
+    await log_stream.close_client()
     from app import db
 
     await db.engine.dispose()

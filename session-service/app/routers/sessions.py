@@ -10,13 +10,15 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
+from datetime import datetime, time as dt_time, timezone
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -35,6 +37,14 @@ from app.session.supervisor import CapacityFullError, SessionBusy, SessionNotFou
 from app.storage.s3 import storage_for_kind
 
 router = APIRouter(prefix="/v1/sessions", tags=["sessions"])
+
+# Content-Disposition filename whitelist (SS-6): anything outside [\w\-.] is
+# replaced so a crafted filename cannot inject header syntax.
+_FILENAME_SAFE = re.compile(r"[^\w\-.]")
+
+
+def _sanitize_filename(name: str) -> str:
+    return _FILENAME_SAFE.sub("_", name)
 
 
 def _to_response(conv: Conversation, request: Request) -> SessionResponse:
@@ -68,30 +78,46 @@ async def create_session(
     db: AsyncSession = Depends(get_db),
 ) -> SessionResponse:
     # Rate limit (fail-open).
-    if not check_rate_limit(_client_ip(request)):
+    if not await check_rate_limit(_client_ip(request)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
     tenant_id = tenant_from_request(request)
     actor = actor_from_request(request)
 
-    # Per-tenant concurrent quota.
     sup = get_supervisor()
-    live_for_tenant = sum(
-        1 for s in sup._sessions.values() if s.tenant_id == tenant_id and s.is_live()
-    )
-    if live_for_tenant >= settings.tenant_max_concurrent:
-        raise HTTPException(status_code=429, detail="Concurrent session quota exceeded")
+    # Quota check + create under one lock (SS-3): closes the TOCTOU window
+    # where two concurrent requests both pass the check and oversell.
+    async with sup.quota_lock:
+        # Per-tenant daily creation quota (SS-18).
+        if settings.tenant_max_daily > 0:
+            day_start = datetime.combine(
+                datetime.now(timezone.utc).date(), dt_time.min, tzinfo=timezone.utc
+            )
+            created_today = (await db.execute(
+                select(func.count())
+                .select_from(Conversation)
+                .where(
+                    Conversation.tenant_id == tenant_id,
+                    Conversation.created_at >= day_start,
+                )
+            )).scalar_one()
+            if created_today >= settings.tenant_max_daily:
+                raise HTTPException(status_code=403, detail="Daily session quota exceeded")
 
-    try:
-        conv = await sup.create_session(
-            db=db,
-            tenant_id=tenant_id,
-            permission_policy=body.permission_policy,
-            extra_args=body.extra_oh_args,
-            actor_key_id=actor,
-        )
-    except CapacityFullError:
-        raise HTTPException(status_code=503, detail="node capacity full")
+        # Per-tenant concurrent quota (via supervisor public API, SS-10).
+        if sup.count_live_for_tenant(tenant_id) >= settings.tenant_max_concurrent:
+            raise HTTPException(status_code=429, detail="Concurrent session quota exceeded")
+
+        try:
+            conv = await sup.create_session(
+                db=db,
+                tenant_id=tenant_id,
+                permission_policy=body.permission_policy,
+                extra_args=body.extra_oh_args,
+                actor_key_id=actor,
+            )
+        except CapacityFullError:
+            raise HTTPException(status_code=503, detail="node capacity full")
     return _to_response(conv, request)
 
 
@@ -239,7 +265,7 @@ async def download_artifact(
     start = max(0, min(start, end)) if size else 0
     content_length = end - start + 1 if size else 0
     is_range = range_header is not None and range_header.startswith("bytes=")
-    filename = art.filename or f"{sid}_{idx}.mp4"
+    filename = _sanitize_filename(art.filename or f"{sid}_{idx}.mp4")
     headers = {
         "Content-Type": "video/mp4",
         "Content-Disposition": f'attachment; filename="{filename}"',

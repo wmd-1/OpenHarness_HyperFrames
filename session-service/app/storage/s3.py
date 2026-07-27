@@ -74,11 +74,31 @@ class S3ArtifactStorage:
             return None
 
 
+# Per-kind instance cache (SS-13).
+_storage_cache: dict[str, "LocalArtifactStorage | S3ArtifactStorage"] = {}
+
+
 def storage_for_kind(kind: str) -> LocalArtifactStorage | S3ArtifactStorage:
-    """Select a storage backend by kind (mirrors service/app/deps.py)."""
+    """Select a storage backend by kind (mirrors service/app/deps.py).
+
+    Instances are cached per kind (SS-13) so repeated artifact operations
+    reuse one boto3 client instead of re-initializing it every call.
+    """
+    cached = _storage_cache.get(kind)
+    if cached is not None:
+        return cached
+    storage: LocalArtifactStorage | S3ArtifactStorage
     if kind == "s3":
-        return S3ArtifactStorage()
-    return LocalArtifactStorage()
+        storage = S3ArtifactStorage()
+    else:
+        storage = LocalArtifactStorage()
+    _storage_cache[kind] = storage
+    return storage
+
+
+def reset_storage_cache() -> None:
+    """Drop cached storage instances (tests / settings reload)."""
+    _storage_cache.clear()
 
 
 def get_storage() -> LocalArtifactStorage | S3ArtifactStorage:

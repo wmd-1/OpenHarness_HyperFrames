@@ -98,7 +98,7 @@ async def test_create_session_rate_limited_returns_429(client, monkeypatch):
 
     state = {"n": 0}
 
-    def _limited(client_ip):
+    async def _limited(client_ip):
         state["n"] += 1
         return state["n"] <= 1  # first allowed, subsequent denied
 
@@ -107,3 +107,54 @@ async def test_create_session_rate_limited_returns_429(client, monkeypatch):
     assert r1.status_code == 201
     r2 = await client.post("/v1/sessions", json={})
     assert r2.status_code == 429
+
+
+# --- Artifact download Range handling (Task 3.5) ------------------------------
+
+
+async def _session_with_artifact(client) -> tuple[str, int]:
+    """Create a session, run one turn, and return (sid, artifact size)."""
+    create = await client.post("/v1/sessions", json={})
+    sid = create.json()["session_id"]
+    turn = await client.post(f"/v1/sessions/{sid}/turns", json={"text": "render"})
+    assert turn.status_code == 200
+    full = await client.get(f"/v1/sessions/{sid}/turns/0/artifact")
+    assert full.status_code == 200
+    return sid, int(full.headers["content-length"])
+
+
+@pytest.mark.asyncio
+async def test_artifact_range_parsed_to_206_partial_content(client):
+    sid, size = await _session_with_artifact(client)
+    if size < 8:
+        pytest.skip("stub mp4 too small for range test")
+    resp = await client.get(
+        f"/v1/sessions/{sid}/turns/0/artifact", headers={"Range": "bytes=0-4"}
+    )
+    assert resp.status_code == 206
+    assert resp.headers["content-range"] == f"bytes 0-4/{size}"
+    assert resp.headers["content-length"] == "5"
+    assert len(resp.content) == 5
+
+
+@pytest.mark.asyncio
+async def test_artifact_open_ended_range_returns_tail(client):
+    sid, size = await _session_with_artifact(client)
+    if size < 8:
+        pytest.skip("stub mp4 too small for range test")
+    resp = await client.get(
+        f"/v1/sessions/{sid}/turns/0/artifact", headers={"Range": f"bytes={size - 4}-"}
+    )
+    assert resp.status_code == 206
+    assert resp.headers["content-range"] == f"bytes {size - 4}-{size - 1}/{size}"
+    assert int(resp.headers["content-length"]) == 4
+    assert len(resp.content) == 4
+
+
+@pytest.mark.asyncio
+async def test_artifact_no_range_returns_200_full_body(client):
+    sid, size = await _session_with_artifact(client)
+    resp = await client.get(f"/v1/sessions/{sid}/turns/0/artifact")
+    assert resp.status_code == 200
+    assert resp.headers.get("accept-ranges") == "bytes"
+    assert len(resp.content) == size

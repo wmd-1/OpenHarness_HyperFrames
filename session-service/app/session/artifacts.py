@@ -7,6 +7,7 @@ video-task artifacts.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass
@@ -89,6 +90,18 @@ def probe_mp4(path: Path) -> VideoMeta:
                     if int(den) != 0:
                         meta.fps = round(int(num) / int(den))
                 break
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError):
+        # ValueError covers malformed ffprobe numerics (e.g. r_frame_rate
+        # "30/abc") — degrade gracefully to whatever was parsed so far (SS-16).
         pass
     return meta
+
+
+async def probe_mp4_async(path: Path) -> VideoMeta:
+    """Async wrapper for :func:`probe_mp4` (blocking ffprobe subprocess).
+
+    Offloads to the default executor so the asyncio event loop is never
+    blocked by the (up to 30s) ffprobe call (SS-1).
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, probe_mp4, path)

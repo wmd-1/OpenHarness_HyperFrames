@@ -80,6 +80,7 @@ When `$QWENTTS_URL` is set (e.g. `http://localhost:8091`), QwenTTS becomes the h
 ### Notes
 
 - The server must be serving the **Base** model variant (`Qwen/Qwen3-TTS-12Hz-1.7B-Base`); it has **no built-in voices** — a reference audio is mandatory. Missing `QWENTTS_REF_AUDIO`/`QWENTTS_REF_TEXT` throws immediately (misconfiguration); runtime failures (server unreachable, synthesis error) fall back gracefully with `{ok:false}`.
+- Serving from a **local mounted path** (e.g. a ModelScope download dir named `Qwen3-TTS-12Hz-1___7B-Base`) works as-is: the clone script omits the `model` field by default, so the served model name is never checked — no `--served-model-name` needed.
 - All output is normalized to WAV 44.1kHz mono via ffmpeg (QwenTTS may output 24kHz PCM natively).
 - `language` is omitted by default (server Auto-detects); when `--lang` is non-English, mapped to full name (e.g. `zh` → `"Chinese"`). Supported: Auto, Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian.
 - QwenTTS does not return word timestamps — chain `transcribe` after for caption data.

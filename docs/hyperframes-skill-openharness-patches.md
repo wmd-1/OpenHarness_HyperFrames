@@ -85,7 +85,7 @@ OpenHarness_HyperFrames/                # 仓库根 = 构建上下文
 
 **解法**：在**唯一共享 TTS 库** `media-use/audio/scripts/lib/tts.mjs` 中加一处 QwenTTS 分支，即覆盖全部视频工作流；设 `QWENTTS_URL` 时优先于 HeyGen / ElevenLabs / Kokoro。
 
-> **v1.4 调用方式变更（克隆脚本）**：部署模型固定为 `Qwen/Qwen3-TTS-12Hz-1.7B-Base`（声音克隆，无预置音色）。`synthesizeQwenTTS` 不再直连 `/v1/audio/speech` 的 speech/chat 双模式，改为调用声音克隆脚本 `qwen3_tts_clone.py`（源码在仓库根 `Qwen3-TTS-Script/`，镜像内 `/opt/qwen3-tts-script/`，见 §3.7）：脚本把 `$QWENTTS_REF_AUDIO` 上传一次到 `/v1/audio/voices`（音色名按音频内容 hash 生成、幂等），之后每句按音色名合成，参考特征只计算一次、跨调用复用。未配置参考音频/转写文本时**直接抛错**（Base-only 部署无预置音色可回退）；`QWENTTS_MODE` / `QWENTTS_INSTRUCTIONS` 随 speech/chat 双模式一并废弃。
+> **v1.4 调用方式变更（克隆脚本）**：部署模型固定为 `Qwen/Qwen3-TTS-12Hz-1.7B-Base`（声音克隆，无预置音色；HF 模型名或本地挂载路径 serve 均可——脚本默认不发送 `model` 字段，不受 served name 校验影响）。`synthesizeQwenTTS` 不再直连 `/v1/audio/speech` 的 speech/chat 双模式，改为调用声音克隆脚本 `qwen3_tts_clone.py`（源码在仓库根 `Qwen3-TTS-Script/`，镜像内 `/opt/qwen3-tts-script/`，见 §3.7）：脚本把 `$QWENTTS_REF_AUDIO` 上传一次到 `/v1/audio/voices`（音色名按音频内容 hash 生成、幂等），之后每句按音色名合成，参考特征只计算一次、跨调用复用。未配置参考音频/转写文本时**直接抛错**（Base-only 部署无预置音色可回退）；`QWENTTS_MODE` / `QWENTTS_INSTRUCTIONS` 随 speech/chat 双模式一并废弃。
 
 ### 3.2 涉及文件
 
@@ -308,6 +308,7 @@ When `$QWENTTS_URL` is set (e.g. `http://localhost:8091`), QwenTTS becomes the h
 ### Notes
 
 - The server must be serving the **Base** model variant (`Qwen/Qwen3-TTS-12Hz-1.7B-Base`); it has **no built-in voices** — a reference audio is mandatory. Missing `QWENTTS_REF_AUDIO`/`QWENTTS_REF_TEXT` throws immediately (misconfiguration); runtime failures (server unreachable, synthesis error) fall back gracefully with `{ok:false}`.
+- Serving from a **local mounted path** (e.g. a ModelScope download dir named `Qwen3-TTS-12Hz-1___7B-Base`) works as-is: the clone script omits the `model` field by default, so the served model name is never checked — no `--served-model-name` needed.
 - All output is normalized to WAV 44.1kHz mono via ffmpeg (QwenTTS may output 24kHz PCM natively).
 - `language` is omitted by default (server Auto-detects); when `--lang` is non-English, mapped to full name (e.g. `zh` → `"Chinese"`). Supported: Auto, Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian.
 - QwenTTS does not return word timestamps — chain `transcribe` after for caption data.
@@ -742,3 +743,5 @@ monorepo 重构（§11）后，本指南从 `OpenHarness/docs/` 搬到仓库根 
 **落地文件**：`hyperframes_github_skills/media-use/audio/scripts/lib/tts.mjs`（4 处注入）+ `media-use/audio/references/tts.md`、`Dockerfile.fix`、`docker-compose.yml`（openharness/api 环境变量 + `/opt/tts-ref` 挂载，shell 经 extends 继承）、`.env.example`；`SKILL.md` 经核对无需改动。
 
 **验证**：静态全过——`node --check` tts.mjs / audio.mjs、qwentts 计数 **31**、克隆脚本 `py_compile`、`docker compose config`。**待办**：重建镜像后按 §6.2 补容器侧验证（脚本存在、venv `import httpx`、参考音频挂载、单句克隆冒烟）。
+
+**追记（同日，适配本地挂载路径部署）**：实际部署为先下载模型再挂载路径 serve（ModelScope 下载目录名为 `Qwen3-TTS-12Hz-1___7B-Base`，served name 是路径而非 HF 模型名），克隆脚本原默认 `--model Qwen/Qwen3-TTS-12Hz-1.7B-Base` 会被服务端 `_check_model` 拒为 404。修复（用户侧改脚本）：`--model` 默认值改为 None，不指定时 payload 不带 `model` 字段（vllm-omni 协议层 `model: str | None`，缺省即跳过模型名校验），显式传入才发送；`Qwen3-TTS-Script/README.md` 同步双部署示例与 Model mismatch 排错行。tts.mjs 本就不传 `--model`，补丁链路零改动；脚本经 Dockerfile.fix COPY 进镜像，随 v1.4 重建一并生效。

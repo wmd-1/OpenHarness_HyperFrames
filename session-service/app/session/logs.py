@@ -22,13 +22,35 @@ log = logging.getLogger(__name__)
 _STREAM_KEY_PREFIX = "oh:session:logs:"
 _LOG_FIELD = "line"
 
+# Module-level connection pool singleton (SS-2): reuse one pool instead of a
+# fresh TCP connection per log append.
+_redis: aioredis.Redis | None = None
+
 
 def _stream_key(session_id: str) -> str:
     return f"{_STREAM_KEY_PREFIX}{session_id}"
 
 
 async def _client() -> aioredis.Redis:
-    return aioredis.from_url(settings.broker_url, decode_responses=True)
+    global _redis
+    if _redis is None:
+        _redis = aioredis.from_url(
+            settings.broker_url,
+            decode_responses=True,
+            max_connections=32,
+        )
+    return _redis
+
+
+async def close_client() -> None:
+    """Dispose the shared pool (shutdown hook / tests)."""
+    global _redis
+    if _redis is not None:
+        try:
+            await _redis.aclose()
+        except Exception:
+            pass
+        _redis = None
 
 
 async def append_log(session_id: str, line: str) -> None:
@@ -40,15 +62,12 @@ async def append_log(session_id: str, line: str) -> None:
         return
     try:
         r = await _client()
-        try:
-            await r.xadd(
-                _stream_key(session_id),
-                {_LOG_FIELD: line},
-                maxlen=settings.log_stream_maxlen,
-                approximate=True,
-            )
-        finally:
-            await r.aclose()
+        await r.xadd(
+            _stream_key(session_id),
+            {_LOG_FIELD: line},
+            maxlen=settings.log_stream_maxlen,
+            approximate=True,
+        )
     except Exception as exc:
         log.debug("log append failed (sid=%s): %s", session_id, exc)
 
@@ -58,12 +77,9 @@ async def tail_logs(session_id: str, count: int | None = None) -> list[str]:
     n = count if count is not None else settings.log_stream_maxlen
     try:
         r = await _client()
-        try:
-            entries: list[tuple[str, dict[str, Any]]] = await r.xrevrange(
-                _stream_key(session_id), count=n
-            )
-        finally:
-            await r.aclose()
+        entries: list[tuple[str, dict[str, Any]]] = await r.xrevrange(
+            _stream_key(session_id), count=n
+        )
     except Exception as exc:
         log.debug("log tail failed (sid=%s): %s", session_id, exc)
         return []
@@ -80,9 +96,6 @@ async def clear_logs(session_id: str) -> None:
     """Delete the session log stream (called on DELETE)."""
     try:
         r = await _client()
-        try:
-            await r.delete(_stream_key(session_id))
-        finally:
-            await r.aclose()
+        await r.delete(_stream_key(session_id))
     except Exception:
         pass

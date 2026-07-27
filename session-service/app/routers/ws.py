@@ -85,7 +85,7 @@ async def session_ws(
         return
 
     # Rate limit WS connection establishment (same IP token bucket as POST).
-    if not check_rate_limit(_client_ip(websocket)):
+    if not await check_rate_limit(_client_ip(websocket)):
         await websocket.close(code=4429, reason="Rate limit exceeded")
         return
 
@@ -125,12 +125,13 @@ async def session_ws(
             if conv2 is not None and conv2.status == SessionStatus.COLD:
                 from app.session.supervisor import LiveSession
                 from app.session.process import derive_oh_session_id
+                from app.session.lifecycle import SessionState
                 from pathlib import Path
                 from app.session import registry as route_registry
 
                 cwd = Path(conv2.workspace_path) if conv2.workspace_path else Path(settings.workspace_root) / sid
                 epoch = await route_registry.next_epoch(sid)
-                live = LiveSession(
+                cold = LiveSession(
                     sid=sid_uuid,
                     tenant_id=tenant_id,
                     cwd=cwd,
@@ -139,11 +140,12 @@ async def session_ws(
                     extra_args=json.loads(conv2.extra_oh_args or "[]"),
                     epoch=epoch,
                 )
-                live.state = SessionStatus.COLD
-                sup._sessions[sid_uuid] = live
+                cold.state = SessionState.COLD
+                # Single-writer registration (SS-4): only one concurrent WS
+                # client triggers rehydrate; the rest reuse the live session.
                 try:
-                    await sup.rehydrate(live, db=session)
-                except CapacityFullError:
+                    live = await sup.register_live_session(cold, db=session)
+                except (CapacityFullError, RuntimeError):
                     await websocket.close(code=4500, reason="session unavailable")
                     return
                 conv2.status = SessionStatus.LIVE
@@ -224,11 +226,17 @@ async def session_ws(
             elif op == "interrupt":
                 await sup.interrupt(sid_uuid)
             elif op == "approval":
+                reply = msg.get("reply")
+                # Enum validation (SS-15): never forward an arbitrary reply
+                # string into the subprocess protocol.
+                if reply is not None and reply not in ("once", "always", "reject"):
+                    await _safe_send({"type": "error", "message": f"invalid reply: {reply}"})
+                    continue
                 await sup.respond_approval(
                     sid_uuid,
                     msg.get("request_id", ""),
                     allowed=bool(msg.get("allowed", True)),
-                    reply=msg.get("reply"),
+                    reply=reply,
                     answer=msg.get("answer"),
                 )
             elif op == "ping":

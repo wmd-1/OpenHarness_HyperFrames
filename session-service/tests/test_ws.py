@@ -116,7 +116,7 @@ def test_ws_rate_limit_returns_4429(sync_client, monkeypatch):
 
     state = {"n": 0}
 
-    def _limited(client_ip):
+    async def _limited(client_ip):
         state["n"] += 1
         return state["n"] <= 1  # first allowed, subsequent denied
 

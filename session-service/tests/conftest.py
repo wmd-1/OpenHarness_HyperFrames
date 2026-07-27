@@ -103,17 +103,15 @@ async def db_session(db_engine):
 
 @pytest.fixture(autouse=True)
 def _fakeredis(monkeypatch):
-    """Replace Redis clients with fakeredis (sync + async)."""
-    import fakeredis
+    """Replace Redis clients with fakeredis (all async after SS-12)."""
     import fakeredis.aioredis
 
-    fake_sync = fakeredis.FakeRedis()
-    fake_async = fakeredis.aioredis.FakeRedis()
+    fake_async = fakeredis.aioredis.FakeRedis(decode_responses=True)
 
-    # Sync rate-limiter.
+    # Async rate-limiter (SS-12: unified redis.asyncio client).
     from app import ratelimit
 
-    monkeypatch.setattr(ratelimit, "_get_redis", lambda: fake_sync)
+    monkeypatch.setattr(ratelimit, "_get_redis", lambda: fake_async)
 
     # Async registry / logs.
     from app.session import registry, logs
@@ -134,7 +132,16 @@ def _fakeredis(monkeypatch):
 
     monkeypatch.setattr(health, "_redis_ok", _healthy_redis)
     yield
-    fake_sync.flushall()
+
+
+@pytest.fixture(autouse=True)
+def _reset_storage_cache():
+    """Drop cached storage instances between tests (SS-13 cache)."""
+    from app.storage.s3 import reset_storage_cache
+
+    reset_storage_cache()
+    yield
+    reset_storage_cache()
 
 
 @pytest_asyncio.fixture(autouse=True)

@@ -23,6 +23,7 @@
 - **豁免路径**：`/healthz`、`/readyz`、`/metrics`（注意：与 video-service 不同，本服务的 `/metrics` **也豁免**鉴权）。
 - **租户**：当前为单密钥模式，鉴权通过后租户固定为 `default`（`request.state.tenant_id`），所有会话按租户隔离（非本租户会话一律 404）。
 - **启动校验**：`require_auth=true` 但未设置 `api_key` 时启动抛 `RuntimeError`。
+- **日志脱敏**：`api_key`（含 WS 查询参数 `?api_key=` 形式）在服务端访问日志中自动脱敏为 `***`，不会明文落盘。
 
 | 环境变量 | 说明 | 默认值 |
 | --- | --- | --- |
@@ -35,15 +36,27 @@
 
 ### 1.3 限流与配额
 
-主要作用于 `POST /v1/sessions`（IP 令牌桶 + 租户并发配额）。
+主要作用于 `POST /v1/sessions`（IP 令牌桶 + 租户并发/每日配额）。
 
 > ✅ **WS 连接限流已实现**：openspec 要求 **per-tenant WS 连接建立** 同样受同一令牌桶限流；`app/routers/ws.py` 在 `accept()` 前校验，超限以关闭码 `4429`（`Rate limit exceeded`）关闭连接。`POST /v1/sessions` 的限流同上。
 
 | 机制 | 规则 | 超限响应 |
 | --- | --- | --- |
-| IP 令牌桶限流 | 容量 `OH_RATE_LIMIT_CAPACITY`（默认 10），每秒补充 `OH_RATE_LIMIT_REFILL`（默认 1.0）；Redis 不可用时放行（fail-open） | `429` `{"detail": "Rate limit exceeded"}` |
-| 租户并发配额 | 每租户最多 `OH_TENANT_MAX_CONCURRENT`（默认 8）个 LIVE 会话 | `429` `{"detail": "Concurrent session quota exceeded"}` |
+| IP 令牌桶限流 | 容量 `OH_RATE_LIMIT_CAPACITY`（默认 10），每秒补充 `OH_RATE_LIMIT_REFILL`（默认 1.0），令牌扣减为 Redis Lua 原子操作；Redis 不可用时放行（fail-open） | `429` `{"detail": "Rate limit exceeded"}` |
+| 租户并发配额 | 每租户最多 `OH_TENANT_MAX_CONCURRENT`（默认 8）个 LIVE 会话（检查与创建在同一把锁内原子完成，并发抢占只放行一个） | `429` `{"detail": "Concurrent session quota exceeded"}` |
+| 租户每日配额 | 每租户每日（UTC 日历日）最多创建 `OH_TENANT_MAX_DAILY`（默认 200）个会话；设为 `0` 关闭 | `403` `{"detail": "Daily session quota exceeded"}` |
 | 节点容量 | 单节点最多 `OH_MAX_LIVE_SESSIONS`（默认 16）个 live 子进程；满时自动将最久空闲会话驱逐为 COLD；无可驱逐会话时返回 `503`（按 openspec 要求，与 `/readyz` 一致） | `503` |
+
+**限流客户端 IP 判定（`X-Forwarded-For` 信任策略）**：
+
+- 仅当**直连对端**地址在 `OH_TRUSTED_PROXY`（逗号分隔 IP 列表，默认空）名单中时，才读取 `X-Forwarded-For` 首个地址作为限流 key；否则一律使用 socket 对端地址，客户端伪造 XFF 头无法绕过限流。
+- ⚠️ **部署提示**：经 nginx 等反向代理部署时必须配置 `OH_TRUSTED_PROXY`（填反代的出口 IP），否则所有请求将共享同一个限流桶。
+
+| 环境变量 | 说明 | 默认值 |
+| --- | --- | --- |
+| `OH_TRUSTED_PROXY` | 可信反代 IP 列表（逗号分隔），在名单内才信任 XFF | `""`（从不信任） |
+| `OH_TENANT_MAX_DAILY` | 每租户每日创建上限（`0` = 关闭） | `200` |
+| `OH_BACKEND_EVENT_MAX_BYTES` | 单条后端事件 payload 上限（超限拒绝解析，见 §3.1） | `1048576`（1 MiB） |
 
 ### 1.4 通用错误响应结构
 
@@ -144,6 +157,7 @@ Router 前缀：`/v1/sessions`，tag：`sessions`。
 | --- | --- |
 | `201` | 创建成功 |
 | `401` | 鉴权失败（启用鉴权时） |
+| `403` | 租户每日配额超限（`{"detail": "Daily session quota exceeded"}`，UTC 日起算） |
 | `422` | 请求体校验失败（含 `extra_oh_args` 非法） |
 | `429` | IP 限流 或 租户并发配额超限（`detail` 区分） |
 | `503` | 节点容量已满且无可驱逐会话（按 openspec；与 `/readyz` 一致） |
@@ -293,6 +307,7 @@ Router 前缀：`/v1/sessions`，tag：`sessions`。
 
 - 二进制视频流，`Content-Type: video/mp4`，非 JSON。
 - 响应头：`Content-Disposition: attachment; filename="{filename|sid_idx.mp4}"`、`Accept-Ranges: bytes`、`Content-Length`；Range 请求附 `Content-Range`。
+- **文件名 sanitize**：`filename` 仅保留 `[A-Za-z0-9_\-.]` 及 Unicode 字母数字字符，其余（含 `/`、`"`、控制字符等）替换为 `_`（防响应头注入）；前端不应假设下载文件名与产物原始名完全一致。
 - S3 命中且未指定 `mode=stream`：`302` + `Location` 预签名 URL。
 
 #### 状态码说明
@@ -317,7 +332,7 @@ Router 前缀：`/v1/sessions`，tag：`sessions`。
 - **请求路径**：`WS /v1/sessions/{sid}/ws`（`ws://` 或 `wss://`）
 - **HTTP 方法**：`GET`（WebSocket Upgrade）
 - **鉴权**：需要（当鉴权启用时），在 `accept()` 前校验；支持 `X-API-Key` 头或 `?api_key=` 查询参数
-- **说明**：实时流式对话通道。连接时若会话为 `cold` 会自动通过 `--resume` 复活；多节点部署时若会话归属其他节点，服务端**透明反向代理**（客户端无感知）。
+- **说明**：实时流式对话通道。连接时若会话为 `cold` 会自动通过 `--resume` 复活；**多个客户端并发重连同一 COLD 会话时，仅触发一次 `--resume`，其余连接等待并复用同一复活后的会话**（单写者保证）；多节点部署时若会话归属其他节点，服务端**透明反向代理**（客户端无感知）。
 
 #### 请求参数
 
@@ -336,7 +351,7 @@ Router 前缀：`/v1/sessions`，tag：`sessions`。
 | `4403` | 会话已关闭/过期（`Session is closed`） |
 | `4404` | 会话不存在或不属于当前租户（`Session not found`） |
 | `4429` | 限流（WS 连接建立频率超限，与 `POST /v1/sessions` 同一 IP 令牌桶） |
-| `4500` | 会话不可用（复活失败等，`session unavailable`） |
+| `4500` | 会话不可用（`session unavailable`：复活失败、或节点容量已满且无可驱逐会话导致无法复活等） |
 
 #### 客户端 → 服务端消息（JSON 文本帧）
 
@@ -344,7 +359,7 @@ Router 前缀：`/v1/sessions`，tag：`sessions`。
 | --- | --- | --- |
 | `submit` | `text: string`（必填，非空） | 提交一轮输入；已有轮次进行中时收到 `busy` 帧 |
 | `interrupt` | — | 中断当前轮次 |
-| `approval` | `request_id: string`（必填）、`allowed: bool`（默认 `true`）、`reply: string \| null`（`"once"`/`"always"`/`"reject"`，用于 edit_diff）、`answer: string \| null`（用于 question 弹窗） | 响应审批/提问请求（`interactive` 策略下）；超时未答默认拒绝（默认 300s） |
+| `approval` | `request_id: string`（必填）、`allowed: bool`（默认 `true`）、`reply: string \| null`（仅限 `"once"`/`"always"`/`"reject"`，用于 edit_diff）、`answer: string \| null`（用于 question 弹窗） | 响应审批/提问请求（`interactive` 策略下）；**非法 `reply` 值会被拒绝**，返回 `{"type":"error","message":"invalid reply: ..."}` 帧且不透传给子进程；超时未答默认拒绝（默认 300s） |
 | `ping` | — | 心跳，服务端回 `{"type": "pong"}` |
 
 非法 JSON → `{"type":"error","message":"invalid JSON"}`；未知 `op` → `{"type":"error","message":"unknown op: ..."}`。
@@ -365,6 +380,8 @@ Router 前缀：`/v1/sessions`，tag：`sessions`。
 | `pong` | — | 心跳应答 |
 | `error` | `message` | 协议级错误（非法 JSON、未知 op） |
 | `event` | `event`（原始事件透传）、`turn_index` | 未知后端事件透传 |
+
+> ⚠️ **超大事件保护**：单条后端事件 payload 超过 `OH_BACKEND_EVENT_MAX_BYTES`（默认 1 MiB）时**不会**作为任何帧下发，而是截断后转入服务端诊断日志流（防内存耗尽）。
 
 #### 典型交互时序
 
@@ -482,7 +499,7 @@ Tag：`health`。**均豁免鉴权。**
 ## 7. 附录：人工复核提示
 
 - 本文档基于源码静态分析，运行时以 `/openapi.json` 为准（WS 接口不出现在 OpenAPI 中）。
-- 与 video-service 的差异点：本服务 `/metrics` 豁免鉴权；`extra_oh_args` 白名单额外允许 `--effort`；限流之外还有租户并发配额（`429`，`detail` 不同）。
+- 与 video-service 的差异点：本服务 `/metrics` 豁免鉴权；`extra_oh_args` 白名单额外允许 `--effort`；限流之外还有租户并发配额（`429`，`detail` 不同）与每日配额（`403`）。
 - 会话生命周期参数（可影响前端交互设计）：空闲宽限 `OH_IDLE_GRACE_SECONDS=300`、会话 TTL `OH_SESSION_TTL_SECONDS=86400`、单轮超时 `OH_TURN_TIMEOUT_SECONDS=900`、单会话最大轮次 `OH_MAX_TURNS_PER_SESSION=200`（超过后 submit 收到 `turn_error`）、审批超时 `OH_APPROVAL_TIMEOUT_SECONDS=300`（超时视为拒绝）。
-- WS 断线重连策略：带上 `last_turn_index` 可补发错过的 `turn_complete`（含 `assistant_text`）；`cold` 会话重连会自动复活，首帧恒为 `session_ready`。
-- `ArtifactResponse` 已定义但无对应元数据查询路由；每日配额 `OH_TENANT_MAX_DAILY=200` 在配置中定义，但当前路由代码未见强制校验——两处均建议与后端确认。
+- WS 断线重连策略：带上 `last_turn_index` 可补发错过的 `turn_complete`（含 `assistant_text`）；`cold` 会话重连会自动复活（并发重连仅触发一次 `--resume`），首帧恒为 `session_ready`。
+- `ArtifactResponse` 已定义但无对应元数据查询路由，前端如需元数据列表接口请与后端确认。每日配额 `OH_TENANT_MAX_DAILY=200` **已强制校验**（超限 `403`，见 §1.3/§2.1）。

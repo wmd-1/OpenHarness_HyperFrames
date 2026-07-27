@@ -50,7 +50,7 @@ def emit_ready() -> None:
 
 
 def write_mp4(cwd: Path, name: str = "out.mp4") -> str:
-    """Write a 1-second solid-blue mp4 via ffmpeg (falls back to empty file)."""
+    """Write a 1-second solid-blue mp4 via ffmpeg (falls back to stub bytes)."""
     out = cwd / name
     try:
         subprocess.run(
@@ -59,7 +59,9 @@ def write_mp4(cwd: Path, name: str = "out.mp4") -> str:
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=True,
         )
     except Exception:
-        out.write_bytes(b"")
+        # No ffmpeg: still produce enough deterministic bytes that Range
+        # (bytes=N-M) download tests can exercise partial content.
+        out.write_bytes(bytes(range(256)) * 4)
     return name
 
 

@@ -50,7 +50,6 @@ import httpx
 
 DEFAULT_API_BASE = "http://localhost:8091"
 DEFAULT_API_KEY = "EMPTY"
-DEFAULT_MODEL = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 
 _MIME_BY_EXT = {
     ".wav": "audio/wav",
@@ -172,7 +171,13 @@ def parse_args():
     )
     parser.add_argument("--api-base", default=DEFAULT_API_BASE, help=f"服务地址 (默认: {DEFAULT_API_BASE})")
     parser.add_argument("--api-key", default=DEFAULT_API_KEY, help="API key (默认: EMPTY)")
-    parser.add_argument("--model", "-m", default=DEFAULT_MODEL, help=f"模型名 (默认: {DEFAULT_MODEL})")
+    parser.add_argument(
+        "--model",
+        "-m",
+        default=None,
+        help="模型名 (默认不发送, 服务端跳过校验; 如指定须与 GET /v1/models 返回的名字一致, "
+        "本地挂载部署时通常是挂载路径)",
+    )
     parser.add_argument(
         "--mode",
         choices=["upload", "inline"],
@@ -215,12 +220,14 @@ def main() -> int:
     audio_bytes = read_audio_bytes(args.ref_audio)
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # 构造每次请求共用的基础 payload
+    # 构造每次请求共用的基础 payload。model 字段在 vllm-omni 中可选:
+    # 不传则服务端跳过模型名校验(本地路径挂载部署时模型名是路径, 不传最通用)
     base_payload: dict = {
-        "model": args.model,
         "task_type": "Base",
         "response_format": args.response_format,
     }
+    if args.model:
+        base_payload["model"] = args.model
     if args.language:
         base_payload["language"] = args.language
     if args.max_new_tokens:
