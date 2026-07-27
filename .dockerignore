@@ -62,6 +62,15 @@ LICENSE
 hyperframes_github_skills/**/examples/assets/
 hyperframes_github_skills/**/.gitignore
 
+# ---- 后端服务目录：放行代码，排除构建无关内容 ----
+# （.dockerignore 模式锚定上下文根，顶部的 .venv/ 等不匹配嵌套路径，需显式列出）
+service/.venv/
+service/.pytest_cache/
+service/**/__pycache__/
+session-service/.venv/
+session-service/.pytest_cache/
+session-service/**/__pycache__/
+
 # 节点相关（Python 项目不需要前端 node_modules）
 node_modules/
 frontend/terminal/node_modules/

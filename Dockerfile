@@ -76,17 +76,31 @@ RUN unzip /tmp/chrome-headless-shell-linux64.zip -d /opt/ \
     && rm /tmp/chrome-headless-shell-linux64.zip
 
 # ---- Python 虚拟环境 + 全部 pip 依赖（一次安装）----
-# 合并：openharness-ai + Kokoro TTS + FastAPI 视频服务
+# 合并：openharness-ai + Kokoro TTS + FastAPI 后端服务
+# ---- 依赖并集（锚点）：service/ 与 session-service/ 两个 pyproject.toml 的
+#      [project].dependencies 并集，版本约束逐条对齐 pyproject。
+#      改动依赖时需同步三处：两个 pyproject.toml + 本清单（Dockerfile 与
+#      Dockerfile.fix 的同锚点块）。
 RUN python -m venv /root/.openharness-venv \
     && /root/.openharness-venv/bin/pip install --upgrade pip \
     && uv pip install --python /root/.openharness-venv/bin/python \
         openharness-ai \
         kokoro-onnx soundfile \
-        fastapi==0.115.* uvicorn[standard]==0.32.* \
-        sqlalchemy[asyncio]==2.0.* asyncpg==0.30.* psycopg[binary]==3.2.* \
-        alembic==1.14.* \
-        celery[redis]==5.4.* redis==5.2.* \
-        pydantic-settings==2.6.* sse-starlette==2.1.* python-multipart
+        "fastapi>=0.115.0,<0.116" "uvicorn[standard]>=0.32.0,<0.33" \
+        "sqlalchemy[asyncio]>=2.0.0,<3" "asyncpg>=0.30.0,<1" "psycopg[binary]>=3.2.0,<4" \
+        "alembic>=1.14.0,<2" \
+        "celery[redis]>=5.4.0,<6" "redis>=5.2.0,<6" \
+        "pydantic-settings>=2.6.0,<3" "sse-starlette>=2.1.0,<3" "python-multipart>=0.0.9" \
+        "websockets>=13.0,<14" \
+        "boto3>=1.34.0,<2" "botocore>=1.34.0,<2" \
+        "prometheus-client>=0.20.0,<1" "structlog>=24.0.0,<25" "psutil>=6.0.0,<7" \
+        "opentelemetry-api>=1.27.0,<1.28" "opentelemetry-sdk>=1.27.0,<1.28" \
+        "opentelemetry-exporter-otlp>=1.27.0,<1.28" \
+        "opentelemetry-instrumentation-fastapi==0.48b0" \
+        "opentelemetry-instrumentation-celery==0.48b0" \
+        "opentelemetry-instrumentation-sqlalchemy==0.48b0" \
+        "opentelemetry-instrumentation-redis==0.48b0" \
+        "httpx>=0.27.0,<0.28"
 # ElevenLabs 云端 TTS（可选，需 API Key，按需取消注释）：
 # RUN uv pip install --python /root/.openharness-venv/bin/python elevenlabs
 
@@ -143,6 +157,10 @@ RUN mkdir -p /root/.cache/hyperframes/whisper \
 
 # ---- FastAPI 服务 + supervisord 配置 ----
 COPY service /opt/oh-service
+# session-service 烧录路径（与 service → /opt/oh-service 对称）。
+# 刻意不加入 PYTHONPATH：两服务顶层包同名 app，靠 compose 的
+# working_dir=/opt/oh-session-service 让 uvicorn 从 CWD 导入，避免互相污染。
+COPY session-service /opt/oh-session-service
 ENV PYTHONPATH=/app/src:/opt/oh-service
 COPY docker/supervisord.conf /etc/supervisor/conf.d/oh-service.conf
 
