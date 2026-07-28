@@ -6,17 +6,18 @@ middleware) and wires the session/ws/health/metrics routers.
 
 from contextlib import asynccontextmanager
 import logging
+import re
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from secrets import compare_digest
 
 from app.config import settings
 from app.observability.logging import configure_logging
 from app.observability.metrics import metrics_router
 from app.observability.tracing import setup_tracing
 from app.routers import health, sessions, ws
+from app.security import api_key_matches
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,10 @@ def _assert_auth_config() -> None:
 
 _assert_auth_config()
 
+# A2: only the artifact GET may authenticate via ?api_key= (media elements
+# cannot set request headers). Every other REST path stays header-only.
+_ARTIFACT_PATH_RE = re.compile(r"^/v1/sessions/[0-9a-fA-F-]+/turns/\d+/artifact$")
+
 # Auth middleware (mirror service/). Exempts /healthz, /readyz, /metrics.
 if settings.require_auth or settings.api_key:
 
@@ -87,8 +92,13 @@ if settings.require_auth or settings.api_key:
         if request.url.path in ("/healthz", "/readyz", "/metrics"):
             return await call_next(request)
         provided = request.headers.get("X-API-Key", "")
-        expected = settings.api_key.get_secret_value() if settings.api_key else ""
-        if not compare_digest(provided, expected):
+        if (
+            not provided
+            and request.method == "GET"
+            and _ARTIFACT_PATH_RE.match(request.url.path)
+        ):
+            provided = request.query_params.get("api_key", "")
+        if not api_key_matches(provided):
             return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
         # Stash tenant/actor for downstream (single-key mode → "default").
         request.state.tenant_id = "default"

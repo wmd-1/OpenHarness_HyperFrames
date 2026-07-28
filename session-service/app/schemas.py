@@ -61,6 +61,9 @@ class TurnResponse(BaseModel):
     prompt: str
     assistant_text: str | None = None
     error_message: str | None = None
+    # A1: mirrors the WS turn_complete frame's artifact marker so the REST
+    # fallback path drives artifact preview/download the same way.
+    has_artifact: bool = False
     started_at: datetime
     finished_at: datetime | None = None
 

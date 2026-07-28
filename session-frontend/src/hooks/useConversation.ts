@@ -7,7 +7,8 @@ import { useCallback } from 'react';
 import { submitTurnRest } from '../api/sessions';
 import { extractErrorDetail } from '../api/client';
 import { useConversationStore } from '../store/conversationStore';
-import type { ApprovalRequestFrame } from '../types/ws';
+import type { PendingApproval } from '../store/conversationStore';
+import { useWsStore } from '../store/wsStore';
 import type { Message } from '../types/conversation';
 import { sanitizeUserInput } from '../utils/sanitize';
 import { useWebSocket } from '../ws/useWebSocket';
@@ -21,7 +22,7 @@ export interface UseConversationResult {
   messages: Message[];
   turnActive: boolean;
   todoMarkdown: string;
-  pendingApproval: ApprovalRequestFrame | null;
+  pendingApproval: PendingApproval | null;
   inputHistory: string[];
   ws: UseWebSocketResult;
   /** 清理后提交；WS 断开时回退 REST（阻塞式）。返回是否已受理。 */
@@ -69,7 +70,10 @@ export function useConversation(sessionId: string | null): UseConversationResult
           }
           store.completeTurn(sessionId, turn.turn_index, {
             interrupted: turn.status === 'interrupted',
+            hasArtifact: turn.has_artifact ?? false,
           });
+          // 同步补发基准，避免后续 WS 重连重复补发该轮次（A6）
+          useWsStore.getState().setLastTurnIndex(sessionId, turn.turn_index);
           if (turn.error_message) {
             store.addSystemMessage(sessionId, 'error', turn.error_message);
           }

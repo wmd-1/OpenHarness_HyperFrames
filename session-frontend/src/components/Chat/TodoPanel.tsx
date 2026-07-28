@@ -1,8 +1,11 @@
-// TODO 面板（task 8.6）：可折叠 + markdown 复选框解析 + 进度显示。
+// TODO 面板（task 8.6）：可折叠 + GFM 任务列表渲染 + 进度显示。
+// 已完成项（- [x]）通过自定义 li 渲染器加删除线（A8）。
 
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, ListTodo } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { MarkdownLink } from './MarkdownLink';
 
 /** 从 markdown 中统计 - [ ] / - [x] 复选框进度。 */
 function parseProgress(markdown: string): { done: number; total: number } {
@@ -10,6 +13,24 @@ function parseProgress(markdown: string): { done: number; total: number } {
   const open = (markdown.match(/^\s*[-*]\s+\[ \]/gm) ?? []).length;
   return { done, total: done + open };
 }
+
+/** GFM 任务列表：已勾选项加删除线 + 降低不透明度；链接走 MarkdownLink（B5）。 */
+const todoComponents: Components = {
+  a: MarkdownLink,
+  li({ node, className, children, ...rest }) {
+    const checked = node?.children.some(
+      (child) =>
+        child.type === 'element' &&
+        child.tagName === 'input' &&
+        Boolean(child.properties?.checked),
+    );
+    return (
+      <li {...rest} className={`${className ?? ''}${checked ? ' line-through opacity-60' : ''}`}>
+        {children}
+      </li>
+    );
+  },
+};
 
 export function TodoPanel({ markdown }: { markdown: string }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -46,7 +67,9 @@ export function TodoPanel({ markdown }: { markdown: string }) {
       </button>
       {!collapsed && (
         <div className="markdown-body max-h-48 overflow-y-auto px-4 pb-3 text-sm">
-          <ReactMarkdown>{markdown}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={todoComponents}>
+            {markdown}
+          </ReactMarkdown>
         </div>
       )}
     </div>

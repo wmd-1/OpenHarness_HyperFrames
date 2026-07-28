@@ -19,15 +19,15 @@ server {
 
   # --- Security headers ----------------------------------------------------
   # Applied to every response, including error responses.
-  # connect-src allows same-origin ws/wss for the session WebSocket; older
-  # browsers do not treat 'self' as covering ws://, hence the explicit
-  # ws:/wss: schemes.
+  # connect-src 'self' covers same-origin ws/wss on all supported evergreen
+  # browsers; bare ws:/wss: schemes are deliberately NOT allowed so the page
+  # cannot open WebSockets to arbitrary hosts (B4).
   add_header X-Content-Type-Options "nosniff" always;
   add_header X-Frame-Options "DENY" always;
   add_header Referrer-Policy "no-referrer" always;
   add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
   add_header X-XSS-Protection "0" always;
-  add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+  add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
 
   root /usr/share/nginx/html;
   index index.html;
@@ -43,7 +43,7 @@ server {
     add_header Referrer-Policy "no-referrer" always;
     add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
     add_header X-XSS-Protection "0" always;
-    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
   }
 
   # Hashed build assets are immutable -> long-lived cache.
@@ -54,7 +54,7 @@ server {
     add_header Referrer-Policy "no-referrer" always;
     add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
     add_header X-XSS-Protection "0" always;
-    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
   }
 
   # Health probes are proxied same-origin to the session-service.

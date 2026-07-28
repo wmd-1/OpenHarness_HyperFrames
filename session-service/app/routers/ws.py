@@ -16,15 +16,15 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from secrets import compare_digest
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy import select
 
 from app.config import settings
 from app import db
-from app.models import Conversation, ConversationTurn, SessionStatus, TurnStatus
+from app.models import Conversation, ConversationTurn, SessionStatus, TurnArtifact, TurnStatus
 from app.ratelimit import _client_ip, check_rate_limit
+from app.security import api_key_matches
 from app.session.supervisor import CapacityFullError, SessionNotFound, get_supervisor
 
 router = APIRouter(tags=["ws"])
@@ -44,8 +44,7 @@ def _ws_authed(websocket: WebSocket) -> tuple[bool, str, str | None]:
         or websocket.query_params.get("api_key")
         or ""
     )
-    expected = settings.api_key.get_secret_value() if settings.api_key else ""
-    if not compare_digest(provided, expected):
+    if not api_key_matches(provided):
         return False, "", None
     return True, "default", None
 
@@ -64,12 +63,21 @@ async def _replay_missed_turns(
             )
             .order_by(ConversationTurn.turn_index.asc())
         )).scalars().all()
+        # A1: replayed frames carry has_artifact too, so artifact previews
+        # survive a reconnect.
+        artifact_turns = set((await session.execute(
+            select(TurnArtifact.turn_index).where(
+                TurnArtifact.conversation_id == sid,
+                TurnArtifact.turn_index > last_turn_index,
+            )
+        )).scalars().all())
     for turn in turns:
         await websocket.send_json({
             "type": "turn_complete",
             "turn_index": turn.turn_index,
             "replayed": True,
             "assistant_text": turn.assistant_text,
+            "has_artifact": turn.turn_index in artifact_turns,
         })
 
 

@@ -55,3 +55,18 @@ Terminal 模式：xterm.js 终端渲染、键盘快捷键、状态栏、主题�
 #### Scenario: Chat Mode 不加载终端依赖
 - **WHEN** 用户始终使用 Chat Mode
 - **THEN** xterm.js 相关代码（~300KB gzipped）不被下载
+
+### Requirement: 终端输出控制序列过滤
+系统 SHALL 在将服务端下发的文本（`delta`、工具事件等帧内容）写入 xterm 终端前进行控制序列过滤：剥离 OSC 序列（`ESC ] ... BEL/ST`）与危险 CSI 子集（清屏、光标定位、终端模式切换等可伪造界面状态的序列），保留 SGR 颜色/样式序列（`ESC [ ... m`）以维持彩色输出体验。用户本地输入回显不受此过滤影响。
+
+#### Scenario: OSC 序列被剥离
+- **WHEN** 服务端 `delta` 帧文本包含 OSC 序列（如 `\x1b]8;;https://evil.example\x07` 超链接或 `\x1b]0;title\x07` 标题设置）
+- **THEN** 该序列在写入终端前被剥离，终端不产生可点击欺骗链接、不改变标题，其余文本正常显示
+
+#### Scenario: 危险 CSI 序列被剥离
+- **WHEN** 服务端文本包含清屏（`\x1b[2J`）、光标定位（`\x1b[H`）等危险 CSI 序列
+- **THEN** 该序列被剥离，终端已有内容与光标位置不被服务端文本篡改
+
+#### Scenario: SGR 颜色序列保留
+- **WHEN** 服务端文本包含 SGR 序列（如 `\x1b[31m` 红色、`\x1b[1m` 粗体、`\x1b[0m` 重置）
+- **THEN** 该序列原样写入终端，彩色/样式输出正常渲染

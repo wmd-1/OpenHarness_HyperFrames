@@ -1,13 +1,14 @@
 // WebSocket 连接管理类（task 6.2）：
 // - 连接建立（携带 api_key + last_turn_index）
 // - 消息发送（submit / interrupt / approval / ping）
-// - 指数退避重连（1s→30s，最多 10 次）；4429 等待 60s 单次重试
+// - 指数退避重连（1s→30s，最多 10 次）；4429 每次等待 60s，最多重试 2 次后转 failed
 // - 心跳保活（30s ping，连续 3 次无 pong 判定死连接）
 // - 关闭码差异化处理（4401/4403/4404/4429）
 
 import {
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_MAX_MISSED,
+  RATE_LIMIT_MAX_RETRIES,
   RATE_LIMIT_RETRY_DELAY_MS,
   RECONNECT_BASE_DELAY_MS,
   RECONNECT_MAX_ATTEMPTS,
@@ -32,6 +33,8 @@ export class WebSocketClient {
   private readonly opts: WebSocketClientOptions;
   private ws: WebSocket | null = null;
   private reconnectAttempt = 0;
+  /** 4429 限流独立重试计数（连接成功或手动 retry 时清零）。 */
+  private rateLimitRetries = 0;
   private reconnectTimer: number | null = null;
   private heartbeatTimer: number | null = null;
   private missedPongs = 0;
@@ -65,6 +68,7 @@ export class WebSocketClient {
   /** 手动重试（达到最大重连次数后 UI 按钮调用）。 */
   retry(): void {
     this.reconnectAttempt = 0;
+    this.rateLimitRetries = 0;
     this.connect();
   }
 
@@ -113,6 +117,7 @@ export class WebSocketClient {
 
     ws.onopen = () => {
       this.reconnectAttempt = 0;
+      this.rateLimitRetries = 0;
       this.missedPongs = 0;
       this.startHeartbeat();
       // ready 状态在收到 session_ready 帧时上报
@@ -155,7 +160,12 @@ export class WebSocketClient {
         this.opts.onStatus('session_not_found', { closeCode: code });
         return; // 不重连
       case WS_CLOSE_CODES.RATE_LIMITED:
-        // 限流：60s 后单次重试
+        // 限流：每次等待 60s 重试，有界重试超限后转 failed（A3）
+        if (this.rateLimitRetries >= RATE_LIMIT_MAX_RETRIES) {
+          this.opts.onStatus('failed', { closeCode: code });
+          return;
+        }
+        this.rateLimitRetries += 1;
         this.opts.onStatus('rate_limited', { closeCode: code });
         this.scheduleReconnect(RATE_LIMIT_RETRY_DELAY_MS);
         return;

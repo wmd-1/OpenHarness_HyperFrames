@@ -5,7 +5,9 @@
 
 import type { Terminal } from '@xterm/xterm';
 import type { ServerFrame } from '../../types/ws';
-import { SLASH_COMMANDS, WS_CLOSE_MESSAGES } from '../../utils/constants';
+import { WS_CLOSE_MESSAGES } from '../../utils/constants';
+import { SLASH_COMMANDS } from '../../utils/slashCommands';
+import { sanitizeAnsi } from '../../utils/sanitize';
 
 // ANSI 样式
 const RESET = '\x1b[0m';
@@ -25,6 +27,10 @@ export interface TerminalBridgeCallbacks {
   interrupt: () => boolean;
   /** 本地命令（/clear 等）处理；返回 true 表示已消费。 */
   onLocalCommand?: (command: string) => boolean;
+  /** 共享输入历史 getter：始终读 store 最新值，不在 bridge 内部副本化（D4）。 */
+  getHistory: () => readonly string[];
+  /** 提交/本地命令统一写入共享历史（store 负责相邻去重与上限）。 */
+  pushHistory: (text: string) => void;
 }
 
 /**
@@ -36,17 +42,15 @@ export class TerminalBridge {
   private readonly cb: TerminalBridgeCallbacks;
   /** 多行输入缓冲（Shift+Enter 续行）。 */
   private lines: string[] = [''];
-  private history: string[] = [];
   private historyIndex = -1;
   private draftBeforeHistory = '';
   /** 轮次执行中（禁用输入提交，仅允许 Ctrl+C/Escape）。 */
   private busy = false;
   private disposed = false;
 
-  constructor(term: Terminal, cb: TerminalBridgeCallbacks, initialHistory: string[] = []) {
+  constructor(term: Terminal, cb: TerminalBridgeCallbacks) {
     this.term = term;
     this.cb = cb;
-    this.history = [...initialHistory];
     term.onData((data) => this.handleData(data));
     this.writeWelcome();
     this.drawPrompt();
@@ -66,8 +70,8 @@ export class TerminalBridge {
         break;
       case 'delta':
         this.busy = true;
-        // delta 文本原样输出（\n → \r\n）
-        this.term.write(frame.text.replace(/\n/g, '\r\n'));
+        // delta 文本剥离危险控制序列后输出（B2），\n → \r\n
+        this.term.write(sanitizeAnsi(frame.text).replace(/\n/g, '\r\n'));
         break;
       case 'turn_complete':
         this.busy = false;
@@ -179,7 +183,7 @@ export class TerminalBridge {
       return;
     }
     if (text.startsWith('/') && this.cb.onLocalCommand?.(text)) {
-      this.history.push(text);
+      this.cb.pushHistory(text);
       this.drawPrompt();
       return;
     }
@@ -188,7 +192,8 @@ export class TerminalBridge {
       this.drawPrompt();
       return;
     }
-    this.history.push(text);
+    // 提前写入历史：即使发送失败也可上箭头找回；提交成功时 store 相邻去重（D4）
+    this.cb.pushHistory(text);
     this.historyIndex = -1;
     if (this.cb.submit(text)) {
       this.busy = true;
@@ -208,27 +213,29 @@ export class TerminalBridge {
 
   private navigateHistory(delta: number): void {
     if (this.lines.length > 1) return; // 多行输入时禁用历史
-    if (this.history.length === 0) return;
+    const history = this.cb.getHistory();
+    if (history.length === 0) return;
     if (delta < 0) {
       if (this.historyIndex === -1) {
         this.draftBeforeHistory = this.lines[0];
-        this.historyIndex = this.history.length - 1;
+        this.historyIndex = history.length - 1;
       } else if (this.historyIndex > 0) {
         this.historyIndex -= 1;
       }
-      this.replaceInput(this.history[this.historyIndex]);
+      this.replaceInput(history[this.historyIndex]);
     } else if (this.historyIndex !== -1) {
-      if (this.historyIndex >= this.history.length - 1) {
+      if (this.historyIndex >= history.length - 1) {
         this.historyIndex = -1;
         this.replaceInput(this.draftBeforeHistory);
       } else {
         this.historyIndex += 1;
-        this.replaceInput(this.history[this.historyIndex]);
+        this.replaceInput(history[this.historyIndex]);
       }
     }
   }
 
   private completeSlashCommand(): void {
+    if (this.lines.length > 1) return; // 多行输入时禁用补全，避免 replaceInput 折叠先前行（A11）
     const current = this.lines[this.lines.length - 1];
     if (!current.startsWith('/')) return;
     const match = SLASH_COMMANDS.find((c) => c.command.startsWith(current));
@@ -249,7 +256,8 @@ export class TerminalBridge {
   }
 
   private printLine(text: string): void {
-    this.term.write(`\r\n${text.replace(/\n/g, '\r\n')}\r\n`);
+    // 帧文本可能携带服务端控制序列，写入前统一清理（自身 SGR 样式会保留，B2）
+    this.term.write(`\r\n${sanitizeAnsi(text).replace(/\n/g, '\r\n')}\r\n`);
   }
 
   private drawPrompt(): void {

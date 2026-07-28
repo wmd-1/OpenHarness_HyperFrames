@@ -12,6 +12,21 @@ FORBIDDEN_OH_FLAGS so a caller cannot override them.
 
 from __future__ import annotations
 
+from secrets import compare_digest
+
+
+def api_key_matches(provided: str | None) -> bool:
+    """Constant-time API-key comparison against the configured key.
+
+    Shared by the REST auth middleware, the WS handshake and the artifact-GET
+    ``?api_key=`` query-param path (A2) so all entry points use one check.
+    """
+    from app.config import settings
+
+    expected = settings.api_key.get_secret_value() if settings.api_key else ""
+    return compare_digest(provided or "", expected)
+
+
 # flag -> does it consume a following value?
 ALLOWED_OH_FLAGS: dict[str, bool] = {
     "--temperature": True,

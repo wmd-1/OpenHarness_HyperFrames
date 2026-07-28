@@ -1,12 +1,12 @@
-// sanitize 单元测试（task 12.2）：输入清理、XSS 防护、白名单参数校验。
+// sanitize 单元测试（task 12.2）：输入清理、白名单参数校验。
 
 import { describe, expect, it } from 'vitest';
 import {
   containsShellMetachars,
   maskApiKey,
+  sanitizeAnsi,
   sanitizeUserInput,
   stripControlChars,
-  stripHtmlTags,
   tokenizeArgs,
   validateExtraArgs,
 } from '../sanitize';
@@ -21,27 +21,49 @@ describe('stripControlChars', () => {
   });
 });
 
-describe('stripHtmlTags（XSS 防护）', () => {
-  it('移除 script 标签', () => {
-    expect(stripHtmlTags('<script>alert(1)</script>hello')).toBe('alert(1)hello');
+describe('sanitizeUserInput', () => {
+  it('剥离控制字符并 trim', () => {
+    expect(sanitizeUserInput('  hi\u0000 there  ')).toBe('hi there');
   });
 
-  it('移除内联事件标签', () => {
-    expect(stripHtmlTags('<img src=x onerror=alert(1)>text')).toBe('text');
+  it('尖括号泛型原样保留（不再剥离 HTML 标签，B1）', () => {
+    expect(sanitizeUserInput('Vec<T>')).toBe('Vec<T>');
   });
 
-  it('普通文本原样保留', () => {
-    expect(stripHtmlTags('a < b 且 b > 不是标签')).toBe('a  不是标签');
+  it('比较表达式原样保留', () => {
+    expect(sanitizeUserInput('a < b > c')).toBe('a < b > c');
+  });
+
+  it('代码片段中的标签文本原样发送（渲染侧负责防护）', () => {
+    expect(sanitizeUserInput('<script>alert(1)</script>')).toBe('<script>alert(1)</script>');
   });
 });
 
-describe('sanitizeUserInput', () => {
-  it('组合清理并 trim', () => {
-    expect(sanitizeUserInput('  <b>hi</b>\u0000 there  ')).toBe('hi there');
+describe('sanitizeAnsi', () => {
+  it('保留 SGR 颜色/样式序列', () => {
+    expect(sanitizeAnsi('\u001b[32mok\u001b[0m \u001b[1;33mwarn\u001b[0m')).toBe(
+      '\u001b[32mok\u001b[0m \u001b[1;33mwarn\u001b[0m',
+    );
   });
 
-  it('全非法输入返回空串', () => {
-    expect(sanitizeUserInput('<script></script>')).toBe('');
+  it('剥离 OSC（标题篡改 / OSC 52 剪贴板）', () => {
+    expect(sanitizeAnsi('a\u001b]0;evil title\u0007b')).toBe('ab');
+    expect(sanitizeAnsi('a\u001b]52;c;ZXZpbA==\u001b\\b')).toBe('ab');
+  });
+
+  it('剥离非 SGR 的 CSI（清屏/光标移动/模式切换）', () => {
+    expect(sanitizeAnsi('x\u001b[2Jy')).toBe('xy');
+    expect(sanitizeAnsi('x\u001b[10;10Hy')).toBe('xy');
+    expect(sanitizeAnsi('x\u001b[?25ly')).toBe('xy');
+  });
+
+  it('剥离 DCS 与单字符 Fe 转义（RIS）', () => {
+    expect(sanitizeAnsi('a\u001bPq payload\u001b\\b')).toBe('ab');
+    expect(sanitizeAnsi('a\u001bcb')).toBe('ab');
+  });
+
+  it('普通文本与换行原样保留', () => {
+    expect(sanitizeAnsi('hello\nworld')).toBe('hello\nworld');
   });
 });
 

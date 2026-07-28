@@ -87,6 +87,13 @@ HEADERS="$(curl -fsSI "http://127.0.0.1:${SMOKE_PORT}/")"
 for h in "X-Content-Type-Options: nosniff" "X-Frame-Options: DENY" "Content-Security-Policy:"; do
   echo "${HEADERS}" | grep -qi "${h}" || { echo "!! smoke: missing header ${h}"; exit 1; }
 done
+# CSP connect-src must be tightened to 'self' only -- no bare ws:/wss: (B4).
+# Same-origin WebSocket connectivity itself is exercised by the Playwright E2E.
+CSP_LINE="$(echo "${HEADERS}" | grep -i 'Content-Security-Policy')"
+echo "${CSP_LINE}" | grep -q "connect-src 'self';" \
+  || { echo "!! smoke: CSP connect-src not tightened to 'self'"; exit 1; }
+echo "${CSP_LINE}" | grep -qE 'connect-src[^;]*(ws:|wss:)' \
+  && { echo "!! smoke: CSP connect-src still allows bare ws:/wss:"; exit 1; }
 # SPA fallback: unknown path must still return the app shell (HTTP 200).
 curl -fsS "http://127.0.0.1:${SMOKE_PORT}/some/deep/route" | grep -q '<div id="root">' \
   || { echo "!! smoke: SPA fallback broken"; exit 1; }

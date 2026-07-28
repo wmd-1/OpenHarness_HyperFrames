@@ -1,12 +1,14 @@
 // 审批模态框容器（task 10.1）：按 modal.kind 分发到具体弹窗；
-// task 10.6 可访问性：焦点圈定（Tab 循环）、Escape 拒绝、初始焦点。
+// 可访问性（焦点圈定/Escape 拒绝/初始焦点）统一走 useFocusTrap（D5）。
 // 数据来源 conversation.pendingApproval，决策经 conversation.approve 提交。
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { TimerReset } from 'lucide-react';
 import { useConversationStore } from '../../store/conversationStore';
-import type { ApprovalReply, ApprovalRequestFrame } from '../../types/ws';
+import type { PendingApproval } from '../../store/conversationStore';
+import type { ApprovalReply } from '../../types/ws';
 import { useApproval } from '../../hooks/useApproval';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import type { ApprovalDecision } from './approvalTypes';
 import { DiffApproval } from './DiffApproval';
 import { PermissionPrompt } from './PermissionPrompt';
@@ -14,13 +16,10 @@ import { QuestionPrompt } from './QuestionPrompt';
 
 export interface ApprovalModalProps {
   sessionId: string;
-  approval: ApprovalRequestFrame;
+  approval: PendingApproval;
   /** conversation.approve：提交 approval 帧并清除 pendingApproval。 */
   approve: (requestId: string, allowed: boolean, reply?: ApprovalReply, answer?: string) => boolean;
 }
-
-const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), textarea, input, [tabindex]:not([tabindex="-1"])';
 
 export function ApprovalModal({ sessionId, approval, approve }: ApprovalModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -48,43 +47,8 @@ export function ApprovalModal({ sessionId, approval, approve }: ApprovalModalPro
 
   const reject = useCallback(() => decide(false, 'reject'), [decide]);
 
-  // 焦点圈定 + Escape 拒绝（task 10.6）
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const previousActive = document.activeElement as HTMLElement | null;
-    // 初始焦点：autoFocus 元素或第一个可聚焦元素
-    if (!dialog.contains(document.activeElement)) {
-      const first = dialog.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
-      first?.focus();
-    }
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        reject();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      // Tab 循环圈定在弹窗内
-      const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-      if (focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown, true);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown, true);
-      previousActive?.focus?.();
-    };
-  }, [reject]);
+  // 焦点圈定 + Escape 拒绝（task 10.6，实现提取为 useFocusTrap，D5）
+  useFocusTrap(dialogRef, { onEscape: reject });
 
   const kind = approval.modal?.kind ?? 'permission';
   const modal = approval.modal ?? { kind };

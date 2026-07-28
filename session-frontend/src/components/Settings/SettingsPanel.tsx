@@ -1,13 +1,21 @@
 // 设置面板（task 7.12）：API Key 管理 + 主题选择器，右侧滑出抽屉。
+// 焦点圈定 + Escape 关闭统一走 useFocusTrap（task 5.10 D5）。
 
+import { useRef } from 'react';
 import { X } from 'lucide-react';
 import { useUiStore } from '../../store/uiStore';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { ApiKeyInput } from './ApiKeyInput';
 import { ThemeSelector } from './ThemeSelector';
 
 export function SettingsPanel() {
   const open = useUiStore((s) => s.settingsOpen);
   const setOpen = useUiStore((s) => s.setSettingsOpen);
+  const panelRef = useRef<HTMLElement>(null);
+
+  // 焦点圈定 + Escape 关闭（D5）
+  useFocusTrap(panelRef, { active: open, onEscape: () => setOpen(false) });
+
   if (!open) return null;
 
   return (
@@ -18,6 +26,7 @@ export function SettingsPanel() {
       role="presentation"
     >
       <aside
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="设置"

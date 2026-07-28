@@ -1,6 +1,7 @@
 // useWebSocket Hook 集成测试（task 12.5）：mock 全局 WebSocket，
 // 验证连接建立、帧分发、断线重连、消息发送、审批流转。
 
+import { StrictMode } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWebSocket } from '../useWebSocket';
@@ -149,6 +150,52 @@ describe('useWebSocket 帧分发', () => {
     expect(useSessionStore.getState().sessions[SID].turn_count).toBe(1);
   });
 
+  it('turn_complete 带 has_artifact=true 时标记助手消息产物', () => {
+    renderHook(() => useWebSocket(SID));
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.serverOpen();
+      ws.serverFrame({ type: 'delta', text: 'ok', turn_index: 0 });
+      ws.serverFrame({ type: 'turn_complete', turn_index: 0, has_artifact: true });
+    });
+    const msg = useConversationStore.getState().conversations[SID].messages[0];
+    expect(msg).toMatchObject({ kind: 'assistant', streaming: false, hasArtifact: true });
+  });
+
+  it('turn_complete 缺失 has_artifact 字段时按 false 处理（旧后端兼容）', () => {
+    renderHook(() => useWebSocket(SID));
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.serverOpen();
+      ws.serverFrame({ type: 'delta', text: 'ok', turn_index: 0 });
+      ws.serverFrame({ type: 'turn_complete', turn_index: 0 });
+    });
+    const msg = useConversationStore.getState().conversations[SID].messages[0];
+    expect(msg).toMatchObject({ kind: 'assistant', streaming: false, hasArtifact: false });
+  });
+
+  it('断线补发的 turn_complete 携带 has_artifact 与 assistant_text 时补建产物消息', () => {
+    renderHook(() => useWebSocket(SID));
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.serverOpen();
+      ws.serverFrame({
+        type: 'turn_complete',
+        turn_index: 2,
+        replayed: true,
+        assistant_text: 'replayed reply',
+        has_artifact: true,
+      });
+    });
+    const msg = useConversationStore.getState().conversations[SID].messages[0];
+    expect(msg).toMatchObject({
+      kind: 'assistant',
+      text: 'replayed reply',
+      turnIndex: 2,
+      hasArtifact: true,
+    });
+  });
+
   it('tool_start / tool_end 生成工具卡片', () => {
     renderHook(() => useWebSocket(SID));
     const ws = MockWebSocket.instances[0];
@@ -272,5 +319,71 @@ describe('useWebSocket 关闭码与重连', () => {
       vi.advanceTimersByTime(1000);
     });
     expect(MockWebSocket.instances).toHaveLength(2);
+  });
+});
+
+describe('useWebSocket turn_error 分发（A4）', () => {
+  /** 先注入待处理审批，再下发 turn_error，返回会话状态。 */
+  function emitTurnError(frame: Record<string, unknown>) {
+    renderHook(() => useWebSocket(SID));
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.serverOpen();
+      ws.serverFrame({
+        type: 'approval_request',
+        request_id: 'r1',
+        modal: { kind: 'permission' },
+        turn_index: 0,
+      });
+      ws.serverFrame({ type: 'turn_error', turn_index: 0, ...frame });
+    });
+    return useConversationStore.getState().conversations[SID];
+  }
+
+  it('code=approval_timeout 时清除待处理审批（不依赖文案）', () => {
+    const conv = emitTurnError({ message: 'timeout', code: 'approval_timeout' });
+    expect(conv.pendingApproval).toBeNull();
+    expect(conv.turnActive).toBe(false);
+    expect(conv.messages.at(-1)).toMatchObject({ kind: 'system', level: 'error', text: 'timeout' });
+  });
+
+  it('无 code 时按文案匹配回退（旧后端兼容）', () => {
+    const conv = emitTurnError({ message: '审批请求超时' });
+    expect(conv.pendingApproval).toBeNull();
+  });
+
+  it('携带其他 code 时不清除审批（结构化判定优先，不再嗅探文案）', () => {
+    const conv = emitTurnError({ message: 'approval unrelated error', code: 'internal_error' });
+    expect(conv.pendingApproval?.request_id).toBe('r1');
+  });
+});
+
+describe('useWebSocket StrictMode 守护（D1）', () => {
+  it('StrictMode 双执行 effect 时无双活连接', () => {
+    renderHook(() => useWebSocket(SID), { wrapper: StrictMode });
+    // StrictMode 下 effect 执行两次：首个连接必须已被清理关闭
+    const live = MockWebSocket.instances.filter((ws) => ws.readyState !== MockWebSocket.CLOSED);
+    expect(live).toHaveLength(1);
+    act(() => {
+      live[0].serverOpen();
+      live[0].serverFrame({ type: 'session_ready' });
+    });
+    expect(useWsStore.getState().status[SID]).toBe('ready');
+  });
+
+  it('mount→unmount→mount：旧连接关闭，仅新连接存活', () => {
+    const first = renderHook(() => useWebSocket(SID));
+    act(() => MockWebSocket.instances[0].serverOpen());
+    first.unmount();
+    expect(useWsStore.getState().status[SID]).toBe('idle');
+
+    const { result } = renderHook(() => useWebSocket(SID));
+    const live = MockWebSocket.instances.filter((ws) => ws.readyState !== MockWebSocket.CLOSED);
+    expect(live).toHaveLength(1);
+    act(() => {
+      live[0].serverOpen();
+      live[0].serverFrame({ type: 'session_ready' });
+    });
+    expect(result.current.status).toBe('ready');
   });
 });

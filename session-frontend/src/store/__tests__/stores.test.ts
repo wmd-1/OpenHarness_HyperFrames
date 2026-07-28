@@ -55,6 +55,17 @@ describe('sessionStore', () => {
     expect(loadCachedSessionIds()).toEqual([]);
   });
 
+  it('removeSession 级联清理对话与 WS 状态（A9）', () => {
+    useSessionStore.getState().addSession(makeSession('a'));
+    useConversationStore.getState().addUserMessage('a', 'hi');
+    useWsStore.getState().setStatus('a', 'ready');
+    useWsStore.getState().setLastTurnIndex('a', 2);
+    useSessionStore.getState().removeSession('a');
+    expect(useConversationStore.getState().conversations.a).toBeUndefined();
+    expect(useWsStore.getState().status.a).toBeUndefined();
+    expect(useWsStore.getState().lastTurnIndex.a).toBeUndefined();
+  });
+
   it('reset 清空全部状态与缓存', () => {
     useSessionStore.getState().addSession(makeSession('a'));
     useSessionStore.getState().reset();

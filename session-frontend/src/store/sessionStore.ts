@@ -4,6 +4,8 @@
 import { create } from 'zustand';
 import type { Session } from '../types/session';
 import { STORAGE_KEYS } from '../utils/constants';
+import { useConversationStore } from './conversationStore';
+import { useWsStore } from './wsStore';
 
 interface SessionState {
   /** session_id -> Session */
@@ -42,6 +44,12 @@ function persistSessionIds(order: string[]): void {
   }
 }
 
+/** 从 localStorage 缓存即时剔除已失效（404）的会话 ID（A10）。 */
+export function pruneCachedSessionIds(staleIds: string[]): void {
+  if (staleIds.length === 0) return;
+  persistSessionIds(loadCachedSessionIds().filter((id) => !staleIds.includes(id)));
+}
+
 export const useSessionStore = create<SessionState>((set) => ({
   sessions: {},
   order: [],
@@ -70,7 +78,7 @@ export const useSessionStore = create<SessionState>((set) => ({
       if (!existing) return state;
       return { sessions: { ...state.sessions, [sid]: { ...existing, ...patch } } };
     }),
-  removeSession: (sid) =>
+  removeSession: (sid) => {
     set((state) => {
       const sessions = { ...state.sessions };
       delete sessions[sid];
@@ -81,7 +89,11 @@ export const useSessionStore = create<SessionState>((set) => ({
         order,
         currentId: state.currentId === sid ? null : state.currentId,
       };
-    }),
+    });
+    // 级联清理对话与 WS 残留状态，避免删除后内存泄漏（A9）
+    useConversationStore.getState().removeConversation(sid);
+    useWsStore.getState().clear(sid);
+  },
   selectSession: (sid) => set({ currentId: sid }),
   setLoading: (loading) => set({ loading }),
   reset: () => {

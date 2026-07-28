@@ -2,9 +2,12 @@
 // 仅供 Playwright E2E 使用；协议与 service/app/routers 对齐（简化版）。
 //
 // 行为约定：
-// - 认证：X-API-Key / api_key 查询参数必须等于 MOCK_API_KEY（默认 test-key）
+// - 认证：X-API-Key 头必须等于 MOCK_API_KEY（默认 test-key）；
+//   仅 artifact GET 与 WS 握手额外接受 ?api_key= 查询参数（对齐 A2）
 // - POST /v1/sessions 创建 live 会话；GET 查询；DELETE 关闭
+// - GET /v1/sessions/{sid}/turns/{idx}/artifact 返回伪 mp4 字节
 // - WS /v1/sessions/{sid}/ws：session_ready → submit 回显 "Echo: {text}"
+// - submit 文本为 "make-video" 时 turn_complete 带 has_artifact: true
 // - submit 文本为 "force-drop" 时直接掐断连接（测试断线重连）
 
 import { createServer } from 'node:http';
@@ -67,9 +70,28 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // ---- 认证 ----
-  if (req.headers['x-api-key'] !== API_KEY) {
+  // ---- 认证：仅 artifact GET 额外接受 ?api_key= 查询参数（对齐后端 A2） ----
+  const isArtifactGet =
+    req.method === 'GET' && /^\/v1\/sessions\/[^/]+\/turns\/\d+\/artifact$/.test(path);
+  const headerOk = req.headers['x-api-key'] === API_KEY;
+  const queryOk = isArtifactGet && url.searchParams.get('api_key') === API_KEY;
+  if (!headerOk && !queryOk) {
     sendJson(res, 401, { detail: 'invalid api key' });
+    return;
+  }
+
+  // ---- 产物下载：返回伪 mp4 字节（足够驱动 <video>/<a download>） ----
+  if (isArtifactGet) {
+    const data = Buffer.concat([
+      Buffer.from('\x00\x00\x00\x18ftypmp42', 'binary'),
+      Buffer.alloc(1024),
+    ]);
+    res.writeHead(200, {
+      'content-type': 'video/mp4',
+      'content-length': data.length,
+      'accept-ranges': 'bytes',
+    });
+    res.end(data);
     return;
   }
 
@@ -152,12 +174,19 @@ server.on('upgrade', (req, socket, head) => {
           const turnIndex = entry.turnIndex;
           entry.session.turn_count = turnIndex + 1;
           entry.session.last_active_at = nowIso();
+          // 产物场景触发器：turn_complete 带 has_artifact: true（A1）
+          const hasArtifact = frame.text === 'make-video';
           const reply = `Echo: ${frame.text}`;
           // 两段 delta 模拟流式输出
           send({ type: 'delta', text: reply.slice(0, 5), turn_index: turnIndex });
           setTimeout(() => {
             send({ type: 'delta', text: reply.slice(5), turn_index: turnIndex, final: true });
-            send({ type: 'turn_complete', turn_index: turnIndex, interrupted: false });
+            send({
+              type: 'turn_complete',
+              turn_index: turnIndex,
+              interrupted: false,
+              has_artifact: hasArtifact,
+            });
           }, 50);
           break;
         }

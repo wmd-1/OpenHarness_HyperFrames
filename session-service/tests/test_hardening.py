@@ -236,7 +236,10 @@ async def test_daily_quota_exceeded_returns_403(client, monkeypatch):
     assert r1.status_code == 201
     r2 = await client.post("/v1/sessions", json={})
     assert r2.status_code == 403
-    assert "daily" in r2.json()["detail"].lower()
+    detail = r2.json()["detail"]
+    # Structured code (harden-session-frontend E1): quota vs access 403.
+    assert detail["code"] == "daily_quota_exceeded"
+    assert "daily" in detail["message"].lower()
 
 
 # --- SS-3: concurrent creates cannot oversell the concurrent quota -------------

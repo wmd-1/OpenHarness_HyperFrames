@@ -40,15 +40,23 @@ API Key 认证与输入安全：localStorage 存储与脱敏、extra_oh_args 白
 - **THEN** 前端拒绝提交，显示错误"参数值包含非法字符"
 
 ### Requirement: XSS 防护
-系统 SHALL 对所有用户输入和助手回复进行 XSS 防护处理。
+系统 SHALL 通过渲染层转义与内容安全策略实现 XSS 防护：用户消息经 React JSX 渲染（自动转义），助手消息经 react-markdown 渲染（默认不渲染内联 HTML，默认 urlTransform 过滤 `javascript:` 等危险协议），nginx SHALL 下发 `Content-Security-Policy` 且 `script-src 'self'`、`connect-src 'self'`（不放行任意 `ws:`/`wss:` 目标）。用户输入在发送前 SHALL 仅剥离控制字符，SHALL NOT 剥离或改写 HTML 标签形态的普通文本（如 `Vec<T>`、`<div>` 字面内容），保证提交给 Agent 的语义完整。
 
 #### Scenario: Markdown 渲染防 XSS
 - **WHEN** 助手回复包含 HTML 标签（如 `<script>alert(1)</script>`）
 - **THEN** react-markdown 默认转义 HTML 标签，不执行脚本
 
-#### Scenario: 用户输入清理
-- **WHEN** 用户输入包含控制字符或 HTML 标签
-- **THEN** 前端在发送前剥离控制字符和 HTML 标签
+#### Scenario: 用户输入仅剥离控制字符
+- **WHEN** 用户输入包含控制字符（如 `\x00`、`\x1b`）
+- **THEN** 前端在发送前剥离控制字符，其余内容原样保留
+
+#### Scenario: 技术文本原样保留
+- **WHEN** 用户输入包含 `Vec<T>`、`List<string>` 或 `a < b > c` 等含尖括号的技术文本
+- **THEN** 前端不删改任何字符，消息按原文提交给后端并在气泡中原样显示（经 JSX 转义安全渲染）
+
+#### Scenario: CSP 限制连接目标
+- **WHEN** 页面脚本尝试向非同源主机建立 WebSocket 或 fetch 连接
+- **THEN** 浏览器按 `connect-src 'self'` 阻断该连接；同源 REST 与 WS（ws/wss 同源）不受影响
 
 ### Requirement: 认证状态管理
 系统 SHALL 根据认证状态控制应用的可访问范围。

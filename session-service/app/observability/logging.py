@@ -50,6 +50,10 @@ def configure_logging(level: str = "INFO") -> None:
     log_level = getattr(logging, level, logging.INFO)
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=log_level)
     logging.getLogger().addFilter(_MaskSecretsFilter())
+    # uvicorn.access has its own handlers (propagate=False), so the root filter
+    # never sees it; attach the mask filter directly so an artifact GET's
+    # ``?api_key=`` query string (A2) is never logged in plaintext.
+    logging.getLogger("uvicorn.access").addFilter(_MaskSecretsFilter())
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,

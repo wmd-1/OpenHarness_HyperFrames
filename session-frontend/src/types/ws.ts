@@ -48,6 +48,8 @@ export interface TurnCompleteFrame {
   interrupted?: boolean;
   replayed?: boolean;
   assistant_text?: string | null;
+  /** 该轮次是否注册了产物（A1）；旧后端可能缺失，缺失按 false 处理。 */
+  has_artifact?: boolean;
 }
 
 export interface ToolStartFrame {
@@ -109,6 +111,8 @@ export interface TurnErrorFrame {
   type: 'turn_error';
   message: string;
   turn_index?: number;
+  /** 结构化错误码（A4）；首个取值 "approval_timeout"，缺失时按文案匹配回退。 */
+  code?: string;
 }
 
 /** 未知后端事件的透明透传帧。 */

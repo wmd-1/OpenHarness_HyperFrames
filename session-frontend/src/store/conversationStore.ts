@@ -6,12 +6,15 @@ import { create } from 'zustand';
 import type { ApprovalRequestFrame } from '../types/ws';
 import type { Message, ToolCall } from '../types/conversation';
 
+/** 待处理审批：附首次收到时刻，供倒计时基准（A7）。 */
+export type PendingApproval = ApprovalRequestFrame & { receivedAt: number };
+
 export interface ConversationState {
   messages: Message[];
   /** 当前是否有轮次执行中（禁用/启用输入栏）。 */
   turnActive: boolean;
   todoMarkdown: string;
-  pendingApproval: ApprovalRequestFrame | null;
+  pendingApproval: PendingApproval | null;
   /** 输入历史（上下箭头导航，chat 与 terminal 共享）。 */
   inputHistory: string[];
 }
@@ -80,6 +83,10 @@ export const useConversationStore = create<ConversationStoreState>((set) => ({
       })),
     ),
 
+  // TODO(C3, won't-fix-now): 每次 flush 复制全量消息数组 + 尾部线性扫描，
+  // 消息数千条时 O(n)×20 次/秒；虚拟滚动已隔离渲染成本，当前量级无感知。
+  // 若未来支持超长会话，可把「流式中的最后一条助手消息」拆到独立字段，
+  // 完成时再并入 messages。详见 CODE_REVIEW_REPORT.md C3。
   appendAssistantText: (sid, turnIndex, text) =>
     set((state) =>
       withConversation(state, sid, (conv) => {
@@ -199,7 +206,19 @@ export const useConversationStore = create<ConversationStoreState>((set) => ({
 
   setPendingApproval: (sid, frame) =>
     set((state) =>
-      withConversation(state, sid, (conv) => ({ ...conv, pendingApproval: frame })),
+      withConversation(state, sid, (conv) => ({
+        ...conv,
+        // 同一 request_id 重连补发时保留首次收到时刻，倒计时不重置（A7）
+        pendingApproval: frame
+          ? {
+              ...frame,
+              receivedAt:
+                conv.pendingApproval?.request_id === frame.request_id
+                  ? conv.pendingApproval.receivedAt
+                  : Date.now(),
+            }
+          : null,
+      })),
     ),
 
   addSystemMessage: (sid, level, text) =>

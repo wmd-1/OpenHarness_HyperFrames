@@ -88,4 +88,25 @@ describe('CreateDialog', () => {
     expect(useUiStore.getState().createDialogOpen).toBe(true);
     expect(useSessionStore.getState().order).toEqual([]);
   });
+
+  it('焦点圈定：初始焦点入框，Tab 在首尾循环（D5）', () => {
+    render(<CreateDialog />);
+    const closeBtn = screen.getByRole('button', { name: '关闭' });
+    const createBtn = screen.getByRole('button', { name: '创建' });
+    // 初始焦点落在第一个可聚焦元素
+    expect(document.activeElement).toBe(closeBtn);
+    // 末尾元素 Tab → 回到第一个
+    createBtn.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(closeBtn);
+    // 第一个元素 Shift+Tab → 到末尾
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(createBtn);
+  });
+
+  it('Escape 关闭对话框（D5）', () => {
+    render(<CreateDialog />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(useUiStore.getState().createDialogOpen).toBe(false);
+  });
 });

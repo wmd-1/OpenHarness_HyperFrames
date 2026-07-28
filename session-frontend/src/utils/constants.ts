@@ -39,7 +39,7 @@ export const WS_CLOSE_MESSAGES: Record<number, string> = {
   [WS_CLOSE_CODES.AUTH_FAILED]: 'API Key 无效，请重新认证',
   [WS_CLOSE_CODES.SESSION_CLOSED]: '会话已关闭',
   [WS_CLOSE_CODES.SESSION_NOT_FOUND]: '会话不存在',
-  [WS_CLOSE_CODES.RATE_LIMITED]: '连接过于频繁，已被限流',
+  [WS_CLOSE_CODES.RATE_LIMITED]: '连接过于频繁，已被限流，稍后将自动重试',
   [WS_CLOSE_CODES.SERVER_ERROR]: '会话暂不可用（服务端错误）',
 };
 
@@ -50,8 +50,10 @@ export const HEARTBEAT_MAX_MISSED = 3;
 export const RECONNECT_BASE_DELAY_MS = 1_000;
 export const RECONNECT_MAX_DELAY_MS = 30_000;
 export const RECONNECT_MAX_ATTEMPTS = 10;
-/** 4429 限流后单次重试等待。 */
+/** 4429 限流后每次重试等待。 */
 export const RATE_LIMIT_RETRY_DELAY_MS = 60_000;
+/** 4429 限流最大有界重试次数，超限转 failed。 */
+export const RATE_LIMIT_MAX_RETRIES = 2;
 
 // ---- 流式渲染批量 flush（design D6）----
 export const STREAM_FLUSH_INTERVAL_MS = 50;
@@ -70,16 +72,7 @@ export const APPROVAL_WARN_AT_S = 250;
 // ---- 输入 ----
 export const MAX_INPUT_LENGTH = 32_000;
 
-/** `/` 命令补全候选。 */
-export const SLASH_COMMANDS: readonly { command: string; description: string }[] = [
-  { command: '/interrupt', description: '中断当前轮次' },
-  { command: '/clear', description: '清空当前对话视图（仅本地）' },
-  { command: '/theme', description: '打开主题选择器' },
-  { command: '/terminal', description: '切换到 Terminal Mode' },
-  { command: '/chat', description: '切换到 Chat Mode' },
-  { command: '/close', description: '关闭当前会话' },
-  { command: '/help', description: '显示可用命令' },
-];
+// `/` 命令表已统一到 utils/slashCommands.ts（D3）
 
 // ---- localStorage keys ----
 export const STORAGE_KEYS = {

@@ -5,17 +5,21 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApprovalModal } from '../ApprovalModal';
 import { useConversationStore } from '../../../store/conversationStore';
-import type { ApprovalModal as ApprovalModalPayload, ApprovalRequestFrame } from '../../../types/ws';
+import type { PendingApproval } from '../../../store/conversationStore';
+import type { ApprovalModal as ApprovalModalPayload } from '../../../types/ws';
 
 const SID = 's1';
 
-const makeApproval = (modal: ApprovalModalPayload | null, requestId: string | null = 'r1') =>
-  ({
-    type: 'approval_request',
-    request_id: requestId,
-    modal,
-    turn_index: 0,
-  }) satisfies ApprovalRequestFrame;
+const makeApproval = (
+  modal: ApprovalModalPayload | null,
+  requestId: string | null = 'r1',
+): PendingApproval => ({
+  type: 'approval_request',
+  request_id: requestId,
+  modal,
+  turn_index: 0,
+  receivedAt: Date.now(),
+});
 
 beforeEach(() => {
   localStorage.clear();

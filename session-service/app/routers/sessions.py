@@ -102,7 +102,15 @@ async def create_session(
                 )
             )).scalar_one()
             if created_today >= settings.tenant_max_daily:
-                raise HTTPException(status_code=403, detail="Daily session quota exceeded")
+                # Structured code (E1): lets the client distinguish "quota
+                # exhausted" from a permission-denied 403 without text matching.
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "daily_quota_exceeded",
+                        "message": "Daily session quota exceeded",
+                    },
+                )
 
         # Per-tenant concurrent quota (via supervisor public API, SS-10).
         if sup.count_live_for_tenant(tenant_id) >= settings.tenant_max_concurrent:
@@ -169,10 +177,12 @@ async def submit_turn_rest(
         raise HTTPException(status_code=409, detail="A turn is already in progress")
     # Run the turn to completion (collect the final frame set).
     final_turn = None
+    has_artifact = False
     async for frame in sup.stream_turn(sid, body.text, db=db):
         if frame.get("type") == "turn_complete":
             from app.models import ConversationTurn
 
+            has_artifact = bool(frame.get("has_artifact", False))
             turns = (await db.execute(
                 select(ConversationTurn)
                 .where(ConversationTurn.conversation_id == sid)
@@ -192,6 +202,7 @@ async def submit_turn_rest(
         prompt=final_turn.prompt,
         assistant_text=final_turn.assistant_text,
         error_message=final_turn.error_message,
+        has_artifact=has_artifact,
         started_at=final_turn.started_at,
         finished_at=final_turn.finished_at,
     )

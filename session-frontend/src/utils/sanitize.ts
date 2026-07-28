@@ -1,5 +1,7 @@
-// 输入清理与校验：控制字符剥离、HTML 标签过滤、shell 元字符检测、
+// 输入清理与校验：控制字符剥离、shell 元字符检测、
 // extra_oh_args 白名单校验（镜像后端 app/security.py::vet_extra_oh_args）。
+// 注：不做 HTML 标签剥离——用户输入是发给 agent 的文本而非 HTML，
+// 渲染侧由 react-markdown（不启用 raw HTML）负责 XSS 防护（B1）。
 
 import { ALLOWED_OH_FLAGS, SHELL_METACHARS, TYPED_FLAGS } from './constants';
 
@@ -9,14 +11,29 @@ export function stripControlChars(input: string): string {
   return input.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '');
 }
 
-/** 过滤 HTML 标签（用户输入不允许携带任何标签）。 */
-export function stripHtmlTags(input: string): string {
-  return input.replace(/<[^>]*>/g, '');
+/** 发送前的用户输入清理：仅剥离控制字符并 trim，尖括号等原样保留。 */
+export function sanitizeUserInput(input: string): string {
+  return stripControlChars(input).trim();
 }
 
-/** 发送前的用户输入清理：控制字符 + HTML 标签。 */
-export function sanitizeUserInput(input: string): string {
-  return stripHtmlTags(stripControlChars(input)).trim();
+/**
+ * 终端输出清理（B2）：剥离 OSC/DCS/APC/PM（标题篡改、OSC 52 剪贴板写入）
+ * 与非 SGR 的 CSI 序列（光标操控/清屏/模式切换），仅保留颜色/样式
+ * （`ESC[...m`），防止服务端文本注入终端控制序列。
+ */
+export function sanitizeAnsi(text: string): string {
+  return (
+    text
+      // OSC / DCS / APC / PM / SOS：ESC 后跟 ] P _ ^ X，直到 BEL 或 ST（ESC\）终止
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u001b[\]P_^X][\s\S]*?(?:\u0007|\u001b\\)/g, '')
+      // CSI：仅保留终止符为 m 的 SGR，其余剥离
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, (seq) => (seq.endsWith('m') ? seq : ''))
+      // 其余单字符转义（Fe/Fs，如 RIS `ESC c`）
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u001b(?!\[)[@-~]/g, '')
+  );
 }
 
 /** 值中是否包含 shell 元字符。 */

@@ -1,12 +1,14 @@
 // 创建会话对话框（task 7.7）：权限策略选择 + 高级参数（白名单前端校验）。
+// 焦点圈定 + Escape 关闭统一走 useFocusTrap（task 5.10 D5）。
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Bot, Loader2, ShieldCheck, X } from 'lucide-react';
 import { createSession } from '../../api/sessions';
-import { extractErrorDetail } from '../../api/client';
+import { errorStatus, extractErrorDetail } from '../../api/client';
 import { useSessionStore } from '../../store/sessionStore';
 import { useUiStore } from '../../store/uiStore';
 import type { PermissionPolicy } from '../../types/session';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { tokenizeArgs, validateExtraArgs } from '../../utils/sanitize';
 
 const POLICIES: {
@@ -42,7 +44,7 @@ export function CreateDialog() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  if (!open) return null;
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const close = () => {
     if (submitting) return;
@@ -50,6 +52,11 @@ export function CreateDialog() {
     setSubmitError(null);
     setArgError(null);
   };
+
+  // 焦点圈定 + Escape 关闭（D5）
+  useFocusTrap(dialogRef, { active: open, onEscape: close });
+
+  if (!open) return null;
 
   const handleArgsChange = (value: string) => {
     setRawArgs(value);
@@ -81,7 +88,12 @@ export function CreateDialog() {
       setOpen(false);
       setRawArgs('');
     } catch (err) {
-      setSubmitError(await extractErrorDetail(err));
+      // 429 并发超限：对话框就地提示（全局横幅已在 client.ts 拦截器中抑制，E3）
+      if (errorStatus(err) === 429) {
+        setSubmitError('并发会话数已达上限（最多 8 个），请关闭部分会话后重试');
+      } else {
+        setSubmitError(await extractErrorDetail(err));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -95,6 +107,7 @@ export function CreateDialog() {
       role="presentation"
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="创建会话"

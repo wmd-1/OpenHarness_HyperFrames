@@ -40,6 +40,26 @@ test('完整对话流程：认证 → 创建会话 → 流式回复', async ({ p
   await expect(page.getByRole('contentinfo').getByText('轮次 2')).toBeVisible();
 });
 
+test('产物链路：has_artifact 轮次渲染视频卡片与下载入口', async ({ page }) => {
+  await login(page);
+  await createSession(page);
+
+  await sendMessage(page, 'make-video');
+  await expect(page.getByText('Echo: make-video')).toBeVisible({ timeout: 10_000 });
+
+  // turn_complete 带 has_artifact: true → 消息气泡渲染视频预览与下载按钮
+  const video = page.locator('video');
+  await expect(video).toBeVisible({ timeout: 10_000 });
+  // 直链 src 携带 ?api_key= 查询参数认证（A2）
+  await expect(video).toHaveAttribute('src', /api_key=/);
+  await expect(page.getByRole('button', { name: '下载产物' })).toBeVisible();
+
+  // 普通轮次（无产物）不新增视频卡片
+  await sendMessage(page, '续聊');
+  await expect(page.getByText('Echo: 续聊')).toBeVisible({ timeout: 10_000 });
+  await expect(video).toHaveCount(1);
+});
+
 test('断线重连：连接掉线后自动恢复并可继续对话', async ({ page }) => {
   await login(page);
   await createSession(page);
@@ -62,6 +82,30 @@ test('模式切换：Chat ↔ Terminal', async ({ page }) => {
 
   await page.getByRole('tab', { name: 'Chat' }).click();
   await expect(page.getByLabel('消息输入')).toBeVisible();
+});
+
+test('关闭会话需二次确认：取消后会话仍存活', async ({ page }) => {
+  await login(page);
+  await createSession(page);
+
+  // /close 命令弹出确认对话框，不直接关闭（A5）
+  await sendMessage(page, '/close');
+  const dialog = page.getByTestId('confirm-dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: '取消' }).click();
+  await expect(dialog).not.toBeVisible();
+
+  // 取消后会话保持存活，可继续对话
+  await sendMessage(page, '仍然在线');
+  await expect(page.getByText('Echo: 仍然在线')).toBeVisible({ timeout: 10_000 });
+
+  // 侧栏垃圾桶入口同样先确认
+  const card = page.locator('[aria-current="true"]').first();
+  await card.hover();
+  await card.getByLabel('关闭会话').click();
+  await expect(page.getByTestId('confirm-dialog')).toBeVisible();
+  await page.getByTestId('confirm-dialog').getByRole('button', { name: '取消' }).click();
+  await expect(page.getByTestId('confirm-dialog')).not.toBeVisible();
 });
 
 test('错误恢复：无效 API Key 触发 401 后回到认证页', async ({ page }) => {

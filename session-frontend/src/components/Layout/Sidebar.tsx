@@ -1,9 +1,10 @@
 // 会话列表侧栏（task 7.2）：新建按钮 + 会话卡片列表。
 
 import { Loader2, Plus } from 'lucide-react';
-import { closeSession } from '../../api/sessions';
+import { useCloseSession } from '../../hooks/useCloseSession';
 import { useSessionStore } from '../../store/sessionStore';
 import { useUiStore } from '../../store/uiStore';
+import { ConfirmDialog } from '../Common/ConfirmDialog';
 import { SessionCard } from '../Session/SessionCard';
 
 export function Sidebar() {
@@ -12,20 +13,15 @@ export function Sidebar() {
   const currentId = useSessionStore((s) => s.currentId);
   const loading = useSessionStore((s) => s.loading);
   const selectSession = useSessionStore((s) => s.selectSession);
-  const patchSession = useSessionStore((s) => s.patchSession);
   const setCreateDialogOpen = useUiStore((s) => s.setCreateDialogOpen);
   const setSidebarOpen = useUiStore((s) => s.setSidebarOpen);
+  // 关闭会话：确认 → 乐观置 closed → 失败回滚 + 错误横幅（A5）
+  const { pendingSid, requestClose, confirmClose, cancelClose } = useCloseSession();
 
   const handleSelect = (sid: string) => {
     selectSession(sid);
     // 移动端选中后收起抽屉
     setSidebarOpen(false);
-  };
-
-  const handleClose = (sid: string) => {
-    // 乐观更新为 closed；失败时保持原状态由后端下次 GET 纠正
-    patchSession(sid, { status: 'closed' });
-    void closeSession(sid).catch(() => undefined);
   };
 
   return (
@@ -59,11 +55,19 @@ export function Sidebar() {
               session={session}
               active={sid === currentId}
               onSelect={handleSelect}
-              onClose={handleClose}
+              onClose={requestClose}
             />
           );
         })}
       </div>
+      <ConfirmDialog
+        open={pendingSid !== null}
+        title="关闭会话"
+        message={`确认关闭会话 ${pendingSid ? `${pendingSid.slice(0, 8)}…` : ''}？关闭后不可恢复。`}
+        confirmLabel="关闭会话"
+        onConfirm={confirmClose}
+        onCancel={cancelClose}
+      />
     </div>
   );
 }

@@ -21,6 +21,8 @@ export interface TurnResponse {
   prompt: string;
   assistant_text: string | null;
   error_message: string | null;
+  /** 该轮次是否注册了产物（A1）；旧后端可能缺失。 */
+  has_artifact?: boolean;
   started_at: string;
   finished_at: string | null;
 }
@@ -45,6 +47,7 @@ export interface ReadyResponse {
   capacity: number;
 }
 
+/** 后端错误体：detail 为纯文本或结构化 { code, message }（如配额类 403）。 */
 export interface ApiErrorBody {
-  detail?: string;
+  detail?: string | { code?: string; message?: string };
 }

@@ -35,6 +35,7 @@ from app.session.adapter import ProtocolAdapter
 from app.session.artifacts import locate_output_file, probe_mp4_async
 from app.session.lifecycle import IllegalTransition, SessionState, is_live_process, transition
 from app.session.process import OhBackendProcess, derive_oh_session_id
+from app.session.protocol import BackendEvent
 from app.storage.s3 import storage_for_kind
 
 log = logging.getLogger(__name__)
@@ -457,15 +458,15 @@ class SessionSupervisor:
                         await self._await_approval(live, event)
                     if event.type == "line_complete":
                         # Finalize BEFORE yielding the terminal frame.
-                        await self._finalize_turn(live, turn, db, TurnStatus.COMPLETED, None)
-                        yield {"type": "turn_complete", "turn_index": turn_index}
+                        has_artifact = await self._finalize_turn(live, turn, db, TurnStatus.COMPLETED, None)
+                        yield {"type": "turn_complete", "turn_index": turn_index, "has_artifact": has_artifact}
                         return
                     frame = self._map_event(live, event, turn_index)
                     if frame is not None:
                         yield frame
         except asyncio.CancelledError:
-            await self._finalize_turn(live, turn, db, TurnStatus.INTERRUPTED, None)
-            yield {"type": "turn_complete", "turn_index": turn_index, "interrupted": True}
+            has_artifact = await self._finalize_turn(live, turn, db, TurnStatus.INTERRUPTED, None)
+            yield {"type": "turn_complete", "turn_index": turn_index, "interrupted": True, "has_artifact": has_artifact}
             raise
         except Exception as exc:
             log.exception("turn failed: %s", exc)
@@ -501,6 +502,15 @@ class SessionSupervisor:
             }
         if t == "error":
             return {"type": "turn_error", "message": event.message, "turn_index": turn_index}
+        if t == "approval_timeout":
+            # Synthetic event injected by _await_approval on timeout (A4):
+            # structured code so the client need not match on message text.
+            return {
+                "type": "turn_error",
+                "code": "approval_timeout",
+                "message": event.message or "approval request timed out; treated as rejected",
+                "turn_index": turn_index,
+            }
         if t == "ready":
             return {"type": "session_ready"}
         # Unknown event: transparent passthrough (spec robustness).
@@ -522,6 +532,24 @@ class SessionSupervisor:
             except asyncio.TimeoutError:
                 if not fut.done():
                     fut.set_result({"allowed": False, "reply": "reject", "answer": ""})
+                    live._pending_approvals.pop(rid, None)
+                    try:
+                        if live.adapter is not None:
+                            # Forward the denial so the subprocess unblocks.
+                            if (modal.get("kind") or "") == "question":
+                                await live.adapter.respond_question(rid, "")
+                            else:
+                                await live.adapter.respond_permission(rid, False, "reject")
+                            # Surface a structured turn_error frame to the client
+                            # (A4: code=approval_timeout, mapped in _map_event).
+                            await live.adapter.events.put(
+                                BackendEvent(
+                                    type="approval_timeout",
+                                    message="approval request timed out; treated as rejected",
+                                )
+                            )
+                    except Exception:
+                        log.warning("approval timeout forwarding failed (sid=%s)", live.sid)
         asyncio.create_task(_timeout())
 
     async def respond_approval(
@@ -564,12 +592,15 @@ class SessionSupervisor:
         db: AsyncSession,
         status: TurnStatus,
         error: str | None,
-    ) -> None:
+    ) -> bool:
         """Persist the turn row + register artifacts (best-effort).
 
         Wrapped so a persistence failure never prevents the terminal frame from
         being delivered to the client — the turn record is best-effort.
+        Returns whether an artifact was registered for this turn (A1: the
+        ``turn_complete`` frame carries ``has_artifact``).
         """
+        has_artifact = False
         try:
             turn.status = status
             turn.error_message = error
@@ -579,7 +610,7 @@ class SessionSupervisor:
                 live._turn_index += 1
             db.add(turn)
             if status in (TurnStatus.COMPLETED, TurnStatus.INTERRUPTED):
-                await self._register_artifacts(live, turn, db)
+                has_artifact = await self._register_artifacts(live, turn, db)
             await db.commit()
         except Exception as exc:
             log.warning("turn finalize failed (sid=%s): %s", live.sid, exc)
@@ -587,16 +618,21 @@ class SessionSupervisor:
                 await db.rollback()
             except Exception:
                 pass
+            return False
+        return has_artifact
 
     async def _register_artifacts(
         self, live: LiveSession, turn: ConversationTurn, db: AsyncSession
-    ) -> None:
-        """Locate + probe + persist artifacts produced this turn (spec 3.5)."""
+    ) -> bool:
+        """Locate + probe + persist artifacts produced this turn (spec 3.5).
+
+        Returns True when an artifact row was registered.
+        """
         stdout_blob = "\n".join(live._turn_stdout)
         try:
             path = locate_output_file(stdout_blob, live.cwd)
         except Exception:
-            return
+            return False
         try:
             # Blocking ffprobe runs in the executor (SS-1) so the event loop
             # keeps serving concurrent WS/HTTP traffic.
@@ -609,7 +645,7 @@ class SessionSupervisor:
             storage.save(key, path)
         except Exception as exc:
             log.warning("artifact save failed: %s", exc)
-            return
+            return False
         art = TurnArtifact(
             conversation_id=live.sid,
             turn_index=turn.turn_index,
@@ -622,6 +658,7 @@ class SessionSupervisor:
             fps=meta.fps if meta else None,
         )
         db.add(art)
+        return True
 
     async def _drain_logs(self, live: LiveSession) -> None:
         """Forward non-protocol stdout lines to the bounded Redis log stream."""

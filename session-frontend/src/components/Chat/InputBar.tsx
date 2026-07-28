@@ -3,7 +3,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { CircleStop, SendHorizontal } from 'lucide-react';
-import { MAX_INPUT_LENGTH, SLASH_COMMANDS } from '../../utils/constants';
+import { MAX_INPUT_LENGTH } from '../../utils/constants';
+import { SLASH_COMMANDS } from '../../utils/slashCommands';
 
 export interface InputBarProps {
   disabled: boolean;

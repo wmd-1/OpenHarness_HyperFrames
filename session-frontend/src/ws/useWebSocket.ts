@@ -86,16 +86,15 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
   useEffect(() => {
     if (!sessionId || !apiKey || sessionTerminal) return;
     const sid = sessionId;
-    const conv = useConversationStore.getState();
-    const wsState = useWsStore.getState();
-    const sessions = useSessionStore.getState();
+    // 注意：store 动作统一 getState() 现取现用，不在 effect 顶部快照（D6）
 
     const streamBuffer = new StreamBuffer((turnIndex, text) => {
       useConversationStore.getState().appendAssistantText(sid, turnIndex, text);
     });
 
     const handleFrame = (frame: ServerFrame) => {
-      wsState.markMessage(sid);
+      const conv = useConversationStore.getState();
+      useWsStore.getState().markMessage(sid);
       switch (frame.type) {
         case 'session_ready':
           break;
@@ -108,12 +107,13 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
           conv.completeTurn(sid, frame.turn_index, {
             interrupted: frame.interrupted,
             replayedText: frame.replayed ? frame.assistant_text : null,
+            hasArtifact: frame.has_artifact ?? false,
           });
-          wsState.setLastTurnIndex(sid, frame.turn_index);
+          useWsStore.getState().setLastTurnIndex(sid, frame.turn_index);
           // 轮次计数同步到会话卡片
           const session = useSessionStore.getState().sessions[sid];
           if (session && session.turn_count <= frame.turn_index) {
-            sessions.patchSession(sid, {
+            useSessionStore.getState().patchSession(sid, {
               turn_count: frame.turn_index + 1,
               last_active_at: new Date().toISOString(),
             });
@@ -150,14 +150,21 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
         case 'error':
           conv.addSystemMessage(sid, 'error', frame.message);
           break;
-        case 'turn_error':
+        case 'turn_error': {
           streamBuffer.flush();
           conv.addSystemMessage(sid, 'error', frame.message);
           conv.setTurnActive(sid, false);
-          if (frame.message.includes('approval') || frame.message.includes('审批')) {
+          // 审批超时优先按结构化 code 判定（A4，后端已下发 code=approval_timeout）；
+          // 文案匹配仅作无 code 旧后端的回退，待后端全量升级后可移除
+          const approvalTimeout =
+            frame.code === 'approval_timeout' ||
+            (frame.code === undefined &&
+              (frame.message.includes('approval') || frame.message.includes('审批')));
+          if (approvalTimeout) {
             conv.setPendingApproval(sid, null);
           }
           break;
+        }
         case 'pong':
         case 'event':
           break;
@@ -173,10 +180,10 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
       if (nextStatus === 'auth_failed') {
         useAuthStore.getState().markAuthExpired();
       } else if (nextStatus === 'session_closed') {
-        sessions.patchSession(sid, { status: 'closed' });
+        useSessionStore.getState().patchSession(sid, { status: 'closed' });
       } else if (nextStatus === 'session_not_found') {
         useUiStore.getState().showBanner('error', WS_CLOSE_MESSAGES[4404]);
-        sessions.removeSession(sid);
+        useSessionStore.getState().removeSession(sid);
       } else if (nextStatus === 'rate_limited') {
         useUiStore.getState().showBanner('warning', '连接已被限流，60 秒后自动重试');
       }

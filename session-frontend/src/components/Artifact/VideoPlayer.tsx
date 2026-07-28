@@ -7,8 +7,8 @@ import { DownloadButton } from './DownloadButton';
 export function VideoPlayer({ sid, turnIndex }: { sid: string; turnIndex: number }) {
   return (
     <div className="border-line bg-raised mt-2 overflow-hidden rounded-lg border">
-      {/* 认证走 nginx/vite 同源代理注入的 cookie 不可用，视频 src 无法带自定义头；
-          后端 stream 模式支持 api_key 查询参数时可拼接，这里依赖同源代理转发 */}
+      {/* 视频 src 无法携带自定义头，直链 URL 自带 ?api_key= 查询参数认证
+          （后端仅对 artifact GET 路径额外接受，A2） */}
       <video
         controls
         preload="metadata"

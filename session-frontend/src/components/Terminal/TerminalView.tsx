@@ -3,11 +3,13 @@
 
 import { useCallback, useRef } from 'react';
 import type { Terminal } from '@xterm/xterm';
-import { closeSession } from '../../api/sessions';
-import { useSessionStore } from '../../store/sessionStore';
+import { useConversationStore } from '../../store/conversationStore';
 import { useUiStore } from '../../store/uiStore';
 import type { Session } from '../../types/session';
+import { dispatchSlashCommand } from '../../utils/slashCommands';
 import type { UseConversationResult } from '../../hooks/useConversation';
+import { useCloseSession } from '../../hooks/useCloseSession';
+import { ConfirmDialog } from '../Common/ConfirmDialog';
 import { TerminalBridge } from './TerminalBridge';
 import { XtermContainer } from './XtermContainer';
 
@@ -22,52 +24,28 @@ export function TerminalView({ session, conversation }: TerminalViewProps) {
   // 回调持有最新 conversation（bridge 生命周期长于渲染周期）
   const convRef = useRef(conversation);
   convRef.current = conversation;
-
-  const handleLocalCommand = useCallback(
-    (text: string): boolean => {
-      const [command] = text.split(/\s+/);
-      switch (command) {
-        case '/interrupt':
-          convRef.current.interrupt();
-          return true;
-        case '/clear':
-          return false; // 由 bridge 外部处理不便，交给终端 clear：见下方 submit 包装
-        case '/theme':
-          useUiStore.getState().setSettingsOpen(true);
-          return true;
-        case '/chat':
-          useUiStore.getState().setMode('chat');
-          return true;
-        case '/terminal':
-          return true; // 已在 terminal
-        case '/close':
-          useSessionStore.getState().patchSession(sid, { status: 'closed' });
-          void closeSession(sid).catch(() => undefined);
-          return true;
-        default:
-          return false;
-      }
-    },
-    [sid],
-  );
+  // /close 命令统一走确认 + 乐观关闭 + 失败回滚（A5）
+  const { pendingSid, requestClose, confirmClose, cancelClose } = useCloseSession();
 
   const handleReady = useCallback(
     (term: Terminal) => {
-      const bridge = new TerminalBridge(
-        term,
-        {
-          submit: (text) => convRef.current.submit(text),
-          interrupt: () => convRef.current.interrupt(),
-          onLocalCommand: (text) => {
-            if (text.split(/\s+/)[0] === '/clear') {
-              term.clear();
-              return true;
-            }
-            return handleLocalCommand(text);
-          },
-        },
-        convRef.current.inputHistory,
-      );
+      const bridge = new TerminalBridge(term, {
+        submit: (text) => convRef.current.submit(text),
+        interrupt: () => convRef.current.interrupt(),
+        // 共享输入历史直接读/写 store，不再副本化（D4）
+        getHistory: () => convRef.current.inputHistory,
+        pushHistory: (text) => useConversationStore.getState().pushInputHistory(sid, text),
+        // `/` 命令走统一分发表（D3）；差异项：清屏用 term.clear，帮助直接打印到终端
+        onLocalCommand: (text) =>
+          dispatchSlashCommand(text, {
+            interrupt: () => convRef.current.interrupt(),
+            clearView: () => term.clear(),
+            openSettings: () => useUiStore.getState().setSettingsOpen(true),
+            setMode: (mode) => useUiStore.getState().setMode(mode),
+            requestClose: () => requestClose(sid),
+            showHelp: (help) => term.writeln(help),
+          }),
+      });
       bridgeRef.current = bridge;
       // WS 帧桥接（addFrameListener 返回取消函数）
       const removeListener = convRef.current.ws.addFrameListener((frame) =>
@@ -79,7 +57,7 @@ export function TerminalView({ session, conversation }: TerminalViewProps) {
         bridgeRef.current = null;
       };
     },
-    [handleLocalCommand],
+    [sid, requestClose],
   );
 
   const handleShiftEnter = useCallback((): boolean => {
@@ -90,6 +68,14 @@ export function TerminalView({ session, conversation }: TerminalViewProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-black/90 p-2">
       <XtermContainer key={sid} onReady={handleReady} onShiftEnter={handleShiftEnter} />
+      <ConfirmDialog
+        open={pendingSid !== null}
+        title="关闭会话"
+        message="确认关闭当前会话？关闭后不可恢复。"
+        confirmLabel="关闭会话"
+        onConfirm={confirmClose}
+        onCancel={cancelClose}
+      />
     </div>
   );
 }
