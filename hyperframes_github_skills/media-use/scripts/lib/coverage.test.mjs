@@ -7,7 +7,7 @@ import { listTypes, getProviders } from "./registry.mjs";
 import { CAPABILITIES, listModels } from "./local-models.mjs";
 
 // Capstone: media-use must actually OWN each hyperframes media weakness. This
-// test enforces the weakness→owner matrix in SKILL.md so a claim can't rot — if
+// test enforces the weakness→owner matrix in references/meta.md so a claim can't rot — if
 // a capability's entrypoint disappears, this fails.
 
 const SKILL = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -16,6 +16,11 @@ test("weakness: audio-only → media-use resolves image + icon", () => {
   for (const t of ["image", "icon"]) {
     assert.ok(getProviders(t).length > 0, `no provider for ${t}`);
   }
+});
+
+test("weakness: no third-party brand logos → media-use resolves logo", () => {
+  assert.ok(listTypes().includes("logo"), "logo type missing");
+  assert.ok(getProviders("logo").length >= 4, "logo cascade incomplete");
 });
 
 test("weakness: no voice/audio gen → media-use exposes voice + the audio engine", () => {
