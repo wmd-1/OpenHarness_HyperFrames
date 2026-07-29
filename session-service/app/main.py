@@ -17,7 +17,7 @@ from app.observability.logging import configure_logging
 from app.observability.metrics import metrics_router
 from app.observability.tracing import setup_tracing
 from app.routers import health, sessions, ws
-from app.security import api_key_matches
+from app.security import resolve_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -84,33 +84,29 @@ _assert_auth_config()
 # cannot set request headers). Every other REST path stays header-only.
 _ARTIFACT_PATH_RE = re.compile(r"^/v1/sessions/[0-9a-fA-F-]+/turns/\d+/artifact$")
 
-# Auth middleware (mirror service/). Exempts /healthz, /readyz, /metrics.
-if settings.require_auth or settings.api_key:
 
-    @app.middleware("http")
-    async def api_key_middleware(request: Request, call_next):
-        if request.url.path in ("/healthz", "/readyz", "/metrics"):
-            return await call_next(request)
-        provided = request.headers.get("X-API-Key", "")
-        if (
-            not provided
-            and request.method == "GET"
-            and _ARTIFACT_PATH_RE.match(request.url.path)
-        ):
-            provided = request.query_params.get("api_key", "")
-        if not api_key_matches(provided):
-            return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
-        # Stash tenant/actor for downstream (single-key mode → "default").
-        request.state.tenant_id = "default"
-        request.state.actor_key_id = None
+# Unified auth middleware (WS-A): every request goes through resolve_tenant
+# (open mode → legacy single key → hashed api_keys lookup), so multi-key
+# deployments are enforced even without OH_API_KEY / OH_REQUIRE_AUTH set.
+# Exempts /healthz, /readyz, /metrics.
+@app.middleware("http")
+async def api_key_middleware(request: Request, call_next):
+    if request.url.path in ("/healthz", "/readyz", "/metrics"):
         return await call_next(request)
-else:
-    # Open mode: still stash a default tenant so deps resolve uniformly.
-    @app.middleware("http")
-    async def _default_tenant(request: Request, call_next):
-        request.state.tenant_id = "default"
-        request.state.actor_key_id = None
-        return await call_next(request)
+    provided = request.headers.get("X-API-Key", "")
+    if (
+        not provided
+        and request.method == "GET"
+        and _ARTIFACT_PATH_RE.match(request.url.path)
+    ):
+        provided = request.query_params.get("api_key", "")
+    resolved = await resolve_tenant(provided or None)
+    if resolved is None:
+        return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
+    # Stash tenant/actor for downstream deps (multi-key → the row's tenant;
+    # single-key / open mode → "default").
+    request.state.tenant_id, request.state.actor_key_id = resolved
+    return await call_next(request)
 
 
 app.include_router(sessions.router)

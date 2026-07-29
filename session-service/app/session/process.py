@@ -40,12 +40,16 @@ class OhBackendProcess:
         oh_session_id: str | None = None,
         extra_args: list[str] | None = None,
         oh_bin: str | None = None,
+        env_overrides: dict[str, str] | None = None,
     ) -> None:
         self._cwd = cwd
         self._permission_mode = permission_mode
         self._oh_session_id = oh_session_id
         self._extra_args = extra_args or []
         self._oh_bin = oh_bin or settings.oh_bin
+        # Extra env for the subprocess — WS-B injects the per-tenant
+        # OPENHARNESS_CONFIG_DIR/OPENHARNESS_DATA_DIR staging dirs here.
+        self._env_overrides = env_overrides or {}
         self._proc: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task[None] | None = None
         self.stdout_lines: asyncio.Queue[str | None] = asyncio.Queue()
@@ -106,6 +110,7 @@ class OhBackendProcess:
     def _build_env(self) -> dict[str, str]:
         env = dict(os.environ)
         env.setdefault("PYTHONUNBUFFERED", "1")
+        env.update(self._env_overrides)
         return env
 
     async def _read_stdout(self) -> None:

@@ -112,12 +112,16 @@ async def ready_check(
 
     When dependencies are healthy, returns 200 with queue-consumption stats
     (pending / running / heartbeat lag). When Redis or DB is unreachable,
-    returns 503 so the load balancer stops routing traffic.
+    returns 503 so the load balancer stops routing traffic. On ``storage_kind
+    = s3`` an S3 probe (2s cap) is added: MinIO being down also degrades
+    readiness (video-tenant-storage R5); ``_s3_ok()`` is None on local.
     """
     db_ok = await _db_ok()
     redis_ok = await _redis_ok()
+    s3_ok = await _s3_ok()
 
-    if not db_ok or not redis_ok:
+    ready = db_ok and redis_ok and s3_ok is not False
+    if not ready:
         response.status_code = 503
 
     pending = await db.scalar(
@@ -138,7 +142,7 @@ async def ready_check(
         lag = (datetime.now(timezone.utc) - lb).total_seconds()
 
     return ReadyResponse(
-        status="ok" if (db_ok and redis_ok) else "degraded",
+        status="ok" if ready else "degraded",
         pending=int(pending or 0),
         running=int(running or 0),
         heartbeat_lag_seconds=float(lag) if lag is not None else None,

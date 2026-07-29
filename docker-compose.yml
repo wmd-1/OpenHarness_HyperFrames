@@ -132,6 +132,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     ports:
       # !override 丢弃从 openharness 继承的 3000-3003（hyperframes preview 端口，
       # 优先归 session 使用），否则与 session 同时启动时宿主机端口冲突。
@@ -145,6 +147,16 @@ services:
       - OH_BROKER_URL=redis://redis:6379/0
       - OH_VIDEO_DIR=/var/openharness/videos
       - OH_WORKSPACE_ROOT=/workspaces
+      # WS-C MinIO 权威存储：产物对象 key = tenants/{tid}/videos/{task_id}.mp4，
+      # 与 session 侧共用 oh-tenants bucket。设 OH_STORAGE_KIND=local 可回退旧拓扑。
+      - OH_STORAGE_KIND=${OH_STORAGE_KIND:-s3}
+      - OH_S3_ENDPOINT=http://minio:9000
+      - OH_S3_BUCKET=${OH_MINIO_BUCKET:-oh-tenants}
+      - OH_S3_ACCESS_KEY=${OH_MINIO_ACCESS_KEY:-ohminio}
+      - OH_S3_SECRET_KEY=${OH_MINIO_SECRET_KEY:-ohminio-secret}
+      # 公网可达的 MinIO 地址（运维部署期提供）；未配置时下载端点自动
+      # 流式兜底，不会向客户端发容器内网 302。
+      - OH_S3_PUBLIC_ENDPOINT=${OH_S3_PUBLIC_ENDPOINT:-}
       - PRODUCER_HEADLESS_SHELL_PATH=/opt/chrome-headless-shell-linux64/chrome-headless-shell
       - CHROME_HEADLESS_BIN=/opt/chrome-headless-shell-linux64/chrome-headless-shell
       - OPENHARNESS_PERMISSION_MODE=full_auto
@@ -170,6 +182,24 @@ services:
       # QwenTTS 参考音频（与 openharness 服务同源）
       - ${QWENTTS_REF_AUDIO_HOST_DIR:-./assets/tts-ref}:/opt/tts-ref:ro
 
+  # ---- MinIO（租户数据权威源，WS-B）----
+  # bucket `oh-tenants` 内前缀 tenants/{tid}/{openharness,rules}/ 为各租户数据
+  # 唯一权威源；session 节点本地 /tenants 只是可丢弃暂存。凭据经 .env 注入。
+  minio:
+    image: minio/minio:latest
+    container_name: openharness-minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${OH_MINIO_ACCESS_KEY:-ohminio}
+      MINIO_ROOT_PASSWORD: ${OH_MINIO_SECRET_KEY:-ohminio-secret}
+    volumes:
+      - oh-minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   # ---- FastAPI 交互会话服务 (oh --backend-only 桥接) ----
   # 独立进程，复用同一 Postgres/Redis（Redis 用 db=1 避免与视频服务键空间冲突），
   # 共享 /workspaces 卷（会话快照冷态保留）。每个会话 spawn 一个 oh --backend-only。
@@ -187,6 +217,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     ports:
       # 继承 openharness 的 3000-3003（hyperframes preview 端口，优先归 session，
       # 会话内 spawn 的 oh 跑 hyperframes preview 时可从宿主机访问），另加 8001。
@@ -202,7 +234,9 @@ services:
       - OH_WORKSPACE_ROOT=/workspaces
       - OH_NODE_ID=session
       - OH_NODE_BASE_URL=http://session:8001
-      - OH_OH_BIN=/root/.local/bin/oh
+      - OH_OH_BIN=${OH_OH_BIN:-/root/.local/bin/oh}
+      # e2e 可调小的 IDLE→COLD 宽限期（秒），默认与 config.py 一致
+      - OH_IDLE_GRACE_SECONDS=${OH_IDLE_GRACE_SECONDS:-300}
       - PRODUCER_HEADLESS_SHELL_PATH=/opt/chrome-headless-shell-linux64/chrome-headless-shell
       - CHROME_HEADLESS_BIN=/opt/chrome-headless-shell-linux64/chrome-headless-shell
       - OPENHARNESS_PERMISSION_MODE=full_auto
@@ -212,6 +246,21 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OH_CORS_ORIGINS=${OH_CORS_ORIGINS:-}
+      # MinIO 租户数据权威源（WS-B stage-in/stage-out）
+      - OH_MINIO_ENDPOINT=minio:9000
+      - OH_MINIO_ACCESS_KEY=${OH_MINIO_ACCESS_KEY:-ohminio}
+      - OH_MINIO_SECRET_KEY=${OH_MINIO_SECRET_KEY:-ohminio-secret}
+      - OH_MINIO_BUCKET=${OH_MINIO_BUCKET:-oh-tenants}
+      # WS-C 容器运行时：默认 process（子进程）；设 container 则每会话一个
+      # 一次性容器（镜像复用既有主镜像 tag，不重建）。
+      - OH_SESSION_RUNTIME=${OH_SESSION_RUNTIME:-process}
+      - OH_SESSION_IMAGE=${OH_SESSION_IMAGE:-openharness_hyperframes_qwen-tts_pptx:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.77_v1.4_v2.1}}
+      # 可选：指向 docker-socket-proxy 缩小 sock 风险面（见 README 告警）
+      - OH_DOCKER_HOST=${OH_DOCKER_HOST:-}
+      # WS-D 池化调度：节点容量与有界 FIFO 准入队列（e2e 可调小）
+      - OH_MAX_LIVE_SESSIONS=${OH_MAX_LIVE_SESSIONS:-16}
+      - OH_POOL_QUEUE_SIZE=${OH_POOL_QUEUE_SIZE:-32}
+      - OH_POOL_QUEUE_TIMEOUT=${OH_POOL_QUEUE_TIMEOUT:-15}
     volumes:
       - ./OpenHarness/src:/app/src
       - ./OpenHarness/ohmo:/app/ohmo
@@ -219,6 +268,11 @@ services:
       - oh-videos:/var/openharness/videos
       - oh-workspaces:/workspaces
       - openharness-config:/root/.openharness
+      # 租户暂存（可丢弃，可从 MinIO 完整重建）
+      - oh-tenants:/tenants
+      # docker.sock：仅 container 运行时使用。root 等价——仅网关容器可达，
+      # 加固选项见 session-service/README.md（docker-socket-proxy + OH_DOCKER_HOST）。
+      - /var/run/docker.sock:/var/run/docker.sock
 
   # ---- 前端 SPA（独立镜像：Vite/React 构建 → nginx 提供静态资源 + 反向代理）----
   # nginx 将 /v1、/healthz 反代到 api:8000（同源，无需 CORS），SSE / Range 已特殊处理。
@@ -280,3 +334,7 @@ volumes:
     name: openharness-videos
   oh-workspaces:
     name: openharness-workspaces
+  oh-minio:
+    name: openharness-minio-data
+  oh-tenants:
+    name: openharness-tenants

@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 import logging
+import re
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +12,7 @@ from app.observability.logging import configure_logging
 from app.observability.metrics import metrics_router
 from app.observability.tracing import setup_tracing
 from app.routers import health, videos
+from app.security import resolve_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,20 @@ async def lifespan(app: FastAPI):
     # service always boots regardless of the tracing dependency state (R8).
     configure_logging()
     setup_tracing(app)
+    # Idempotently ensure the tenant bucket exists (video-tenant-storage R5).
+    # ensure_bucket never raises; an unreachable MinIO only logs a warning so
+    # an OH_STORAGE_KIND=local topology boots without S3 at all.
+    if settings.storage_kind == "s3":
+        import asyncio
+
+        from app.storage.s3 import S3VideoStorage
+
+        if not await asyncio.to_thread(S3VideoStorage().ensure_bucket):
+            logger.warning(
+                "S3 bucket %s unavailable at startup; uploads will fail "
+                "until MinIO is reachable",
+                settings.s3_bucket,
+            )
     yield
     # Shutdown
     from app.db import engine
@@ -69,10 +85,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Auth middleware (S1/S2) ---
-# The middleware is always registered when ``require_auth=True`` or when an
-# ``api_key`` is configured. Uses ``secrets.compare_digest`` for constant-time
-# comparison to prevent timing attacks.
+# --- Auth middleware (S1/S2 + WS-A multi-key tenancy) ---
+# Always registered: every request resolves to a tenant_id via the shared
+# three-step function (open mode → legacy single key → hashed api_keys
+# lookup), so multi-key deployments are enforced even without OH_API_KEY /
+# OH_REQUIRE_AUTH set. Single-key compare stays constant-time (R15).
 def _assert_auth_config() -> None:
     """Boot-time check: if require_auth is on, an api_key MUST be set."""
     if settings.require_auth and not settings.api_key:
@@ -85,23 +102,33 @@ def _assert_auth_config() -> None:
 _assert_auth_config()
 _warn_no_db_credentials()
 
-# Always register the middleware when auth is required or an api_key is set.
-if settings.require_auth or settings.api_key:
+# Only /file and /events may authenticate via ?api_key= (browser EventSource /
+# <a> downloads cannot set custom headers). All other endpoints stay
+# header-only (R15).
+_QUERY_KEY_PATH_RE = re.compile(r"^/v1/videos/[0-9a-fA-F-]+/(file|events)$")
 
-    @app.middleware("http")
-    async def api_key_middleware(request, call_next):
-        from secrets import compare_digest
 
-        # /healthz and /readyz are always accessible (liveness/readiness probes).
-        if request.url.path in ("/healthz", "/readyz"):
-            return await call_next(request)
-        provided = request.headers.get("X-API-Key", "")
-        expected = settings.api_key.get_secret_value() if settings.api_key else ""
-        if not compare_digest(provided, expected):
-            from fastapi.responses import JSONResponse
-
-            return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
+@app.middleware("http")
+async def api_key_middleware(request, call_next):
+    # /healthz and /readyz are always accessible (liveness/readiness probes).
+    if request.url.path in ("/healthz", "/readyz"):
         return await call_next(request)
+    provided = request.headers.get("X-API-Key", "")
+    if (
+        not provided
+        and request.method == "GET"
+        and _QUERY_KEY_PATH_RE.match(request.url.path)
+    ):
+        provided = request.query_params.get("api_key", "")
+    resolved = await resolve_tenant(provided or None)
+    if resolved is None:
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
+    # Stash tenant/actor for downstream deps (multi-key → the row's tenant;
+    # single-key / open mode → "default").
+    request.state.tenant_id, request.state.actor_key_id = resolved
+    return await call_next(request)
 
 
 # Register routers

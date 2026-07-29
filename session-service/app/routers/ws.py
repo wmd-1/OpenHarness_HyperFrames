@@ -24,29 +24,31 @@ from app.config import settings
 from app import db
 from app.models import Conversation, ConversationTurn, SessionStatus, TurnArtifact, TurnStatus
 from app.ratelimit import _client_ip, check_rate_limit
-from app.security import api_key_matches
+from app.security import resolve_tenant
+from app.session.pool import PoolAdmissionError
 from app.session.supervisor import CapacityFullError, SessionNotFound, get_supervisor
+from app.session.tenant_store import TenantStoreError
 
 router = APIRouter(tags=["ws"])
 
 
-def _ws_authed(websocket: WebSocket) -> tuple[bool, str, str | None]:
+async def _ws_authed(websocket: WebSocket) -> tuple[bool, str, str | None]:
     """Resolve auth before accept. Returns (ok, tenant_id, actor_key_id).
 
-    When auth is disabled (no api_key / require_auth), the tenant is "default".
-    The key may arrive as a header or a ``?api_key=`` query param (browsers
-    cannot set headers on WS handshakes).
+    Shares :func:`app.security.resolve_tenant` with the REST middleware
+    (open mode → legacy single key → hashed api_keys lookup). The key may
+    arrive as a header or a ``?api_key=`` query param (browsers cannot set
+    headers on WS handshakes).
     """
-    if not (settings.require_auth or settings.api_key):
-        return True, "default", None
     provided = (
         websocket.headers.get("X-API-Key")
         or websocket.query_params.get("api_key")
         or ""
     )
-    if not api_key_matches(provided):
+    resolved = await resolve_tenant(provided or None)
+    if resolved is None:
         return False, "", None
-    return True, "default", None
+    return True, resolved[0], resolved[1]
 
 
 async def _replay_missed_turns(
@@ -87,7 +89,7 @@ async def session_ws(
     sid: str,
     last_turn_index: int | None = Query(default=None),
 ):
-    ok, tenant_id, actor = _ws_authed(websocket)
+    ok, tenant_id, actor = await _ws_authed(websocket)
     if not ok:
         await websocket.close(code=4401, reason="Invalid API key")
         return
@@ -127,6 +129,22 @@ async def session_ws(
     live = None
     try:
         live = sup.get(sid_uuid)
+        if not live.is_live():
+            from app.session.lifecycle import SessionState
+
+            if live.state == SessionState.COLD:
+                # Idle-evicted in place (still registered, backend torn down):
+                # rehydrate under the single-writer registration lock.
+                async with db.async_session() as session:
+                    try:
+                        live = await sup.register_live_session(live, db=session)
+                    except (CapacityFullError, PoolAdmissionError, RuntimeError):
+                        await websocket.close(code=4500, reason="session unavailable")
+                        return
+                    conv_r = await session.get(Conversation, sid_uuid)
+                    if conv_r is not None:
+                        conv_r.status = SessionStatus.LIVE
+                        await session.commit()
     except SessionNotFound:
         async with db.async_session() as session:
             conv2 = await session.get(Conversation, sid_uuid)
@@ -153,7 +171,7 @@ async def session_ws(
                 # client triggers rehydrate; the rest reuse the live session.
                 try:
                     live = await sup.register_live_session(cold, db=session)
-                except (CapacityFullError, RuntimeError):
+                except (CapacityFullError, PoolAdmissionError, RuntimeError):
                     await websocket.close(code=4500, reason="session unavailable")
                     return
                 conv2.status = SessionStatus.LIVE
@@ -165,7 +183,9 @@ async def session_ws(
             if conv3 is not None:
                 try:
                     await sup.create_session_from_existing(conv3, tenant_id, db=session)
-                except CapacityFullError:
+                except (CapacityFullError, PoolAdmissionError, TenantStoreError):
+                    # TenantStoreError: stage-in from the authoritative bucket
+                    # failed (WS-B fail-fast) -> same 4500 close as capacity.
                     await websocket.close(code=4500, reason="session unavailable")
                     return
                 live = sup.get(sid_uuid)

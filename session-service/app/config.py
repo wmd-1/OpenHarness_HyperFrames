@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     # --- Auth (mirror service/) ---
     api_key: SecretStr | None = None
     require_auth: bool = False
+    # TTL (seconds) of the in-process api_keys lookup cache (WS-A). Revoking a
+    # key takes effect within this window.
+    apikey_cache_ttl: float = 60.0
 
     # --- Rate limiting (mirror service/) ---
     rate_limit_capacity: int = 10
@@ -95,10 +98,68 @@ class Settings(BaseSettings):
     trusted_proxy: str = ""
 
     # --- Per-tenant quotas ---
-    # Max concurrent LIVE sessions per tenant.
-    tenant_max_concurrent: int = 8
+    # Max concurrent LIVE sessions per tenant. Default 1 (rev2, spec D8): one
+    # user (= tenant) has a single active session, so tenant-level stage-in/
+    # stage-out degenerates to "pull on entry, push on exit" with no
+    # concurrent-write merge semantics. Deployments MAY raise this, but then
+    # last-writer-wins applies to user-scope memory (documented risk).
+    tenant_max_concurrent: int = 1
     # Max sessions created per tenant per day.
     tenant_max_daily: int = 200
+
+    # --- Tenant data (WS-B: MinIO authoritative source + local staging) ---
+    # S3-compatible endpoint host:port (no scheme), e.g. "minio:9000". Unset
+    # disables tenant staging entirely (single-tenant/dev fallback).
+    minio_endpoint: str | None = None
+    minio_access_key: SecretStr | None = None
+    minio_secret_key: SecretStr | None = None
+    # Bucket holding all tenant prefixes ``tenants/{tid}/{openharness,rules}/``.
+    minio_bucket: str = "oh-tenants"
+    # TLS toggle for the MinIO client (compose-internal traffic is plain HTTP).
+    minio_secure: bool = False
+    # Node-local *disposable* staging root; ``/tenants/{tid}/`` mirrors the
+    # tenant's bucket prefix and can be wiped and rebuilt from MinIO.
+    tenants_root: Path = Path("/tenants")
+
+    # --- Backend runtime (WS-C) ---
+    # Which backend runtime the supervisor spawns: "process" (default,
+    # oh --backend-only subprocess — existing behaviour) or "container"
+    # (one disposable docker container per session, spec D3/D4).
+    session_runtime: str = "process"
+    # Image used for per-session containers. Defaults to the existing main
+    # image tag (compose OH_VERSION_HYPERFRAMES_VERSION) — never rebuilt.
+    session_image: str = (
+        "openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1"
+    )
+    # Per-container resource limits (D4 security/resource baseline).
+    container_mem_limit: str = "2g"
+    container_cpus: float = 2.0
+    container_pids_limit: int = 512
+    # cap_drop=ALL baseline. Disable only if Chrome needs caps that e2e (Q2)
+    # shows cannot be individually re-added.
+    container_cap_drop: bool = True
+    # Comma-separated bind specs (``source:dest[:mode]``) for per-session
+    # containers. Defaults mirror the compose named volumes so a sibling
+    # container sees the same /workspaces, /tenants, videos and shared
+    # ~/.openharness (skills) trees as the gateway. Deployments append the
+    # host-path source mounts here (e.g. ``/host/repo/OpenHarness/src:/app/src``).
+    container_binds: str = (
+        "openharness-workspaces:/workspaces"
+        ",openharness-tenants:/tenants"
+        ",openharness-videos:/var/openharness/videos"
+        ",openharness-config:/root/.openharness"
+    )
+    # Docker API endpoint. Unset = aiodocker default (unix socket). Point at a
+    # docker-socket-proxy URL to narrow the root-equivalent sock surface (D7).
+    docker_host: str | None = None
+
+    # --- Pool scheduling (WS-D) ---
+    # Bounded FIFO admission queue when the node is full and nothing is
+    # evictable. 0 disables queueing entirely (pre-pool fail-fast: full -> 503).
+    pool_queue_size: int = 32
+    # Max seconds a create/rehydrate request may wait in the queue before it
+    # is rejected with 503 + Retry-After.
+    pool_queue_timeout: float = 15.0
 
     # --- CORS ---
     cors_origins: str = ""

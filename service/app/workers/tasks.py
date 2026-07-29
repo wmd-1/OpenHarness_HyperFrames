@@ -14,7 +14,9 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import TaskStatus, VideoTask
+from app.storage.keys import video_object_key
 from app.storage.local import LocalVideoStorage
+from app.storage.s3 import S3VideoStorage
 from app.workers.celery_app import celery_app
 from app.workers.parser import OutputNotFoundError, locate_output_file, probe_mp4
 from app.workers.identity import get_worker_id
@@ -57,6 +59,17 @@ def _get_sync_engine():
 def _sync_session() -> Session:
     engine = _get_sync_engine()
     return Session(engine)
+
+
+def _storage_for_kind(kind: str | None):
+    """Resolve a storage backend for *kind* (video-tenant-storage R4).
+
+    Module-local (rather than ``app.deps.storage_for_kind``) so the
+    ``LocalVideoStorage`` symbol stays patchable on this module in tests.
+    """
+    if kind == "s3":
+        return S3VideoStorage()
+    return LocalVideoStorage()
 
 
 # Markers used inside the Redis Stream that backs task logs.
@@ -127,6 +140,7 @@ def _mark_succeeded(
     meta,  # VideoMeta
     result,  # RunResult
     worker_id: str | None = None,
+    storage_kind: str | None = None,
 ) -> bool:
     """Persist a successful render.
 
@@ -138,20 +152,25 @@ def _mark_succeeded(
     conditions = [VideoTask.id == uuid.UUID(str(task_id)), VideoTask.status == TaskStatus.RUNNING]
     if worker_id is not None:
         conditions.append(VideoTask.worker_id == worker_id)
+    values = dict(
+        status=TaskStatus.SUCCEEDED,
+        finished_at=func.now(),
+        output_path=storage_key,
+        file_size_bytes=meta.file_size_bytes,
+        duration_seconds=meta.duration_seconds,
+        resolution=meta.resolution,
+        fps=meta.fps,
+        exit_code=result.exit_code,
+    )
+    # Record the backend actually used so later delete/download resolve the
+    # artifact from the same place (row self-describing, R4).
+    if storage_kind is not None:
+        values["storage_kind"] = storage_kind
     with _sync_session() as db:
         exec_result = db.execute(
             sa_update(VideoTask)
             .where(*conditions)
-            .values(
-                status=TaskStatus.SUCCEEDED,
-                finished_at=func.now(),
-                output_path=storage_key,
-                file_size_bytes=meta.file_size_bytes,
-                duration_seconds=meta.duration_seconds,
-                resolution=meta.resolution,
-                fps=meta.fps,
-                exit_code=result.exit_code,
-            )
+            .values(**values)
         )
         db.commit()
         return exec_result.rowcount == 1
@@ -331,7 +350,11 @@ def generate_video_task(self, task_id: str) -> None:
         logger.warning("Task %s already claimed or terminal; skipping", task_id)
         return
 
-    storage = LocalVideoStorage()
+    # Save via the CONFIGURED backend (video-tenant-storage R4 — fixes the
+    # old hardcoded LocalVideoStorage() that silently ignored OH_STORAGE_KIND).
+    # Normalized to the two valid kinds so the row column stays clean.
+    storage_kind = "s3" if settings.storage_kind == "s3" else "local"
+    storage = _storage_for_kind(storage_kind)
 
     with _sync_session() as db:
         task = db.get(VideoTask, task_id)
@@ -356,6 +379,7 @@ def generate_video_task(self, task_id: str) -> None:
         prompt = task.prompt
         timeout = task.timeout_seconds
         extra_oh_args = json.loads(task.extra_oh_args) if task.extra_oh_args else []
+        tenant_id = task.tenant_id or "default"
 
     workspace = Path(settings.workspace_root) / str(task_id)
     workspace.mkdir(parents=True, exist_ok=True)
@@ -418,8 +442,11 @@ def generate_video_task(self, task_id: str) -> None:
 
         mp4 = locate_output_file(result.stdout, workspace)
         meta = probe_mp4(mp4)
-        final_key = storage.save(task_id, mp4)
-        _mark_succeeded(task_id, final_key, meta, result, worker_id=wid)
+        # Tenant-prefixed object key from the single generator (R1/R2).
+        final_key = storage.save(video_object_key(tenant_id, str(task_id)), mp4)
+        _mark_succeeded(
+            task_id, final_key, meta, result, worker_id=wid, storage_kind=storage_kind
+        )
         _cleanup_workspace(workspace)
 
         # Publish done marker into the log stream (consumed by SSE).
@@ -459,7 +486,6 @@ def cleanup_expired_tasks() -> None:
     from datetime import timedelta
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=settings.cleanup_retention_days)
-    storage = LocalVideoStorage()
     batch_size = 100
     total_cleaned = 0
 
@@ -495,9 +521,11 @@ def cleanup_expired_tasks() -> None:
                             import shutil
                             shutil.rmtree(wp, ignore_errors=True)
 
-                    # Clean up stored video
+                    # Clean up stored video — resolve the backend from the
+                    # task ROW so local/S3 mixed legacy rows each delete from
+                    # the right place (video-tenant-storage R4).
                     if task.output_path:
-                        storage.delete(task.output_path)
+                        _storage_for_kind(task.storage_kind).delete(task.output_path)
 
                     # Clean up Redis log stream
                     try:

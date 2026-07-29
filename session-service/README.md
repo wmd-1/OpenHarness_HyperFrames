@@ -96,4 +96,70 @@ docker compose up
 - **Server-fixed CLI flags**: `--permission-mode`/`--cwd`/`--api-key`/`--resume`/
   `--backend-only` are always injected by the server; caller-supplied
   `extra_oh_args` are allowlist- and value-validated (422 on violation).
-```
+
+## Multi-tenant auth & data isolation (WS-A / WS-B)
+
+- **Multi-key auth (WS-A)**: besides the legacy single `OH_API_KEY` (tenant
+  `default`), keys live hashed in the `api_keys` table and map to a
+  `tenant_id` (`scripts/manage_api_keys.py create/revoke/list`). Resolution
+  is TTL-cached in-process (`OH_APIKEY_CACHE_TTL`, default 60s — the upper
+  bound for revocation to take effect). Sessions are tenant-scoped: foreign
+  sessions are indistinguishable from missing ones (404).
+- **MinIO as the authoritative tenant store (WS-B)**: when
+  `OH_MINIO_ENDPOINT` is set, tenant memory/session data lives under the
+  bucket prefix `tenants/{tid}/` (`OH_MINIO_BUCKET`, default `oh-tenants`).
+  Nodes are stateless: create/rehydrate **stage-in** to the local scratch
+  tree `OH_TENANTS_ROOT` (`/tenants`), and turn-complete / evict / close /
+  orphan-reap **stage-out** back to the bucket (retry with backoff, then
+  `oh_tenant_sync_failures_total`). MinIO unreachable ⇒ `503` fail-fast, no
+  session starts without authoritative data. Staged `rules/` are snapshotted
+  into `{cwd}/.claude/rules` at create.
+- **Loss-window SLO**: a node crash loses at most the memory delta since the
+  last stage-out (i.e. the last completed turn).
+- **Single active session per tenant**: `OH_TENANT_MAX_CONCURRENT` defaults
+  to `1`, which together with the per-tenant sync lock removes concurrent
+  writers on a tenant prefix; raising it accepts last-writer-wins on tenant
+  data.
+
+## Pooled admission (WS-D)
+
+Every create/rehydrate acquires a slot from `ContainerPool` (all
+check-and-claim steps are event-loop-atomic):
+
+1. tenant concurrency quota (`OH_TENANT_MAX_CONCURRENT`) → `429`;
+2. node capacity `OH_MAX_LIVE_SESSIONS` (default 16) — admit if below;
+3. full ⇒ evict the longest-idle IDLE session to COLD to free a slot;
+4. nothing evictable ⇒ bounded FIFO wait queue (`OH_POOL_QUEUE_SIZE`,
+   default 32; `OH_POOL_QUEUE_TIMEOUT`, default 15s). Queue full or timed
+   out ⇒ `503` + `Retry-After`; `OH_POOL_QUEUE_SIZE=0` degrades to the old
+   fail-fast `503`. Per-tenant queue occupancy is capped by the same quota.
+
+Freed slots (exit/destroy/evict/failed spawn) wake the queue head. Metrics:
+`oh_pool_backends_live`, `oh_pool_queue_depth`, `oh_pool_queue_wait_seconds`,
+`oh_pool_evictions_total`, `oh_pool_admission_rejected_total{reason}`,
+`oh_session_create_duration_seconds`.
+
+## Container runtime & docker.sock (WS-C)
+
+With `OH_SESSION_RUNTIME=container` each session runs in a **disposable**
+docker container (image = `OH_SESSION_IMAGE`, the existing main image tag —
+never rebuilt), bridged over the docker attach stream. Containers are labeled
+`oh.sid`/`oh.tenant`/`oh.node`, run with `cap_drop=ALL` (toggle:
+`OH_CONTAINER_CAP_DROP`), `no-new-privileges`, `pids_limit`, mem/cpu limits
+and no published ports, and are force-deleted after use — never reused.
+
+> **⚠ docker.sock is root-equivalent.** The compose file mounts
+> `/var/run/docker.sock` into the session gateway only; anyone who can reach
+> that socket controls the host. Keep the gateway container itself
+> unreachable from untrusted networks, and for defense-in-depth point
+> `OH_DOCKER_HOST` at a [docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy)
+> that only allows `create/start/attach/kill/delete/events/ping` — the
+> gateway needs nothing else. The `process` runtime (default) does not use
+> the socket at all.
+
+Sibling-container mounts come from `OH_CONTAINER_BINDS` (comma-separated
+`source:dest[:mode]`, defaulting to the compose named volumes for
+`/workspaces`, `/tenants`, videos and `~/.openharness`). Deployments that
+mount OpenHarness source into the gateway must append the equivalent
+*host-path* binds here — named volumes resolve on the host dockerd, not
+inside the gateway.

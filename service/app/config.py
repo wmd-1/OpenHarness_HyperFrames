@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # storage_kind: "local" (NFS/shared volume) or "s3" (S3-compatible bucket).
     storage_kind: str = "local"
     s3_endpoint: str | None = None
+    # Public (browser-reachable) S3 endpoint used ONLY for presigned URLs
+    # (video-tenant-storage R6). Unset => downloads fall back to streaming.
+    s3_public_endpoint: str | None = None
     s3_bucket: str | None = None
     s3_region: str | None = None
     s3_access_key: str | None = None
@@ -89,12 +92,20 @@ class Settings(BaseSettings):
     # without a valid X-API-Key are rejected with 401 (S1/S2). Default False
     # preserves backward-compatible open access.
     require_auth: bool = False
+    # TTL (seconds) of the in-process api_keys lookup cache (WS-A). Revoking
+    # a key takes effect within this window (mirrors session-service).
+    apikey_cache_ttl: float = 60.0
 
-    # --- Rate limiting (S3) ---
-    # Token-bucket capacity (max burst) and refill rate (tokens/second)
-    # per client IP on POST /v1/videos.
+    # --- Rate limiting (S3/R18) ---
+    # Token-bucket capacity (max burst) and refill rate (tokens/second) per
+    # tenant on POST /v1/videos (the 'default' tenant buckets per client IP).
     rate_limit_capacity: int = 10
     rate_limit_refill: float = 1.0
+
+    # --- Per-tenant quota (R16) ---
+    # Max QUEUED+RUNNING tasks a tenant may hold; exceeding submissions get
+    # 429. The count check is deliberately not strongly consistent.
+    tenant_max_active: int = 4
 
     # --- CORS ---
     # Comma-separated explicit origins. Empty => no CORS allowed.

@@ -2,6 +2,7 @@
 
 from typing import AsyncGenerator
 
+from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import async_session
@@ -15,6 +16,15 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Yield an async DB session (auto-close)."""
     async with async_session() as session:
         yield session
+
+
+def get_tenant_id(request: Request) -> str:
+    """Return the tenant resolved by the auth middleware (WS-A, R15).
+
+    The middleware sets ``request.state.tenant_id`` on every non-health
+    request; 'default' covers direct calls that bypass the middleware.
+    """
+    return getattr(request.state, "tenant_id", "default")
 
 
 def get_storage() -> VideoStorage:

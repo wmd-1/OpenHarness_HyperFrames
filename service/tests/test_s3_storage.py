@@ -82,7 +82,8 @@ class TestS3SaveStreaming:
             src = Path(f.name)
 
         try:
-            key = storage.save("task-123", src)
+            # save(key, src): callers pass the full object key (tenant-storage R3).
+            key = storage.save("task-123.mp4", src)
         finally:
             src.unlink()
 
@@ -102,7 +103,7 @@ class TestS3SaveStreaming:
             src = Path(f.name)
 
         try:
-            storage.save("task-content", src)
+            storage.save("task-content.mp4", src)
         finally:
             src.unlink()
 

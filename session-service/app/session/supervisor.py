@@ -31,11 +31,18 @@ from app.models import Conversation, ConversationTurn, SessionStatus, TurnArtifa
 from app.observability.metrics import SESSIONS_LIVE, track_turn
 from app.session import logs as log_stream
 from app.session import registry as route_registry
+from app.session import tenant_store
 from app.session.adapter import ProtocolAdapter
 from app.session.artifacts import locate_output_file, probe_mp4_async
 from app.session.lifecycle import IllegalTransition, SessionState, is_live_process, transition
-from app.session.process import OhBackendProcess, derive_oh_session_id
+from app.session.pool import (  # noqa: F401  (CapacityFullError re-exported)
+    CapacityFullError,
+    ContainerPool,
+    PoolAdmissionError,
+)
+from app.session.process import derive_oh_session_id
 from app.session.protocol import BackendEvent
+from app.session.runtime import BackendRuntime
 from app.storage.s3 import storage_for_kind
 
 log = logging.getLogger(__name__)
@@ -51,10 +58,6 @@ class SessionBusy(Exception):
 
 class TurnCapExceeded(Exception):
     pass
-
-
-class CapacityFullError(Exception):
-    """Node live-session capacity exhausted; no idle session to evict -> HTTP 503."""
 
 
 class BackendCrashed(Exception):
@@ -84,7 +87,8 @@ class LiveSession:
         self.epoch = epoch
         self.state: SessionState = SessionState.CREATING
 
-        self.process: OhBackendProcess | None = None
+        # Backend runtime: OhBackendProcess or OhBackendContainer (WS-C, D3).
+        self.process: BackendRuntime | None = None
         self.adapter: ProtocolAdapter | None = None
 
         # Single-writer: at most one turn at a time.
@@ -120,6 +124,11 @@ class SessionSupervisor:
         # lock across count_live_for_tenant() + create_session() so two
         # concurrent requests cannot both pass the check (TOCTOU).
         self.quota_lock = asyncio.Lock()
+        # Slot pool (WS-D): the single admission point for every live backend
+        # (create + rehydrate). Its check-and-claim sections are event-loop
+        # atomic, so the concurrent-quota/capacity TOCTOU the quota_lock used
+        # to close is handled inside the pool itself.
+        self.pool = ContainerPool(evict_one=self._evict_longest_idle)
         # Per-sid registration locks (SS-4): serialize COLD-reconnect
         # registration so only one WS client triggers rehydrate.
         self._registration_locks: dict[uuid.UUID, asyncio.Lock] = {}
@@ -207,38 +216,62 @@ class SessionSupervisor:
         policy = permission_policy or settings.permission_policy
         sid = uuid.uuid4()
         cwd = Path(settings.workspace_root) / str(sid)
-        cwd.mkdir(parents=True, exist_ok=True)
-        oh_session_id = derive_oh_session_id(cwd)
-        expires_at = datetime.now(timezone.utc) + timedelta(seconds=settings.session_ttl_seconds)
-
-        conv = Conversation(
-            id=sid,
-            tenant_id=tenant_id,
-            actor_key_id=actor_key_id,
-            oh_session_id=oh_session_id,
-            workspace_path=str(cwd),
-            status=SessionStatus.CREATING,
-            permission_policy=policy,
-            extra_oh_args=json.dumps(extra_args or []),
-            expires_at=expires_at,
-        )
-        db.add(conv)
-        await db.commit()
-        await db.refresh(conv)
-
-        epoch = await route_registry.next_epoch(str(sid))
-        live = LiveSession(
-            sid=sid,
-            tenant_id=tenant_id,
+        # Admission FIRST (WS-D): tenant quota / capacity / eviction / queue
+        # all resolve before any side effect, so a 429/503 rejection leaves no
+        # DB row, workspace dir, or staged tenant data behind.
+        proc = await self.pool.acquire(
+            tenant_id,
+            sid,
             cwd=cwd,
-            oh_session_id=oh_session_id,
-            permission_policy=policy,
+            permission_mode=policy,
+            oh_session_id=None,
             extra_args=extra_args or [],
-            epoch=epoch,
+            env_overrides=self._tenant_env(tenant_id),
         )
-        self._sessions[sid] = live
+        try:
+            cwd.mkdir(parents=True, exist_ok=True)
+            oh_session_id = derive_oh_session_id(cwd)
+            # Stage-in the tenant's authoritative data BEFORE anything else (WS-B):
+            # MinIO unreachable raises TenantStoreError -> router returns 503 and
+            # no session row/process is created (fail-fast).
+            await tenant_store.stage_in(tenant_id)
+            # Per-session rules snapshot (D2.3): staged rules/ -> {cwd}/.claude/rules.
+            await tenant_store.copy_rules_into_workspace(tenant_id, cwd)
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=settings.session_ttl_seconds)
 
-        await self._spawn(live, resume=False)
+            conv = Conversation(
+                id=sid,
+                tenant_id=tenant_id,
+                actor_key_id=actor_key_id,
+                oh_session_id=oh_session_id,
+                workspace_path=str(cwd),
+                status=SessionStatus.CREATING,
+                permission_policy=policy,
+                extra_oh_args=json.dumps(extra_args or []),
+                expires_at=expires_at,
+            )
+            db.add(conv)
+            await db.commit()
+            await db.refresh(conv)
+
+            epoch = await route_registry.next_epoch(str(sid))
+            live = LiveSession(
+                sid=sid,
+                tenant_id=tenant_id,
+                cwd=cwd,
+                oh_session_id=oh_session_id,
+                permission_policy=policy,
+                extra_args=extra_args or [],
+                epoch=epoch,
+            )
+            self._sessions[sid] = live
+
+            await self._spawn(live, resume=False, backend=proc)
+        except BaseException:
+            # Release is idempotent — _spawn already released on its own
+            # failures; this covers stage-in/DB/registry errors before it.
+            await self.pool.release(sid)
+            raise
         # Reflect the now-live state in the DB row.
         conv.status = SessionStatus.LIVE
         await db.commit()
@@ -259,6 +292,8 @@ class SessionSupervisor:
         cwd = Path(conv.workspace_path) if conv.workspace_path else Path(settings.workspace_root) / str(conv.id)
         cwd.mkdir(parents=True, exist_ok=True)
         oh_session_id = conv.oh_session_id or derive_oh_session_id(cwd)
+        # Same stage-in-before-backend guarantee as create_session (WS-B).
+        await tenant_store.stage_in(tenant_id)
         epoch = await route_registry.next_epoch(str(conv.id))
         live = LiveSession(
             sid=conv.id,
@@ -276,20 +311,43 @@ class SessionSupervisor:
         conv.status = SessionStatus.LIVE
         await db.commit()
 
-    async def _spawn(self, live: LiveSession, *, resume: bool) -> None:
-        """Spawn (or rehydrate) the ``oh --backend-only`` subprocess."""
-        await self._ensure_capacity()
+    async def _spawn(
+        self,
+        live: LiveSession,
+        *,
+        resume: bool,
+        backend: BackendRuntime | None = None,
+    ) -> None:
+        """Spawn (or rehydrate) the ``oh --backend-only`` subprocess.
 
-        oh_sid = live.oh_session_id if resume else None
-        proc = OhBackendProcess(
-            cwd=live.cwd,
-            permission_mode=live.permission_policy,
-            oh_session_id=oh_sid,
-            extra_args=live.extra_args,
-        )
-        await proc.start()
-        adapter = ProtocolAdapter(proc)
-        await adapter.start()
+        The live slot is acquired through the pool (WS-D) — either by the
+        caller (``backend`` pre-acquired, create path) or here (rehydrate /
+        re-arm paths). Any failure before the session is fully up releases
+        the slot so a queued waiter can take it.
+        """
+        proc = backend
+        if proc is None:
+            oh_sid = live.oh_session_id if resume else None
+            # Runtime factory (WS-C, D3) sits behind the pool: OH_SESSION_RUNTIME
+            # picks process (default) or one disposable container per session.
+            # env_overrides only apply to the process runtime — the container
+            # derives env from its mounts.
+            proc = await self.pool.acquire(
+                live.tenant_id,
+                live.sid,
+                cwd=live.cwd,
+                permission_mode=live.permission_policy,
+                oh_session_id=oh_sid,
+                extra_args=live.extra_args,
+                env_overrides=self._tenant_env(live.tenant_id),
+            )
+        try:
+            await proc.start()
+            adapter = ProtocolAdapter(proc)
+            await adapter.start()
+        except BaseException:
+            await self.pool.release(live.sid)
+            raise
 
         live.process = proc
         live.adapter = adapter
@@ -327,13 +385,18 @@ class SessionSupervisor:
             if event is None:
                 return  # process gone
             if event.type == "ready":
-                # Non-blocking drain of the startup burst that follows ``ready``
-                # (state_snapshot, tasks_snapshot…). Stop at the first non-startup
-                # event or an empty queue so we never block on turn events.
+                # Drain the startup burst that follows ``ready`` (state_snapshot,
+                # tasks_snapshot…). A short *timed* wait per event (not a pure
+                # non-blocking drain) closes the race where the reader task has
+                # not yet enqueued the burst under load — a leaked snapshot
+                # would surface as a stray "event" frame in the first turn.
+                # Stop at the first non-startup event or after the grace lapses.
                 while True:
                     try:
-                        extra = live.adapter.events.get_nowait()
-                    except asyncio.QueueEmpty:
+                        extra = await asyncio.wait_for(
+                            live.adapter.events.get(), timeout=0.25
+                        )
+                    except asyncio.TimeoutError:
                         break
                     if extra is None:
                         break
@@ -345,22 +408,43 @@ class SessionSupervisor:
                 return
             # Before ready: discard other startup events too.
 
-    async def _ensure_capacity(self) -> None:
-        """Evict the longest-idle session to COLD if at capacity (spec 4.4)."""
-        if self.live_count() < settings.max_live_sessions:
-            return
-        # Pick the IDLE session idle longest (or any IDLE, then LIVE w/ no ws).
+    def _tenant_env(self, tenant_id: str) -> dict[str, str]:
+        """WS-B: redirect the backend's config/data trees to the tenant's
+        staging dirs so user-scope memory stays tenant-continuous and
+        tenant-private. Credentials still flow via env/--api-key only."""
+        return {
+            "OPENHARNESS_CONFIG_DIR": str(tenant_store.local_config_dir(tenant_id)),
+            "OPENHARNESS_DATA_DIR": str(tenant_store.local_data_dir(tenant_id)),
+        }
+
+    async def _evict_longest_idle(self) -> bool:
+        """Pool eviction hook (WS-D, spec 4.4): evict the longest-idle idle
+        session to COLD and free its slot. Returns False when nothing is
+        evictable (the pool then falls through to its wait queue)."""
         candidates = [
             s for s in self._sessions.values()
             if s.is_live() and not s.ws_connections and not s.busy
         ]
         if not candidates:
-            raise CapacityFullError("capacity full and no idle session to evict")
-        # Evict the longest-idle session (spec 4.4): sort by idle entry time.
-        # Sessions that have never gone idle (idle_since is None) rank last.
+            return False
+        # Longest-idle first; sessions that never went idle rank last.
         candidates.sort(key=lambda s: s.idle_since if s.idle_since is not None else float("inf"))
-        target = candidates[0]
-        await self._evict(target)
+        await self._evict(candidates[0])
+        return True
+
+    async def _persist_status(self, sid: uuid.UUID, status: SessionStatus) -> None:
+        """Best-effort DB status mirror (COLD on evict/crash) so REST reads and
+        the cross-restart WS rehydrate branch see the real lifecycle state."""
+        try:
+            from app import db as _db
+
+            async with _db.async_session() as session:
+                conv = await session.get(Conversation, sid)
+                if conv is not None:
+                    conv.status = status
+                    await session.commit()
+        except Exception:
+            log.warning("status persist failed (sid=%s)", sid)
 
     async def _evict(self, live: LiveSession) -> None:
         """Gracefully shut down a session to COLD (snapshot preserved)."""
@@ -370,6 +454,15 @@ class SessionSupervisor:
         await self._teardown_process(live, graceful=True)
         live.state = transition(live.state, SessionState.COLD)
         SESSIONS_LIVE.dec()
+        # Freed slot wakes the pool queue head (WS-D).
+        await self.pool.release(live.sid)
+        await self._persist_status(live.sid, SessionStatus.COLD)
+        # Stage-out hook ② (WS-B): the backend is gone, mirror its final
+        # memory/session state to the bucket before the node forgets it.
+        try:
+            await tenant_store.stage_out(live.tenant_id)
+        except Exception:
+            log.warning("evict stage-out failed (sid=%s)", live.sid)
 
     async def rehydrate(self, live: LiveSession, *, db: AsyncSession) -> None:
         """Rehydrate a COLD session via ``oh --resume <oh_session_id>``."""
@@ -381,6 +474,9 @@ class SessionSupervisor:
         if not acquired:
             raise RuntimeError("session is being rehydrated by another node")
         try:
+            # Refresh tenant staging from the authoritative bucket before the
+            # backend resumes (WS-B; raises TenantStoreError -> 503 upstream).
+            await tenant_store.stage_in(live.tenant_id)
             await self._spawn(live, resume=True)
         finally:
             await route_registry.release_lock(str(live.sid), holder)
@@ -415,20 +511,32 @@ class SessionSupervisor:
         live._turn_stdout.clear()
         turn_index = live._turn_index
 
-        # Persist the turn row as RUNNING.
+        # Persist the turn row as RUNNING. Guarded so a persistence failure
+        # (e.g. a duplicate index, SS regression) can never leave ``_busy``
+        # wedged True with no terminal frame delivered.
         turn = ConversationTurn(
             conversation_id=live.sid,
             turn_index=turn_index,
             prompt=text,
             status=TurnStatus.RUNNING,
         )
-        db.add(turn)
-        conv = await db.get(Conversation, live.sid)
-        if conv is not None:
-            conv.turn_count = turn_index + 1
-            conv.last_active_at = datetime.now(timezone.utc)
-        await db.commit()
-        await db.refresh(turn)
+        try:
+            db.add(turn)
+            conv = await db.get(Conversation, live.sid)
+            if conv is not None:
+                conv.turn_count = turn_index + 1
+                conv.last_active_at = datetime.now(timezone.utc)
+            await db.commit()
+            await db.refresh(turn)
+        except Exception as exc:
+            log.warning("turn persist failed (sid=%s): %s", live.sid, exc)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            live._busy = False
+            yield {"type": "turn_error", "message": "turn could not be persisted"}
+            return
 
         loop = asyncio.get_running_loop()
         deadline = loop.time() + settings.turn_timeout_seconds
@@ -474,6 +582,13 @@ class SessionSupervisor:
             yield {"type": "turn_error", "message": str(exc)}
         finally:
             live._busy = False
+            # Stage-out hook ① (WS-B): push the tenant's memory increments to
+            # the authoritative bucket after every turn (loss-window SLO: at
+            # most one in-flight turn). Failure keeps staging + bumps metric.
+            try:
+                await tenant_store.stage_out(live.tenant_id)
+            except Exception:
+                log.warning("post-turn stage-out failed (sid=%s)", live.sid)
 
     def _map_event(self, live: LiveSession, event, turn_index: int) -> dict[str, Any] | None:
         """Map a BackendEvent to a WS frame dict (spec D2 event mapping)."""
@@ -583,6 +698,9 @@ class SessionSupervisor:
             except IllegalTransition:
                 live.state = SessionState.COLD
             SESSIONS_LIVE.dec()
+            # Freed slot wakes the pool queue head (WS-D).
+            await self.pool.release(live.sid)
+            await self._persist_status(live.sid, SessionStatus.COLD)
         await self._cancel_helpers(live)
 
     async def _finalize_turn(
@@ -601,13 +719,17 @@ class SessionSupervisor:
         ``turn_complete`` frame carries ``has_artifact``).
         """
         has_artifact = False
+        # Every terminal turn consumes its index: the RUNNING row committed at
+        # turn start occupies ``turn_index`` (uq_turns_conv_idx), so a FAILED/
+        # TIMED_OUT/INTERRUPTED turn must advance too or the next submit would
+        # violate the unique constraint. Matches ``conv.turn_count`` (bumped at
+        # turn start) and the restart path (``_turn_index = conv.turn_count``).
+        live._turn_index += 1
         try:
             turn.status = status
             turn.error_message = error
             turn.assistant_text = "".join(live._assistant_buf) or None
             turn.finished_at = datetime.now(timezone.utc)
-            if status == TurnStatus.COMPLETED:
-                live._turn_index += 1
             db.add(turn)
             if status in (TurnStatus.COMPLETED, TurnStatus.INTERRUPTED):
                 has_artifact = await self._register_artifacts(live, turn, db)
@@ -778,6 +900,16 @@ class SessionSupervisor:
         if live.state in (SessionState.LIVE, SessionState.IDLE):
             SESSIONS_LIVE.dec()
         live.state = SessionState.CLOSED
+        # Freed slot wakes the pool queue head (WS-D); no-op if already COLD.
+        await self.pool.release(live.sid)
+        # Stage-out hook ③ + destroy (WS-B): final mirror to the bucket, then
+        # purge this session's memory/session traces locally and remotely
+        # (tenant-level agent memory is kept — it outlives sessions).
+        try:
+            await tenant_store.stage_out(live.tenant_id)
+            await tenant_store.destroy_session_data(live.tenant_id, live.oh_session_id)
+        except Exception:
+            log.warning("close stage-out/destroy failed (sid=%s)", live.sid)
         # Clean workspace + native snapshot dir (blocking rmtree offloaded to
         # the threadpool, SS-17).
         if live.cwd.exists():
@@ -812,6 +944,7 @@ class SessionSupervisor:
                 live = self._sessions[sid]
                 await self._teardown_process(live, graceful=True)
                 SESSIONS_LIVE.dec()
+                await self.pool.release(sid)
             except Exception:
                 pass
         self._sessions.clear()
@@ -825,6 +958,16 @@ class SessionSupervisor:
         removed to bound disk growth.
         """
         cleaned = 0
+        # Container-mode orphan reclaim (D6): force-delete this node's session
+        # containers with no live session, after a final tenant stage-out (④).
+        if settings.session_runtime == "container":
+            try:
+                from app.session.container import reclaim_orphan_containers
+
+                active = {str(s.sid) for s in self._sessions.values() if s.is_live()}
+                await reclaim_orphan_containers(active, on_tenant=tenant_store.stage_out)
+            except Exception as exc:
+                log.warning("orphan container reclaim failed: %s", exc)
         root = Path(settings.workspace_root)
         if not root.exists():
             return 0
@@ -844,6 +987,17 @@ class SessionSupervisor:
             async with _db.async_session() as db:
                 conv = await db.get(Conversation, sid)
                 if conv is None or conv.status in (SessionStatus.CLOSED, SessionStatus.EXPIRED):
+                    # Stage-out hook ④ (WS-B): flush any residual tenant staging
+                    # increments before reclaiming, then drop per-session traces.
+                    if conv is not None:
+                        try:
+                            await tenant_store.stage_out(conv.tenant_id)
+                            if conv.oh_session_id:
+                                await tenant_store.destroy_session_data(
+                                    conv.tenant_id, conv.oh_session_id
+                                )
+                        except Exception:
+                            log.warning("orphan stage-out failed (sid=%s)", sid)
                     # Blocking rmtree offloaded to the threadpool (SS-17).
                     await run_in_threadpool(shutil.rmtree, entry, ignore_errors=True)
                     cleaned += 1

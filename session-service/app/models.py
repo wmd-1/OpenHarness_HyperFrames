@@ -16,6 +16,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -51,6 +52,27 @@ class TurnStatus(str, enum.Enum):
     TIMED_OUT = "timed_out"
 
 
+class ApiKey(Base):
+    """Multi-key tenant authentication (WS-A).
+
+    Only the ``sha256`` hex digest of a key is stored (``key_hash``); raw keys
+    are printed once at creation time by ``scripts/manage_api_keys.py`` and
+    never persisted. ``active=False`` revokes a key (effective within the
+    resolver's TTL cache window).
+    """
+
+    __tablename__ = "api_keys"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    key_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    label: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
     __table_args__ = (
@@ -64,7 +86,12 @@ class Conversation(Base):
     oh_session_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     workspace_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     status: Mapped[SessionStatus] = mapped_column(
-        Enum(SessionStatus), nullable=False, default=SessionStatus.CREATING, index=True
+        # values_callable: store the lowercase *values* ("creating"...) — they
+        # match the pg enum created by migration 001 (names would be uppercase).
+        Enum(SessionStatus, values_callable=lambda e: [m.value for m in e]),
+        nullable=False,
+        default=SessionStatus.CREATING,
+        index=True,
     )
     permission_policy: Mapped[str] = mapped_column(
         String(32), nullable=False, default="full_auto"
@@ -94,7 +121,10 @@ class ConversationTurn(Base):
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     assistant_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[TurnStatus] = mapped_column(
-        Enum(TurnStatus), nullable=False, default=TurnStatus.RUNNING
+        # Same values_callable rationale as Conversation.status (pg enum match).
+        Enum(TurnStatus, values_callable=lambda e: [m.value for m in e]),
+        nullable=False,
+        default=TurnStatus.RUNNING,
     )
     usage: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

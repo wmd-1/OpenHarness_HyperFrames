@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import uuid
 from datetime import datetime, time as dt_time, timezone
 from typing import AsyncGenerator
@@ -24,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.deps import actor_from_request, get_db, tenant_from_request
 from app.models import Conversation, SessionStatus, TurnArtifact, TurnStatus
+from app.observability.metrics import SESSION_CREATE_DURATION
 from app.ratelimit import _client_ip, check_rate_limit
 from app.schemas import (
     ArtifactResponse,
@@ -33,7 +35,9 @@ from app.schemas import (
     TurnResponse,
     TurnSubmitRequest,
 )
+from app.session.pool import PoolAdmissionError, TenantQuotaExceeded
 from app.session.supervisor import CapacityFullError, SessionBusy, SessionNotFound, get_supervisor
+from app.session.tenant_store import TenantStoreError
 from app.storage.s3 import storage_for_kind
 
 router = APIRouter(prefix="/v1/sessions", tags=["sessions"])
@@ -85,10 +89,13 @@ async def create_session(
     actor = actor_from_request(request)
 
     sup = get_supervisor()
-    # Quota check + create under one lock (SS-3): closes the TOCTOU window
-    # where two concurrent requests both pass the check and oversell.
+    # Per-tenant daily creation quota (SS-18) under the quota lock (SS-3).
+    # The concurrent-quota + capacity checks moved into ContainerPool.acquire
+    # (WS-D): its check-and-claim sections are event-loop-atomic, so the
+    # TOCTOU the lock used to close for them no longer exists — and holding
+    # the lock across a (possibly queue-waiting) create would serialize every
+    # tenant's creates behind one waiter, defeating the FIFO queue.
     async with sup.quota_lock:
-        # Per-tenant daily creation quota (SS-18).
         if settings.tenant_max_daily > 0:
             day_start = datetime.combine(
                 datetime.now(timezone.utc).date(), dt_time.min, tzinfo=timezone.utc
@@ -112,20 +119,35 @@ async def create_session(
                     },
                 )
 
-        # Per-tenant concurrent quota (via supervisor public API, SS-10).
-        if sup.count_live_for_tenant(tenant_id) >= settings.tenant_max_concurrent:
-            raise HTTPException(status_code=429, detail="Concurrent session quota exceeded")
-
-        try:
-            conv = await sup.create_session(
-                db=db,
-                tenant_id=tenant_id,
-                permission_policy=body.permission_policy,
-                extra_args=body.extra_oh_args,
-                actor_key_id=actor,
-            )
-        except CapacityFullError:
-            raise HTTPException(status_code=503, detail="node capacity full")
+    started = time.monotonic()
+    try:
+        conv = await sup.create_session(
+            db=db,
+            tenant_id=tenant_id,
+            permission_policy=body.permission_policy,
+            extra_args=body.extra_oh_args,
+            actor_key_id=actor,
+        )
+    except TenantQuotaExceeded:
+        # Pool admission stage 1 (WS-D): tenant already at tenant_max_concurrent.
+        raise HTTPException(status_code=429, detail="Concurrent session quota exceeded")
+    except PoolAdmissionError as exc:
+        # Queue full / queue timeout (WS-D): back-pressure with Retry-After.
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+            headers={"Retry-After": str(exc.retry_after or max(1, int(settings.pool_queue_timeout)))},
+        )
+    except CapacityFullError:
+        # Queue disabled (pool_queue_size=0): pre-pool fail-fast behavior.
+        raise HTTPException(status_code=503, detail="node capacity full")
+    except TenantStoreError:
+        # WS-B fail-fast: tenant authoritative store unreachable -> no
+        # session is created (stage-in already rolled back any partials).
+        raise HTTPException(status_code=503, detail="tenant data store unavailable")
+    # Cold-start latency histogram (WS-D observability): admission wait +
+    # stage-in + backend spawn through ready.
+    SESSION_CREATE_DURATION.observe(time.monotonic() - started)
     return _to_response(conv, request)
 
 

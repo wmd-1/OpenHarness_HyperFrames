@@ -12,38 +12,44 @@
 
 ## 1. 全局约定
 
-### 1.1 鉴权（Authentication）
+### 1.1 鉴权（Authentication）与多租户
 
-鉴权由全局 HTTP 中间件实现（`app/main.py`）：
+鉴权由全局 HTTP 中间件实现（`app/main.py` + `app/security.py::resolve_tenant`），**始终注册**，每个请求都会解析出一个 `tenant_id`：
 
-- **触发条件**：当 `OH_REQUIRE_AUTH=true`，或配置了 `OH_API_KEY` 时，鉴权中间件被注册并生效。
-- **鉴权方式**：请求头携带 `X-API-Key: <api_key>`，服务端使用 `secrets.compare_digest` 做常量时间比对。
-- **仅支持请求头**：后端中间件**只读取 `X-API-Key` 请求头**，不会解析 `?api_key=` 查询参数。即便是 `GET /file`、`GET /events` 也必须通过该请求头鉴权；前端请勿用查询参数携带 key（会被判 401）。
+- **解析顺序（三段式）**：
+  1. 开放模式（未配置任何 key 且 `OH_REQUIRE_AUTH=false`，请求未带 key）→ 租户 `default`；
+  2. 命中单全局 `OH_API_KEY`（`secrets.compare_digest` 常量时间比对）→ 租户 `default`；
+  3. 命中 `api_keys` 表（`sha256` 查表，`active=true`；表与 session-service 共用）→ 该行 `tenant_id`；
+  4. 均未命中 → `401`。
+- **鉴权方式**：请求头携带 `X-API-Key: <api_key>`。**仅 `GET /file` 与 `GET /events`** 额外支持 `?api_key=` 查询参数回退（解决浏览器 `EventSource` / `<a download>` 无法自定义请求头的问题）；其余端点仅请求头。
+- **多租户隔离**：五个 `/v1/videos` 端点全部按 `tenant_id` 隔离，跨租户访问他人 `task_id` 一律 `404`（不泄露存在性）。**前端切换用户 = 切换携带的 API key**。
+- **key 管理**：仅运维脚本（容器内 `python scripts/manage_api_keys.py create/list/deactivate`），无管理 HTTP API。吊销生效延迟 ≤ `OH_APIKEY_CACHE_TTL`（进程内缓存）。
 - **失败响应**：`401 Unauthorized`，响应体 `{"detail": "Invalid API key"}`。
 - **豁免路径**：`/healthz` 与 `/readyz` 始终无需鉴权（用于探活/就绪探针）。
-- **默认行为**：若 `require_auth=false` 且未配置 `api_key`，则中间件不注册，所有接口开放访问（向后兼容）。
 - **启动校验**：若 `require_auth=true` 但未设置 `api_key`，服务启动直接抛 `RuntimeError`。
 
 | 环境变量 | 说明 | 默认值 |
 | --- | --- | --- |
-| `OH_API_KEY` | API 密钥（SecretStr） | 无 |
+| `OH_API_KEY` | 单全局 API 密钥（SecretStr，映射租户 `default`） | 无 |
 | `OH_REQUIRE_AUTH` | 是否强制鉴权 | `false` |
+| `OH_APIKEY_CACHE_TTL` | api_keys 查表缓存 TTL（秒，吊销生效上限） | `60` |
 
 ### 1.2 CORS
 
 - 由 `OH_CORS_ORIGINS`（逗号分隔的显式来源）控制，默认空 => 不允许跨域。
 - 仅当配置了显式来源时才启用 `allow_credentials`。
 
-### 1.3 限流（Rate Limiting）
+### 1.3 限流与租户配额（Rate Limiting / Quota）
 
-- 仅作用于 `POST /v1/videos`，基于客户端 IP 的令牌桶算法。
-- Redis 不可用时**故障放行**（fail-open）。
-- 超限响应：`429 Too Many Requests`，响应体 `{"detail": "Rate limit exceeded"}`。
+- 均仅作用于 `POST /v1/videos`，超限响应均为 `429 Too Many Requests`（可按 `detail` 文案区分）：
+  - **限流**（令牌桶）：键为**租户**（`tenant:{tenant_id}`）；`default` 租户回退为客户端 IP 键（与旧行为一致）。Redis 不可用时**故障放行**（fail-open）。响应体 `{"detail": "Rate limit exceeded"}`。
+  - **活跃任务配额**：每租户 `QUEUED+RUNNING` 任务数上限（非强一致，瞬时可略超）。响应体 `{"detail": "Tenant active-task quota exceeded"}`。命中幂等键的重复提交不受配额影响。
 
 | 环境变量 | 说明 | 默认值 |
 | --- | --- | --- |
 | `OH_RATE_LIMIT_CAPACITY` | 令牌桶容量（最大突发） | `10` |
 | `OH_RATE_LIMIT_REFILL` | 每秒补充令牌数 | `1.0` |
+| `OH_TENANT_MAX_ACTIVE` | 每租户活跃（排队+运行）任务数上限 | `4` |
 
 ### 1.4 通用错误响应结构
 
@@ -88,7 +94,7 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 - **HTTP 方法**：`POST`
 - **鉴权**：需要（当鉴权启用时）
 - **成功状态码**：`201 Created`
-- **限流**：是（令牌桶，按 IP）
+- **限流**：是（令牌桶，按租户；另有每租户活跃任务配额，见 §1.3）
 
 #### 请求参数
 
@@ -101,7 +107,7 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 | `prompt` | string | 是 | — | 长度 1~8000 | 视频生成提示词 |
 | `timeout_seconds` | integer | 否 | `900` | 30 ≤ x ≤ 3600 | 任务超时秒数 |
 | `extra_oh_args` | string[] | 否 | `[]` | 最多 50 项 | 转发给 `oh` CLI 的额外参数（见下方白名单校验） |
-| `idempotency_key` | string \| null | 否 | `null` | 最长 256 | 幂等键；重复提交返回已存在任务 |
+| `idempotency_key` | string \| null | 否 | `null` | 最长 256 | 幂等键（**租户内唯一**，不同租户可用相同键互不干扰）；重复提交返回已存在任务 |
 
 **`extra_oh_args` 校验规则**（`app/security.py`，校验失败返回 `422`）：
 
@@ -154,7 +160,7 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 | `201` | 创建成功（或命中幂等键返回已存在任务） |
 | `401` | 鉴权失败（启用鉴权时） |
 | `422` | 请求体校验失败（含 `extra_oh_args` 非法） |
-| `429` | 触发限流 |
+| `429` | 触发限流，或超出每租户活跃任务配额（按 `detail` 区分，见 §1.3） |
 | `503` | 任务已落库但 broker/调度器不可用，任务被标记为 `failed` |
 
 ---
@@ -220,7 +226,7 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 | --- | --- |
 | `200` | 成功 |
 | `401` | 鉴权失败（启用鉴权时） |
-| `404` | 任务不存在（`{"detail": "Task not found"}`） |
+| `404` | 任务不存在，或属于其他租户（`{"detail": "Task not found"}`，不泄露存在性） |
 | `422` | `task_id` 非合法 UUID |
 
 ---
@@ -229,9 +235,9 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 
 - **请求路径**：`GET /v1/videos/{task_id}/file`
 - **HTTP 方法**：`GET`
-- **鉴权**：需要（当鉴权启用时）
+- **鉴权**：需要（当鉴权启用时）；额外支持 `?api_key=` 查询参数回退（见 §1.1）
 - **成功状态码**：`200 OK` / `206 Partial Content` / `302 Found`（S3 重定向）
-- **说明**：支持 HTTP Range 分段下载。默认 `mode=redirect` 时，若产物在 S3 且可生成预签名 URL，返回 302 重定向；否则直接流式返回字节。
+- **说明**：支持 HTTP Range 分段下载。默认 `mode=redirect` 时，若产物在 S3 **且部署配置了 `OH_S3_PUBLIC_ENDPOINT`**（浏览器可达的公网/外网 MinIO 地址），返回 302 重定向到基于该公网地址签发的预签名 URL；未配置 `OH_S3_PUBLIC_ENDPOINT` 时**不会**下发指向集群内网地址的 302，而是自动流式兜底直接返回字节。
 - **Range 生效范围**：Range 仅在本服务直接流式返回时由本服务处理（本地存储、`?mode=stream`、或 S3 预签名失败回退）。`mode=redirect` 且命中 S3 预签名 302 时，Range 由目标 S3 端点处理，本服务不再改写分段逻辑。
 
 #### 请求参数
@@ -239,14 +245,14 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 | 参数 | 位置 | 类型 | 是否必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `task_id` | path | UUID | 是 | — | 任务 ID |
-| `mode` | query | string | 否 | `redirect` | `redirect`（默认，S3 走 302 预签名）或 `stream`（强制流式返回字节） |
+| `mode` | query | string | 否 | `redirect` | `redirect`（默认，S3 且配置了 `OH_S3_PUBLIC_ENDPOINT` 时走 302 预签名，否则流式兜底）或 `stream`（强制流式返回字节） |
 | `Range` | header | string | 否 | — | 标准 Range 头，如 `bytes=0-1023`、`bytes=-500` |
 
 #### 响应体结构
 
 - 二进制视频流（`Content-Type: video/mp4`），非 JSON。
 - 响应头：`Content-Disposition: attachment; filename="{task_id}.mp4"`、`Accept-Ranges: bytes`、`Content-Length`；Range 请求时附带 `Content-Range`。
-- `mode=redirect` 且 S3 命中时：`302` + `Location` 指向预签名 URL。
+- `mode=redirect` 且 S3 预签名命中时：`302` + `Location` 指向基于 `OH_S3_PUBLIC_ENDPOINT` 签发的预签名 URL。
 
 #### 状态码说明
 
@@ -254,9 +260,9 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 | --- | --- |
 | `200` | 完整文件流返回成功 |
 | `206` | Range 分段返回成功 |
-| `302` | 重定向到 S3 预签名 URL |
+| `302` | 重定向到 S3 预签名 URL（仅当配置了 `OH_S3_PUBLIC_ENDPOINT`） |
 | `401` | 鉴权失败（启用鉴权时） |
-| `404` | 任务不存在 / 无 `output_path` / 存储上文件缺失 |
+| `404` | 任务不存在或属于其他租户 / 无 `output_path` / 存储上文件缺失 |
 | `409` | 任务未完成（非 `succeeded`），响应体 `{"status": <status>, "message": "Video not ready"}` |
 | `422` | `task_id` 非合法 UUID |
 
@@ -266,7 +272,7 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 
 - **请求路径**：`GET /v1/videos/{task_id}/events`
 - **HTTP 方法**：`GET`
-- **鉴权**：需要（当鉴权启用时）
+- **鉴权**：需要（当鉴权启用时）；额外支持 `?api_key=` 查询参数回退（见 §1.1，服务于浏览器 `EventSource`）
 - **成功状态码**：`200 OK`（`Content-Type: text/event-stream`）
 - **说明**：Server-Sent Events，实时推送任务日志。历史回放上限为最近 500 条。
 
@@ -290,7 +296,7 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 | --- | --- |
 | `200` | 事件流建立成功 |
 | `401` | 鉴权失败（启用鉴权时） |
-| `404` | 任务不存在（`{"detail": "Task not found"}`） |
+| `404` | 任务不存在或属于其他租户（`{"detail": "Task not found"}`) |
 | `422` | `task_id` 非合法 UUID |
 
 ---
@@ -330,7 +336,7 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 | --- | --- |
 | `200` | 操作成功 |
 | `401` | 鉴权失败（启用鉴权时） |
-| `404` | 任务不存在 |
+| `404` | 任务不存在或属于其他租户 |
 | `422` | `task_id` 非合法 UUID |
 
 ---
@@ -368,7 +374,7 @@ Tag：`health`。**这两个接口始终豁免鉴权。**
 - **请求路径**：`GET /readyz`
 - **HTTP 方法**：`GET`
 - **鉴权**：无需（始终豁免）
-- **成功状态码**：`200 OK`；当 Redis 或 DB 不可用时返回 `503`
+- **成功状态码**：`200 OK`；当 Redis、DB 或（S3 部署时）S3 不可用时返回 `503`
 
 #### 响应体结构（`ReadyResponse`）
 
@@ -390,7 +396,7 @@ Tag：`health`。**这两个接口始终豁免鉴权。**
 | 状态码 | 含义 |
 | --- | --- |
 | `200` | 就绪 |
-| `503` | Redis 或 DB 不可用（负载均衡应停止路由到该副本） |
+| `503` | Redis、DB 或（`storage_kind=s3` 时）S3 不可用（负载均衡应停止路由到该副本） |
 
 ---
 
@@ -421,14 +427,14 @@ Tag：`metrics`。
 | --- | --- | --- | --- | --- | --- |
 | 1 | POST | `/v1/videos` | 创建视频生成任务 | 是* | 201 |
 | 2 | GET | `/v1/videos/{task_id}` | 查询任务详情 | 是* | 200 |
-| 3 | GET | `/v1/videos/{task_id}/file` | 下载视频文件（支持 Range/S3 重定向） | 是* | 200/206/302 |
-| 4 | GET | `/v1/videos/{task_id}/events` | 任务进度 SSE 事件流 | 是* | 200 |
+| 3 | GET | `/v1/videos/{task_id}/file` | 下载视频文件（支持 Range/S3 重定向） | 是*（支持 `?api_key=`） | 200/206/302 |
+| 4 | GET | `/v1/videos/{task_id}/events` | 任务进度 SSE 事件流 | 是*（支持 `?api_key=`） | 200 |
 | 5 | DELETE | `/v1/videos/{task_id}` | 取消/删除任务 | 是* | 200 |
 | 6 | GET | `/healthz` | 存活探针 | 否（豁免） | 200 |
 | 7 | GET | `/readyz` | 就绪探针 | 否（豁免） | 200/503 |
 | 8 | GET | `/metrics` | Prometheus 指标 | 是* | 200 |
 
-> \* “是*” 表示仅当 `OH_REQUIRE_AUTH=true` 或配置了 `OH_API_KEY` 时才需要鉴权；否则开放访问。`/healthz` 与 `/readyz` 无论如何都豁免。
+> \* “是*” 表示遵循 §1.1 的三段式鉴权解析：开放模式（未配置任何 key 且 `OH_REQUIRE_AUTH=false`）下开放访问（租户 `default`）；否则需携带单全局 `OH_API_KEY` 或 `api_keys` 表中的多租户 key。`/healthz` 与 `/readyz` 无论如何都豁免。
 
 ---
 
@@ -438,6 +444,26 @@ Tag：`metrics`。
 - `POST /v1/videos` 中 `skill` 字段由服务端固定写入 `hyperframes`，非客户端可控。
 - 时间字段（`created_at` 等）为带时区的 ISO 8601 datetime。
 - `error_message`、`log_tail` 等敏感/大字段的返回策略请与后端确认（`log_tail` 未在响应 schema 中暴露）。
-- 部分模型字段仅服务端可见、不在任何响应 schema 中返回：`extra_oh_args`（请求只写，落库但不回显）、`cancellation_requested`（取消时置位但不返回）、`worker_id` / `priority` / `heartbeat_at` / `storage_kind` 等内部字段。
+- 部分模型字段仅服务端可见、不在任何响应 schema 中返回：`extra_oh_args`（请求只写，落库但不回显）、`cancellation_requested`（取消时置位但不返回）、`tenant_id`（由鉴权中间件解析写入，不对外暴露）、`worker_id` / `priority` / `heartbeat_at` / `storage_kind` 等内部字段。
 - 任务优先级 `priority` 为**服务端内部固定值**（默认 `5`，对应 `normal` 队列），**不**通过 API 暴露，客户端无法设置；多实例的队列分层（`high` / `normal` / `low`）由后端按 `priority` 自动路由。
-- 鉴权仅支持 `X-API-Key` 请求头，所有端点（含 `/file`、`/events`）均不接受 `?api_key=` 查询参数。
+- 鉴权以 `X-API-Key` 请求头为主；**仅** `GET /file` 与 `GET /events` 额外接受 `?api_key=` 查询参数回退（见 §1.1），其余端点不接受查询参数传 key。
+
+---
+
+## 7. 附录：多租户改造对前端的影响（已实施）
+
+> 本章所述的后端多租户改造（设计源：`plans/Service_MinIO_Multi-Tenancy_Plan_2026-07-29.md`，OpenSpec 变更 `video-service-minio-multitenancy`）**已全部实施完成**，具体行为已并入上文 §1–§6（鉴权/租户见 §1.1，限流/配额见 §1.3，下载 302 行为见 §2.3）。本章仅保留面向**前端多租户适配**的要点摘要与遗留决策项。
+
+### 7.1 前端适配要点摘要
+
+- **前端切换用户 = 切换携带的 API key**，无其它用户标识传递方式（服务端不信任 `X-User-Id` 之类自报头）；现有单 key / 开放部署行为不变（均映射租户 `default`）。
+- 五个 `/v1/videos` 端点的请求/响应 schema **均未变化**，但全部按租户隔离：跨租户访问他人 `task_id` 一律 `404`。
+- 前端需对 `429` 做友好提示：区分「请求过快」（`Rate limit exceeded`）与「并发任务已满」（`Tenant active-task quota exceeded`），按 `detail` 文案区分。
+- 产物存储已迁往 MinIO（对象 key `tenants/{tenant_id}/videos/{task_id}.mp4`）：部署配了 `OH_S3_PUBLIC_ENDPOINT` 时 `GET /file` 默认命中 `302` presigned 重定向，前端下载逻辑需允许跨域重定向（fetch 默认跟随即可）；未配时后端不发 302 自动流式兜底，前端也可显式用 `?mode=stream`。
+- 浏览器 `EventSource` / `<a download>` 场景用 `?api_key=` 查询参数回退（仅 `/file`、`/events`，对齐 session-service 约定）。
+
+### 7.2 前端计划需自行决策的遗留项（本期后端未做）
+
+- key 的注入/保存方式（登录态 vs 手动填入 vs 反代注入）、key 的前端存储安全（localStorage vs memory）。
+- 多用户切换 UI（key 切换即租户切换，切换后任务列表视图需整体刷新）。
+- key 管理入口：后端仅提供运维脚本（create/revoke/list），不提供管理 API；若前端需要 key 自助管理，需另行后端立项。

@@ -35,6 +35,7 @@ RUN /root/.openharness-venv/bin/pip install --no-cache-dir \
     "python-multipart>=0.0.9" \
     "websockets>=13,<14" \
     "boto3>=1.34,<2" "botocore>=1.34,<2" \
+    "minio>=7.2,<8" "aiodocker>=0.22,<1" \
     "prometheus-client>=0.20,<1" \
     "structlog>=24,<25" \
     "psutil>=6,<7" \

@@ -10,12 +10,12 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse, StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.deps import get_db, get_storage, storage_for_kind
+from app.deps import get_db, get_tenant_id, storage_for_kind
 from app.models import TaskStatus, VideoTask
 from app.schemas import (
     TaskLinks,
@@ -24,8 +24,7 @@ from app.schemas import (
     VideoDeleteResponse,
     VideoTaskResponse,
 )
-from app.storage.base import VideoStorage
-from app.ratelimit import check_rate_limit, _client_ip
+from app.ratelimit import check_rate_limit, rate_limit_key
 from app.workers.celery_app import celery_app
 from app.workers.scheduler import get_scheduler
 
@@ -83,9 +82,16 @@ def _set_abort_flag(task_id: uuid.UUID) -> None:
         pass
 
 
-async def _get_task_or_404(task_id: uuid.UUID, db: AsyncSession) -> VideoTask:
+async def _get_owned_task_or_404(
+    task_id: uuid.UUID, tenant_id: str, db: AsyncSession
+) -> VideoTask:
+    """Fetch a task scoped to the caller's tenant (WS-B, R14).
+
+    Cross-tenant access returns the same 404 as a missing task so tenants
+    cannot probe for the existence of other tenants' task ids.
+    """
     task = await db.get(VideoTask, task_id)
-    if task is None:
+    if task is None or task.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
 
@@ -98,16 +104,21 @@ async def create_video(
     body: VideoCreateRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
 ) -> VideoCreateResponse:
     """Submit a new video generation task."""
-    # Rate limit (S3): token-bucket per client IP, fail-open on Redis outage.
-    ip = _client_ip(request)
-    if not check_rate_limit(ip):
+    # Rate limit (S3/R18): token-bucket per tenant ('default' falls back to
+    # the client IP key), fail-open on Redis outage.
+    if not check_rate_limit(rate_limit_key(tenant_id, request)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
-    # Idempotency check
+    # Idempotency check (tenant-scoped, R17): the same key may be reused by
+    # different tenants without collision.
     if body.idempotency_key is not None:
-        stmt = select(VideoTask).where(VideoTask.idempotency_key == body.idempotency_key)
+        stmt = select(VideoTask).where(
+            VideoTask.tenant_id == tenant_id,
+            VideoTask.idempotency_key == body.idempotency_key,
+        )
         result = await db.execute(stmt)
         existing = result.scalar_one_or_none()
         if existing is not None:
@@ -117,6 +128,24 @@ async def create_video(
                 links=_task_links(existing.id),
             )
 
+    # Per-tenant active-task quota (R16): QUEUED+RUNNING count. Deliberately
+    # not strongly consistent — a transient overshoot of a task or two under
+    # concurrent submission is acceptable (no locking).
+    active = (
+        await db.execute(
+            select(func.count())
+            .select_from(VideoTask)
+            .where(
+                VideoTask.tenant_id == tenant_id,
+                VideoTask.status.in_((TaskStatus.QUEUED, TaskStatus.RUNNING)),
+            )
+        )
+    ).scalar_one()
+    if int(active or 0) >= settings.tenant_max_active:
+        raise HTTPException(
+            status_code=429, detail="Tenant active-task quota exceeded"
+        )
+
     task = VideoTask(
         prompt=body.prompt,
         skill="hyperframes",
@@ -125,6 +154,7 @@ async def create_video(
         extra_oh_args=json.dumps(body.extra_oh_args) if body.extra_oh_args else None,
         idempotency_key=body.idempotency_key,
         storage_kind=settings.storage_kind,
+        tenant_id=tenant_id,
     )
     try:
         db.add(task)
@@ -139,7 +169,8 @@ async def create_video(
             existing = (
                 await db.execute(
                     select(VideoTask).where(
-                        VideoTask.idempotency_key == body.idempotency_key
+                        VideoTask.tenant_id == tenant_id,
+                        VideoTask.idempotency_key == body.idempotency_key,
                     )
                 )
             ).scalar_one_or_none()
@@ -178,9 +209,10 @@ async def create_video(
 async def get_video(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
 ) -> VideoTaskResponse:
     """Return details for a specific task."""
-    task = await _get_task_or_404(task_id, db)
+    task = await _get_owned_task_or_404(task_id, tenant_id, db)
     return _to_response(task)
 
 
@@ -213,6 +245,7 @@ async def download_video(
     request: Request,
     mode: str = Query(default="redirect"),
     db: AsyncSession = Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     """Download the generated video file (supports HTTP Range).
 
@@ -222,7 +255,7 @@ async def download_video(
     presigned URL is available — it streams the bytes directly (backward
     compatible with the single-instance behavior).
     """
-    task = await _get_task_or_404(task_id, db)
+    task = await _get_owned_task_or_404(task_id, tenant_id, db)
     if task.status != TaskStatus.SUCCEEDED:
         raise HTTPException(
             status_code=409,
@@ -295,6 +328,7 @@ async def download_video(
 async def video_events(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     """SSE endpoint for real-time task progress updates.
 
@@ -302,10 +336,9 @@ async def video_events(
     occupied (P3). Returns ``404`` for a non-existent task so no ghost
     connection waits (N4). Historical replay is capped to the last 500 entries.
     """
-    # Validate task existence before opening the stream (N4).
-    task = await db.get(VideoTask, task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found")
+    # Validate task existence + tenant ownership before opening the stream
+    # (N4/R14): a foreign tenant gets the same 404 as a missing task.
+    await _get_owned_task_or_404(task_id, tenant_id, db)
 
     from sse_starlette.sse import EventSourceResponse
 
@@ -370,10 +403,10 @@ async def video_events(
 async def delete_video(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    storage: VideoStorage = Depends(get_storage),
+    tenant_id: str = Depends(get_tenant_id),
 ) -> VideoDeleteResponse:
     """Cancel a queued task or delete a completed one."""
-    task = await _get_task_or_404(task_id, db)
+    task = await _get_owned_task_or_404(task_id, tenant_id, db)
 
     if task.status == TaskStatus.QUEUED:
         # Revoke Celery task if it hasn't started
@@ -412,8 +445,10 @@ async def delete_video(
     # For completed / failed / canceled tasks: delete resources but PRESERVE
     # the terminal status (N2). The old code rewrote status to CANCELED,
     # corrupting audit/stat counts. Now only resources are cleared.
+    # Backend resolved from the task ROW (video-tenant-storage R4) so local/S3
+    # mixed legacy artifacts each delete from the backend they were written to.
     if task.output_path:
-        storage.delete(task.output_path)
+        storage_for_kind(task.storage_kind).delete(task.output_path)
 
     # Clean up workspace
     if task.workspace_path:

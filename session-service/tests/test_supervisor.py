@@ -1,6 +1,6 @@
 """Unit tests for supervisor capacity eviction ordering (spec 4.4).
 
-Verifies that when the node is at capacity, `_ensure_capacity` evicts the
+Verifies that the pool eviction hook `_evict_longest_idle` evicts the
 longest-idle session rather than an arbitrary registry-order candidate.
 """
 import time
@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-from app.config import settings
 from app.session.lifecycle import SessionState
 from app.session.supervisor import LiveSession, SessionSupervisor
 
@@ -34,10 +33,8 @@ def _make_live(suffix: str, idle_since: float | None) -> LiveSession:
 
 @pytest.mark.asyncio
 async def test_evict_longest_idle_on_capacity(monkeypatch):
-    """At capacity, evict the longest-idle session; never one that has
-    never gone idle (idle_since is None ranks last)."""
-    monkeypatch.setattr(settings, "max_live_sessions", 1)
-
+    """The pool eviction hook evicts the longest-idle session; never one that
+    has never gone idle (idle_since is None ranks last)."""
     sup = SessionSupervisor()
     now = time.monotonic()
     s_old = _make_live("old", now - 100.0)  # idle the longest
@@ -52,6 +49,20 @@ async def test_evict_longest_idle_on_capacity(monkeypatch):
 
     sup._evict = _fake_evict
 
-    await sup._ensure_capacity()
+    assert await sup._evict_longest_idle() is True
 
     assert evicted == [s_old]
+
+
+@pytest.mark.asyncio
+async def test_evict_hook_returns_false_when_nothing_evictable():
+    """Busy / ws-attached sessions are not evictable -> hook reports False so
+    the pool falls through to its wait queue (WS-D)."""
+    sup = SessionSupervisor()
+    busy = _make_live("busy", None)
+    busy._busy = True
+    attached = _make_live("attached", None)
+    attached.ws_connections = {object()}
+    sup._sessions = {s.sid: s for s in (busy, attached)}
+
+    assert await sup._evict_longest_idle() is False

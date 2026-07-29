@@ -1,0 +1,26 @@
+# ============================================================================
+# Dockerfile.deps-patch — 极小补丁层：仅向已有镜像的 openharness venv 追加
+# Python 依赖（遵循 test-on-existing-images 规则：FROM 已有镜像叠加层，不重建）。
+# ============================================================================
+# 当前用途（openspec session-container-pool-multitenancy）：
+#   - minio     : WS-B 租户数据权威源 stage-in/stage-out（任务 2.2）
+#   - aiodocker : WS-C 容器运行时 OhBackendContainer（任务 3.1）
+#
+# 构建（同 tag 覆盖主镜像，秒级）：
+#   docker build -f Dockerfile.deps-patch \
+#     --build-arg BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1 \
+#     -t openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1 .
+#
+#   # 测试镜像同理：
+#   docker build -f Dockerfile.deps-patch \
+#     --build-arg BASE_IMAGE=oh-session-test:latest -t oh-session-test:latest .
+#
+# 版本约束与 session-service/pyproject.toml 及 Dockerfile / Dockerfile.fix
+# 的依赖并集锚点块保持一致。
+# ============================================================================
+
+ARG BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1
+FROM ${BASE_IMAGE}
+
+RUN /root/.openharness-venv/bin/pip install --no-cache-dir \
+        "minio>=7.2.0,<8" "aiodocker>=0.22,<1"

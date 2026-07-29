@@ -93,6 +93,7 @@ RUN python -m venv /root/.openharness-venv \
         "pydantic-settings>=2.6.0,<3" "sse-starlette>=2.1.0,<3" "python-multipart>=0.0.9" \
         "websockets>=13.0,<14" \
         "boto3>=1.34.0,<2" "botocore>=1.34.0,<2" \
+        "minio>=7.2.0,<8" "aiodocker>=0.22,<1" \
         "prometheus-client>=0.20.0,<1" "structlog>=24.0.0,<25" "psutil>=6.0.0,<7" \
         "opentelemetry-api>=1.27.0,<1.28" "opentelemetry-sdk>=1.27.0,<1.28" \
         "opentelemetry-exporter-otlp>=1.27.0,<1.28" \

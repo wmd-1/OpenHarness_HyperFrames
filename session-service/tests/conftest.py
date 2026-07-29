@@ -144,6 +144,16 @@ def _reset_storage_cache():
     reset_storage_cache()
 
 
+@pytest.fixture(autouse=True)
+def _reset_apikey_cache():
+    """Drop the resolve_tenant TTL caches between tests (WS-A)."""
+    from app.security import reset_apikey_cache
+
+    reset_apikey_cache()
+    yield
+    reset_apikey_cache()
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def _reset_supervisor():
     """Clear the supervisor registry between tests (async — can await teardown)."""
@@ -151,11 +161,13 @@ async def _reset_supervisor():
 
     sup = get_supervisor()
     sup._sessions.clear()
+    sup.pool.reset()  # WS-D: drop slot/queue state leaked by a prior test
     yield
     try:
         await sup.shutdown_all()
     except Exception:
         sup._sessions.clear()
+    sup.pool.reset()
 
 
 @pytest_asyncio.fixture

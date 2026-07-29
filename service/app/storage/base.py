@@ -8,15 +8,17 @@ from typing import BinaryIO, Protocol, runtime_checkable
 class VideoStorage(Protocol):
     """Abstract interface for video file storage backends."""
 
-    def save(self, task_id: str, src: Path) -> str:
-        """Save a video file and return its storage key.
+    def save(self, key: str, src: Path) -> str:
+        """Save a video file under *key* and return the key.
 
         Args:
-            task_id: Unique task identifier.
+            key: Full object key (e.g. ``tenants/{tid}/videos/{task_id}.mp4``,
+                built by ``app.storage.keys.video_object_key`` — backends
+                MUST NOT derive their own key layout).
             src: Local path to the source video file.
 
         Returns:
-            Storage key (e.g., ``<task_id>.mp4`` or an S3 object key).
+            The storage key the artifact was written under.
         """
         ...
 

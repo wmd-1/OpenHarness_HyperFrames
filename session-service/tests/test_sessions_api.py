@@ -74,15 +74,13 @@ async def test_rest_turn_completes(client):
 
 @pytest.mark.asyncio
 async def test_create_session_503_when_capacity_full(client, monkeypatch):
-    """Node capacity exhausted with no idle session to evict -> 503 (openspec A)."""
-    from app.session.supervisor import CapacityFullError, get_supervisor
+    """Node capacity exhausted, nothing evictable, queue disabled -> 503 (openspec A)."""
+    from app.config import settings
 
-    sup = get_supervisor()
-
-    def _raise_capacity(*_args, **_kwargs):
-        raise CapacityFullError("capacity full and no idle session to evict")
-
-    monkeypatch.setattr(sup, "_ensure_capacity", _raise_capacity)
+    # Zero capacity + no wait queue: pool admission degrades to the pre-pool
+    # fail-fast CapacityFullError (WS-D queue_size=0 semantics).
+    monkeypatch.setattr(settings, "max_live_sessions", 0)
+    monkeypatch.setattr(settings, "pool_queue_size", 0)
     # Unique XFF isolates this test from the shared rate-limit bucket.
     resp = await client.post(
         "/v1/sessions", json={}, headers={"X-Forwarded-For": "203.0.113.1"}

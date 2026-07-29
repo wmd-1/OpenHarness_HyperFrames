@@ -1,0 +1,85 @@
+===== session container-runtime e2e  2026-07-29T11:20:44Z =====
+PASS | preflight: docker.sock + existing image openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1
+--- Q2: chrome-headless-shell under CapDrop=ALL ---
+PASS | Q2: CapDrop=ALL + no-new-privileges suffices for headless-shell (--no-sandbox); minimal extra caps = NONE
+--- gateway up (OH_SESSION_RUNTIME=container, stub oh) ---
+PASS | gateway /healthz 200 (container mode)
+PASS | stub staged at /workspaces/.e2e/oh_backend_stub.py
+PASS | api key minted for tenant e2e-cp-18194
+--- TEST A: create session -> disposable sibling container ---
+PASS | session created: 6f1d469b-c314-4eb1-90d3-e88507129261
+PASS | backend container running (label oh.sid=6f1d469b-c314-4eb1-90d3-e88507129261)
+PASS | oh.tenant label correct
+PASS | live container has CapDrop=ALL
+PASS | no-new-privileges applied
+PASS | PidsLimit=512 applied
+PASS | no published ports (stdio-only)
+--- TEST B: two REST turns + artifact download ---
+PASS | turn 0 completed
+PASS | turn 0 registered artifact
+PASS | turn 1 completed
+PASS | turn 1 registered artifact
+PASS | artifact download HTTP 200
+--- TEST C: idle eviction disposes the container ---
+  WS attached+detached (idle timer armed)
+PASS | session evicted to COLD
+PASS | disposable container force-removed on eviction
+--- TEST D: COLD -> WS reconnect -> resume turn ---
+PASS | rehydrated turn completed over WS
+PASS | resume used a FRESH container (disposable semantics)
+--- TEST E: SIGKILL backend container -> crash recovery ---
+  killed backend container 8f752770efe6
+PASS | crash surfaced as turn_error (EOF sentinel)
+PASS | crash -> COLD persisted
+PASS | post-crash resume turn completed
+--- TEST F: orphan reclaim on gateway restart ---
+  orphan candidate container up (sid=2a181536-95f9-4b44-b2ab-9a8c94c9ed57)
+PASS | orphan container reclaimed after restart (oh.node label scan)
+PASS | crashed leftover reclaimed too
+--- TEST G: destroy live session ---
+PASS | DELETE -> closed
+PASS | container force-removed on destroy
+--- TEST H: pool admission (OH_MAX_LIVE_SESSIONS=2, queue=1, timeout=8s) ---
+  gateway healthy (tiny pool)
+PASS | H: two sessions fill the 2-slot node
+PASS | H: 3rd create admitted (idle session evicted for its slot)
+PASS | H: longest-idle session went COLD (pool eviction)
+PASS | H: queue-full -> fast 503 (0s)
+PASS | H: queue-full response carries Retry-After
+PASS | H: freed slot admitted the queue head (201)
+PASS | H: queue timeout -> 503 after 8s (~8s budget)
+PASS | H: queue-timeout response carries Retry-After
+PASS | H: same-tenant second create -> 429
+PASS | H: oh_pool_evictions_total incremented
+PASS | H: rejected_total{reason="queue_full"} incremented
+PASS | H: rejected_total{reason="queue_timeout"} incremented
+PASS | H: rejected_total{reason="tenant_quota"} incremented
+PASS | H: oh_pool_backends_live == 2 (slots accounted)
+PASS | H: restart reclaimed held pool containers
+--- TEST I: dual-tenant memory isolation (MinIO round-trip) ---
+PASS | I: tenant-A session created
+  marker staged into tenant-A staging: e2e_marker_12179.md
+PASS | I: tenant-A turn completed (stage-out hook fired)
+PASS | I: marker mirrored to tenant-A bucket prefix
+PASS | I: tenant-B session created
+PASS | I: tenant-B bucket prefix clean of tenant-A marker
+PASS | I: tenant-B staging clean of tenant-A memory
+--- restoring session service to process runtime ---
+  gateway healthy (process mode restored)
+===== SUMMARY: pass=49 fail=0 =====
+
+===== full unit/integration regression (task 5.1) =====
+command : docker run --rm -v <repo>/session-service:/opt/oh-session-service oh-session-test:latest -q
+runtime : process (default), sqlite+fakeredis in-container
+result  : 175 passed, 7 skipped, 1 warning in 62.79s (2026-07-29)
+
+===== e2e coverage map =====
+3.8 (WS-C container runtime) : Q2 cap probe, A security baseline, B REST turns+artifact,
+                               C idle eviction, D COLD resume, E SIGKILL crash recovery,
+                               F orphan reclaim on restart, G destroy  -> 28 assertions
+4.5 (WS-D pool + tenant iso) : H pool admission under OH_MAX_LIVE_SESSIONS=2/queue=1/timeout=8s
+                               (evict->COLD, queue-full fast 503+Retry-After, freed slot wakes
+                               queue head 201, queue timeout 503+Retry-After, tenant quota 429,
+                               pool metrics, restart reclaims held containers),
+                               I dual-tenant memory isolation via MinIO round-trip -> 21 assertions
+TOTAL: pass=49 fail=0

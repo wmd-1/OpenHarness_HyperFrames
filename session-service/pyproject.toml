@@ -24,6 +24,10 @@ dependencies = [
     # --- storage (mirror service/) ---
     "boto3>=1.34.0,<2",
     "botocore>=1.34.0,<2",
+    # --- tenant data authoritative source (WS-B stage-in/stage-out) ---
+    "minio>=7.2.0,<8",
+    # --- container runtime backend (WS-C, OH_SESSION_RUNTIME=container) ---
+    "aiodocker>=0.22,<1",
     # --- observability (mirror service/) ---
     "prometheus-client>=0.20.0,<1",
     "structlog>=24.0.0,<25",

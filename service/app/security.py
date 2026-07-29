@@ -12,6 +12,121 @@ flag values are type-checked and shell-metachar-rejected (N17/S4).
 
 from __future__ import annotations
 
+import hashlib
+import logging
+import time
+from secrets import compare_digest
+
+logger = logging.getLogger(__name__)
+
+
+# --- Multi-key tenant resolution (WS-A, R15) ---------------------------------
+#
+# In-process TTL caches (bounded by OH_APIKEY_CACHE_TTL, default 60s):
+# - positive key lookups (sha256 digest -> (tenant_id, actor_key_id)), so
+#   deactivation takes effect within the TTL;
+# - the "api_keys table is empty" flag used by the open-mode check.
+# Negative lookups are NOT cached (unbounded attacker-controlled keyspace).
+# Mirrors session-service/app/security.py (shared api_keys table, D1.3).
+
+_key_cache: dict[str, tuple[float, tuple[str, str | None]]] = {}
+_empty_cache: tuple[float, bool] | None = None
+
+
+def reset_apikey_cache() -> None:
+    """Drop cached resolutions (tests / manage script after deactivate)."""
+    global _empty_cache
+    _key_cache.clear()
+    _empty_cache = None
+
+
+async def _api_keys_table_empty() -> bool:
+    """Cached "no api_keys rows exist" check for the open-mode branch.
+
+    Fails OPEN (returns True) when the DB is unreachable: before this change
+    the auth middleware was not even registered without a configured key, so
+    an open-mode deployment must keep serving through a DB blip.
+    """
+    global _empty_cache
+    from app.config import settings
+
+    now = time.monotonic()
+    if _empty_cache is not None and _empty_cache[0] > now:
+        return _empty_cache[1]
+    from sqlalchemy import select
+
+    from app import db
+    from app.models import ApiKey
+
+    try:
+        async with db.async_session() as session:
+            row = (await session.execute(select(ApiKey.id).limit(1))).first()
+    except Exception:
+        logger.warning("api_keys empty-check failed (DB unreachable) — open mode")
+        return True
+    empty = row is None
+    _empty_cache = (now + settings.apikey_cache_ttl, empty)
+    return empty
+
+
+async def resolve_tenant(provided: str | None) -> tuple[str, str | None] | None:
+    """Resolve an API key to ``(tenant_id, actor_key_id)`` or ``None`` (reject).
+
+    Three-step resolution order (R15), shared by the HTTP middleware and the
+    ``?api_key=`` query-param fallback on ``/file`` and ``/events``:
+
+    1. open mode — no ``api_key`` configured, ``require_auth`` false and the
+       ``api_keys`` table empty -> tenant ``default``;
+    2. legacy single-key — constant-time match against ``settings.api_key``
+       -> tenant ``default`` (pre-change behavior);
+    3. multi-key — ``sha256(provided)`` looked up in ``api_keys``
+       (``active=true`` only) -> the row's tenant, ``actor_key_id`` = row id.
+    """
+    from app.config import settings
+
+    configured = settings.api_key.get_secret_value() if settings.api_key else ""
+
+    # (2) legacy single-key compare — constant-time, no DB round-trip.
+    if configured and compare_digest(provided or "", configured):
+        return ("default", None)
+
+    # (3) multi-key hashed lookup (active rows only), TTL-cached. A DB error
+    # counts as "no match" (fail closed for actual keys).
+    if provided:
+        digest = hashlib.sha256(provided.encode("utf-8")).hexdigest()
+        now = time.monotonic()
+        cached = _key_cache.get(digest)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+        if cached is not None:
+            _key_cache.pop(digest, None)
+        from sqlalchemy import select
+
+        from app import db
+        from app.models import ApiKey
+
+        try:
+            async with db.async_session() as session:
+                row = (await session.execute(
+                    select(ApiKey).where(
+                        ApiKey.key_hash == digest, ApiKey.active.is_(True)
+                    ).limit(1)
+                )).scalars().first()
+        except Exception:
+            logger.warning("api_keys lookup failed (DB unreachable) — rejecting key")
+            row = None
+        if row is not None:
+            result = (row.tenant_id, str(row.id))
+            _key_cache[digest] = (now + settings.apikey_cache_ttl, result)
+            return result
+
+    # (1) open mode — nothing configured anywhere -> tenant "default".
+    if not configured and not settings.require_auth and await _api_keys_table_empty():
+        return ("default", None)
+
+    return None
+
+
 # flag -> does it consume a following value?
 ALLOWED_OH_FLAGS: dict[str, bool] = {
     "--temperature": True,

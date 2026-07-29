@@ -163,10 +163,15 @@ async def test_ws_capacity_full_returns_4500(sync_client, monkeypatch):
         extra_oh_args="[]",
     )
 
+    class _EmptyResult:
+        def first(self):
+            return None  # auth open-mode probe sees an empty api_keys table
+
     @asynccontextmanager
     async def _fake_session_factory():
         fake = AsyncMock()
         fake.get = AsyncMock(return_value=conv)
+        fake.execute = AsyncMock(return_value=_EmptyResult())
         yield fake
 
     def _get_raises(_s):

@@ -16,19 +16,20 @@
 
 由全局 HTTP 中间件实现（`app/main.py`）：
 
-- **触发条件**：`OH_REQUIRE_AUTH=true` 或配置了 `OH_API_KEY` 时启用鉴权；否则全部开放（open mode）。
-- **HTTP 鉴权方式**：请求头 `X-API-Key: <api_key>`，服务端用 `secrets.compare_digest` 常量时间比对。
-- **WebSocket 鉴权方式**：在 `accept()` **之前**校验；密钥可通过请求头 `X-API-Key` **或** 查询参数 `?api_key=<key>` 传递（浏览器 WS 握手无法自定义请求头）。鉴权失败以关闭码 `4401` 关闭连接。
+- **触发条件**：`OH_REQUIRE_AUTH=true` 或配置了 `OH_API_KEY` 或 `api_keys` 表非空时启用鉴权；否则全部开放（open mode，解析为租户 `default`）。
+- **HTTP 鉴权方式**：请求头 `X-API-Key: <api_key>`，统一经 `security.resolve_tenant` 解析：① 单 key 模式——与 `OH_API_KEY` 常量时间比对，命中则租户为 `default`；② 多 key 模式——`sha256(key)` 查 `api_keys` 表（仅 `active=true`），命中则租户为该行 `tenant_id`，`actor_key_id` 记录 key id 供审计。解析结果有进程内 TTL 缓存（`OH_APIKEY_CACHE_TTL`，默认 60s），吊销 key 最多在 TTL 后生效。key 的增删查走 `scripts/manage_api_keys.py create/revoke/list`（只存 hash，明文仅创建时打印一次）。
+- **WebSocket 鉴权方式**：在 `accept()` **之前**校验，同一 `resolve_tenant` 路径；密钥可通过请求头 `X-API-Key` **或** 查询参数 `?api_key=<key>` 传递（浏览器 WS 握手无法自定义请求头）。鉴权失败以关闭码 `4401` 关闭连接。
 - **失败响应（HTTP）**：`401`，响应体 `{"detail": "Invalid API key"}`。
 - **豁免路径**：`/healthz`、`/readyz`、`/metrics`（注意：与 video-service 不同，本服务的 `/metrics` **也豁免**鉴权）。
-- **租户**：当前为单密钥模式，鉴权通过后租户固定为 `default`（`request.state.tenant_id`），所有会话按租户隔离（非本租户会话一律 404）。
+- **租户**：多 key 模式下每个 key 归属一个租户（`request.state.tenant_id`），所有会话按租户隔离（非本租户会话一律 404）；单 key/开放模式固定为 `default`，与历史行为完全兼容。
 - **启动校验**：`require_auth=true` 但未设置 `api_key` 时启动抛 `RuntimeError`。
 - **日志脱敏**：`api_key`（含 WS 查询参数 `?api_key=` 形式）在服务端访问日志中自动脱敏为 `***`，不会明文落盘。
 
 | 环境变量 | 说明 | 默认值 |
 | --- | --- | --- |
-| `OH_API_KEY` | API 密钥（SecretStr） | 无 |
+| `OH_API_KEY` | 单 key 模式的 API 密钥（SecretStr，租户 `default`） | 无 |
 | `OH_REQUIRE_AUTH` | 是否强制鉴权 | `false` |
+| `OH_APIKEY_CACHE_TTL` | 多 key 解析结果的进程内缓存 TTL（秒，吊销生效上限） | `60` |
 
 ### 1.2 CORS
 
@@ -43,9 +44,9 @@
 | 机制 | 规则 | 超限响应 |
 | --- | --- | --- |
 | IP 令牌桶限流 | 容量 `OH_RATE_LIMIT_CAPACITY`（默认 10），每秒补充 `OH_RATE_LIMIT_REFILL`（默认 1.0），令牌扣减为 Redis Lua 原子操作；Redis 不可用时放行（fail-open） | `429` `{"detail": "Rate limit exceeded"}` |
-| 租户并发配额 | 每租户最多 `OH_TENANT_MAX_CONCURRENT`（默认 8）个 LIVE 会话（检查与创建在同一把锁内原子完成，并发抢占只放行一个） | `429` `{"detail": "Concurrent session quota exceeded"}` |
-| 租户每日配额 | 每租户每日（UTC 日历日）最多创建 `OH_TENANT_MAX_DAILY`（默认 200）个会话；设为 `0` 关闭 | `403` `{"detail": "Daily session quota exceeded"}` |
-| 节点容量 | 单节点最多 `OH_MAX_LIVE_SESSIONS`（默认 16）个 live 子进程；满时自动将最久空闲会话驱逐为 COLD；无可驱逐会话时返回 `503`（按 openspec 要求，与 `/readyz` 一致） | `503` |
+| 租户并发配额 | 每租户最多 `OH_TENANT_MAX_CONCURRENT`（**默认 1**：单租户单活跃会话，配合 per-tenant 同步锁消除对租户 MinIO 前缀的并发写；调高则接受租户数据 last-writer-wins）个 live 会话；检查在 `ContainerPool` 准入第①段（事件循环原子，无 TOCTOU） | `429` `{"detail": "Concurrent session quota exceeded"}` |
+| 租户每日配额 | 每租户每日（UTC 日历日）最多创建 `OH_TENANT_MAX_DAILY`（默认 200）个会话；设为 `0` 关闭 | `403` `{"code": "daily_quota_exceeded", ...}` |
+| 节点容量（四段式准入，WS-D） | 单节点最多 `OH_MAX_LIVE_SESSIONS`（默认 16）个 live 后端（process 子进程或 container）。create/rehydrate 统一走 `ContainerPool.acquire`：① 租户配额（429）→ ② 容量未满直接准入 → ③ 满则驱逐最久空闲 IDLE 会话为 COLD 腾位 → ④ 无可驱逐时进有界 FIFO 队列（`OH_POOL_QUEUE_SIZE` 默认 32，等待上限 `OH_POOL_QUEUE_TIMEOUT` 默认 15s）。队满/超时 → `503` + `Retry-After` 头；单租户队列占位 ≤ `OH_TENANT_MAX_CONCURRENT`（防刷满，超出立即 429）；槽位释放（退出/销毁/驱逐）唤醒队头；`OH_POOL_QUEUE_SIZE=0` 退化为旧 fail-fast（满 → 裸 `503`，无 Retry-After） | `503`（队满/超时带 `Retry-After`） |
 
 **限流客户端 IP 判定（`X-Forwarded-For` 信任策略）**：
 
@@ -55,8 +56,23 @@
 | 环境变量 | 说明 | 默认值 |
 | --- | --- | --- |
 | `OH_TRUSTED_PROXY` | 可信反代 IP 列表（逗号分隔），在名单内才信任 XFF | `""`（从不信任） |
+| `OH_TENANT_MAX_CONCURRENT` | 每租户并发 live 会话上限（兼作队列占位上限） | `1` |
 | `OH_TENANT_MAX_DAILY` | 每租户每日创建上限（`0` = 关闭） | `200` |
+| `OH_MAX_LIVE_SESSIONS` | 单节点 live 后端容量 | `16` |
+| `OH_POOL_QUEUE_SIZE` | 准入等待队列长度（`0` = 禁用排队，退化 fail-fast） | `32` |
+| `OH_POOL_QUEUE_TIMEOUT` | 队内最长等待秒数（也是 `Retry-After` 建议值） | `15` |
 | `OH_BACKEND_EVENT_MAX_BYTES` | 单条后端事件 payload 上限（超限拒绝解析，见 §3.1） | `1048576`（1 MiB） |
+
+### 1.3.1 多租户数据隔离（MinIO 权威源，WS-B）
+
+配置了 `OH_MINIO_ENDPOINT` 时启用（未配置则完全旁路，行为不变）：租户的 agent 记忆/会话快照等数据以 MinIO bucket 前缀 `tenants/{tenant_id}/` 为权威源；create/rehydrate 前 **stage-in** 镜像到节点本地暂存 `/tenants/{tenant_id}/`（MinIO 不可达 → `503 tenant data store unavailable`，fail-fast 不建会话）；turn 完成/驱逐/关闭/孤儿回收四钩子 **stage-out** 镜像回 bucket（指数退避重试，耗尽后计 `oh_tenant_sync_failures_total`）。丢失窗口 SLO：节点崩溃最多丢失自上一次 stage-out（即上一个完成 turn）以来的增量记忆。DELETE 会在 final stage-out 后同时清理暂存与 bucket 内该会话的 `data/memory|sessions/{oh_session_id}*` 痕迹（租户级记忆保留）。
+
+| 环境变量 | 说明 | 默认值 |
+| --- | --- | --- |
+| `OH_MINIO_ENDPOINT` | MinIO 地址（空 = 禁用租户数据隔离） | 无（compose 内 `minio:9000`） |
+| `OH_MINIO_ACCESS_KEY` / `OH_MINIO_SECRET_KEY` | 凭据（SecretStr，不落 bucket/暂存） | 无 |
+| `OH_MINIO_BUCKET` | 租户数据 bucket | `oh-tenants` |
+| `OH_TENANTS_ROOT` | 节点本地暂存根（所有本地清理路径必须 resolve 在其租户前缀下） | `/tenants` |
 
 ### 1.4 通用错误响应结构
 
@@ -475,6 +491,13 @@ Tag：`health`。**均豁免鉴权。**
 | `oh_session_live` | Gauge | 本节点 live 的 `oh --backend-only` 子进程数 |
 | `oh_session_turns_inflight` | Gauge | 当前正在流式执行的轮次数 |
 | `oh_session_turn_duration_seconds` | Histogram | 单轮墙钟耗时（秒），buckets: 1~900 |
+| `oh_tenant_sync_failures_total{direction}` | Counter | 租户 stage-in/out 重试耗尽次数（`in`/`out`，WS-B） |
+| `oh_pool_backends_live` | Gauge | 池内当前占用的 live 后端槽位数（WS-D） |
+| `oh_pool_queue_depth` | Gauge | 准入队列当前等待请求数 |
+| `oh_pool_queue_wait_seconds` | Histogram | 队内等待时长（秒），buckets: 0.1~60 |
+| `oh_pool_evictions_total` | Counter | 为腾槽位被驱逐到 COLD 的会话数 |
+| `oh_pool_admission_rejected_total{reason}` | Counter | 准入拒绝数（`tenant_quota`/`queue_full`/`queue_timeout`） |
+| `oh_session_create_duration_seconds` | Histogram | 会话创建端到端耗时（准入等待+stage-in+后端拉起），冷启动 P95 供变体 A 预热池立项评估 |
 
 ---
 
