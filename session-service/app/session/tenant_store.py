@@ -276,7 +276,53 @@ def _purge_session_sync(tenant_id: str, oh_session_id: str) -> None:
             client.remove_object(settings.minio_bucket, obj.object_name)
 
 
+def _has_local_snapshot(tenant_id: str, oh_session_id: str) -> bool:
+    """Cheap fs check: any ``sessions/{oh_session_id}*`` entry in staging."""
+    base = local_data_dir(tenant_id) / "sessions"
+    if not base.is_dir():
+        return False
+    return any(base.glob(oh_session_id + "*"))
+
+
+def _has_remote_snapshot_sync(tenant_id: str, oh_session_id: str) -> bool:
+    """Bucket prefix probe for the session's snapshot objects."""
+    client = _client()
+    prefix = _remote_prefix(tenant_id) + "openharness/data/sessions/" + oh_session_id
+    for _obj in client.list_objects(
+        settings.minio_bucket, prefix=prefix, recursive=True
+    ):
+        return True
+    return False
+
+
 # --- public async API ------------------------------------------------------------
+
+
+async def has_session_snapshot(tenant_id: str, oh_session_id: str) -> bool:
+    """Whether a recoverable native snapshot exists for this session.
+
+    Feeds the ``resumable`` business field (spec session-tenant-isolation):
+    the node-local staging directory is consulted first (fs stat, cheap); the
+    tenant-bucket prefix is queried only when the local copy is absent, and
+    skipped entirely when the store is disabled. Probe errors degrade to
+    ``False`` (never advertise a resume that cannot be satisfied).
+    """
+    validate_tenant_id(tenant_id)
+    if not oh_session_id:
+        return False
+    if _has_local_snapshot(tenant_id, oh_session_id):
+        return True
+    if not enabled():
+        return False
+    try:
+        return await asyncio.to_thread(
+            _has_remote_snapshot_sync, tenant_id, oh_session_id
+        )
+    except Exception as exc:  # noqa: BLE001 — probe is advisory, not fatal
+        logger.warning(
+            "tenant_snapshot_check_failed", tenant_id=tenant_id, error=str(exc)
+        )
+        return False
 
 
 async def copy_rules_into_workspace(tenant_id: str, workspace: Path) -> None:

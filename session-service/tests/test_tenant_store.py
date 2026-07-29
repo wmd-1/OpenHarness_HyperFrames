@@ -147,11 +147,32 @@ async def test_create_route_maps_tenant_store_error_to_503(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_second_concurrent_create_returns_429(client):
-    """tenant_max_concurrent defaults to 1 (D8): second live create -> 429."""
+    """tenant_max_concurrent defaults to 1 (D8): second live create -> 429 when
+    the first session cannot yield (busy). An *idle* unattached session would
+    yield its slot instead (session-history-switch, covered in test_ws)."""
+    from app.session.supervisor import get_supervisor
+
     first = await client.post("/v1/sessions", json={})
     assert first.status_code == 201
+    # Mark the first session busy: it is then not an eviction candidate, so
+    # the quota rejection path is preserved.
+    sid = first.json()["session_id"]
+    get_supervisor().get(sid)._busy = True
     second = await client.post("/v1/sessions", json={})
     assert second.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_second_create_with_idle_first_yields_the_slot(client):
+    """session-history-switch: an idle unattached same-tenant session yields
+    its slot to the new create instead of a 429."""
+    first = await client.post("/v1/sessions", json={})
+    assert first.status_code == 201
+    first_sid = first.json()["session_id"]
+    second = await client.post("/v1/sessions", json={})
+    assert second.status_code == 201
+    status = (await client.get(f"/v1/sessions/{first_sid}")).json()["status"]
+    assert status == "cold"
 
 
 @pytest.mark.asyncio

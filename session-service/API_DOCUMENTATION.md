@@ -44,7 +44,7 @@
 | 机制 | 规则 | 超限响应 |
 | --- | --- | --- |
 | IP 令牌桶限流 | 容量 `OH_RATE_LIMIT_CAPACITY`（默认 10），每秒补充 `OH_RATE_LIMIT_REFILL`（默认 1.0），令牌扣减为 Redis Lua 原子操作；Redis 不可用时放行（fail-open） | `429` `{"detail": "Rate limit exceeded"}` |
-| 租户并发配额 | 每租户最多 `OH_TENANT_MAX_CONCURRENT`（**默认 1**：单租户单活跃会话，配合 per-tenant 同步锁消除对租户 MinIO 前缀的并发写；调高则接受租户数据 last-writer-wins）个 live 会话；检查在 `ContainerPool` 准入第①段（事件循环原子，无 TOCTOU） | `429` `{"detail": "Concurrent session quota exceeded"}` |
+| 租户并发配额 | 每租户最多 `OH_TENANT_MAX_CONCURRENT`（**默认 1**：单租户单活跃会话，配合 per-tenant 同步锁消除对租户 MinIO 前缀的并发写；调高则接受租户数据 last-writer-wins）个 live 会话；检查在 `ContainerPool` 准入第①段（事件循环原子，无 TOCTOU）。**同租户 IDLE 让位（session-history-switch）**：配额超限时若本租户存在可让位会话（live/idle、无 WS 连接、非 busy、非驱逐中），最久空闲者先被驱逐为 `cold` 腾出配额，新会话直接准入（**不返回 429**）；仅当无可让位候选（如唯一会话正在执行 turn 或仍有 WS 挂着）才拒绝 | `429` `{"detail": "Concurrent session quota exceeded"}` |
 | 租户每日配额 | 每租户每日（UTC 日历日）最多创建 `OH_TENANT_MAX_DAILY`（默认 200）个会话；设为 `0` 关闭 | `403` `{"code": "daily_quota_exceeded", ...}` |
 | 节点容量（四段式准入，WS-D） | 单节点最多 `OH_MAX_LIVE_SESSIONS`（默认 16）个 live 后端（process 子进程或 container）。create/rehydrate 统一走 `ContainerPool.acquire`：① 租户配额（429）→ ② 容量未满直接准入 → ③ 满则驱逐最久空闲 IDLE 会话为 COLD 腾位 → ④ 无可驱逐时进有界 FIFO 队列（`OH_POOL_QUEUE_SIZE` 默认 32，等待上限 `OH_POOL_QUEUE_TIMEOUT` 默认 15s）。队满/超时 → `503` + `Retry-After` 头；单租户队列占位 ≤ `OH_TENANT_MAX_CONCURRENT`（防刷满，超出立即 429）；槽位释放（退出/销毁/驱逐）唤醒队头；`OH_POOL_QUEUE_SIZE=0` 退化为旧 fail-fast（满 → 裸 `503`，无 Retry-After） | `503`（队满/超时带 `Retry-After`） |
 
@@ -341,6 +341,118 @@ Router 前缀：`/v1/sessions`，tag：`sessions`。
 
 ---
 
+### 2.6 会话历史列表
+
+- **请求路径**：`GET /v1/sessions`
+- **HTTP 方法**：`GET`
+- **鉴权**：需要（当鉴权启用时）
+- **成功状态码**：`200 OK`
+- **说明**：当前租户的会话列表（含 `cold`/`closed` 历史会话），按 `created_at` **倒序**（最新在前）分页返回。用于「会话历史/切换」侧栏（session-history-switch D9）。
+
+#### 请求参数
+
+| 参数 | 位置 | 类型 | 是否必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `status` | query | SessionStatus | 否 | — | 按状态过滤（如 `?status=cold`） |
+| `limit` | query | integer | 否 | `20` | 每页条数，1~100 |
+| `offset` | query | integer | 否 | `0` | 偏移量（≥0） |
+
+#### 响应体结构（`SessionListResponse`）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `items` | SessionSummary[] | 会话摘要列表 |
+| `total` | integer | 过滤条件下的总条数（用于分页） |
+| `limit` | integer | 回显生效的 limit |
+| `offset` | integer | 回显生效的 offset |
+
+**`SessionSummary`**：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `session_id` | UUID | 会话 ID |
+| `status` | SessionStatus | 内部状态（仅供展示；**前端决策请只用 `resumable`/`read_only`**） |
+| `title` | string \| null | 首轮 prompt 截断 80 字符（页内一次批量查询）；0 轮会话为 `null` |
+| `turn_count` | integer | 已完成轮次数 |
+| `resumable` | bool | 是否可通过连 WS 复活继续对话（见下方语义） |
+| `read_only` | bool | 是否只读（仅可查历史，不可再交互） |
+| `created_at` | datetime | 创建时间 |
+| `last_active_at` | datetime | 最后活跃时间 |
+
+**`resumable` / `read_only` 语义**（`_business_fields`，内部状态到前端契约的唯一映射点）：
+
+- `read_only = status ∈ {closed, expired}`（终态只读）。
+- `resumable = not read_only`，且对 `cold`/`failed` 会话额外要求**快照存在性检查**通过（本地暂存 `sessions/{oh_session_id}*` 优先，缺失回退 MinIO bucket 前缀查询）；**例外**：`turn_count == 0` 的 `cold` 会话即使无快照也保持 `resumable=true`（rehydrate 会自动回退为全新拉起，没有上下文可丢）。
+- 前端渲染建议：`resumable=true` → 可点击切换（连 WS）；`read_only=true` → 仅展示历史（走 2.7 接口）；两者皆 false（如快照已丢失的 `cold`）→ 置灰并提示不可恢复。
+
+#### 响应示例
+
+```json
+{
+  "items": [
+    {
+      "session_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "status": "cold",
+      "title": "把背景换成夜景",
+      "turn_count": 3,
+      "resumable": true,
+      "read_only": false,
+      "created_at": "2026-07-24T08:00:00Z",
+      "last_active_at": "2026-07-24T09:12:00Z"
+    }
+  ],
+  "total": 12,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+#### 状态码说明
+
+| 状态码 | 含义 |
+| --- | --- |
+| `200` | 成功（无会话时 `items=[]`、`total=0`） |
+| `401` | 鉴权失败（启用鉴权时） |
+| `422` | 查询参数校验失败（`limit`/`offset`/`status` 非法） |
+
+> 租户隔离：仅返回当前租户的会话，他租户会话不可见（不是 404，而是根本不出现在列表里）。
+
+---
+
+### 2.7 轮次历史列表（回显）
+
+- **请求路径**：`GET /v1/sessions/{sid}/turns`
+- **HTTP 方法**：`GET`
+- **鉴权**：需要（当鉴权启用时）
+- **成功状态码**：`200 OK`
+- **说明**：按 `turn_index` 升序返回历史轮次，游标分页。用于切换会话时先回显历史对话；`closed`/`expired` 会话**依然可读**（只读历史）。
+
+#### 请求参数
+
+| 参数 | 位置 | 类型 | 是否必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `sid` | path | UUID | 是 | — | 会话 ID |
+| `after_index` | query | integer | 否 | `-1` | 游标：只返回 `turn_index > after_index` 的轮次（默认从头） |
+| `limit` | query | integer | 否 | `50` | 每页条数，1~200 |
+
+#### 响应体结构（`TurnListResponse`）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `items` | TurnResponse[] | 轮次列表（字段同 2.4 的 `TurnResponse`，含 `has_artifact`，批量查询产物标记） |
+| `total` | integer | 该会话的轮次总数（不受游标影响，用于判断是否还有下一页） |
+
+#### 状态码说明
+
+| 状态码 | 含义 |
+| --- | --- |
+| `200` | 成功 |
+| `401` | 鉴权失败（启用鉴权时） |
+| `404` | 会话不存在或不属于当前租户 |
+| `422` | 参数校验失败 |
+
+---
+
 ## 3. WebSocket 实时交互接口
 
 ### 3.1 会话 WS 连接
@@ -360,14 +472,29 @@ Router 前缀：`/v1/sessions`，tag：`sessions`。
 
 #### 连接关闭码（握手/校验失败）
 
-| 关闭码 | 含义 |
-| --- | --- |
-| `4400` | `sid` 非合法 UUID（`Invalid session id`） |
-| `4401` | 鉴权失败（`Invalid API key`） |
-| `4403` | 会话已关闭/过期（`Session is closed`） |
-| `4404` | 会话不存在或不属于当前租户（`Session not found`） |
-| `4429` | 限流（WS 连接建立频率超限，与 `POST /v1/sessions` 同一 IP 令牌桶） |
-| `4500` | 会话不可用（`session unavailable`：复活失败、或节点容量已满且无可驱逐会话导致无法复活等） |
+| 关闭码 | reason | 含义 |
+| --- | --- | --- |
+| `4400` | `Invalid session id` | `sid` 非合法 UUID |
+| `4401` | `Invalid API key` | 鉴权失败 |
+| `4403` | `Session is closed` | 会话已关闭/过期 |
+| `4404` | `Session not found` | 会话不存在或不属于当前租户 |
+| `4429` | `Rate limit exceeded` | 限流（WS 连接建立频率超限，与 `POST /v1/sessions` 同一 IP 令牌桶） |
+
+#### 准入失败关闭码（accept 后、rehydrate/切换阶段，session-history-switch D6）
+
+准入失败时服务端**先发一帧结构化错误**再关闭连接（错误帧发送失败不影响 close）：
+
+```json
+{ "type": "error", "code": "<reason 常量>", "message": "<人类可读说明>" }
+```
+
+close 帧的 `reason` 字段携带同一机器可解析常量（WS reason 限 123 字节，长文本走错误帧）：
+
+| 关闭码 | reason 常量 | 含义 | 前端建议 |
+| --- | --- | --- | --- |
+| `4430` | `TENANT_QUOTA_EXCEEDED` | 租户并发配额已满且无可让位会话（如另一会话正在执行 turn 或仍有 WS 连接） | 提示先断开/等待其他会话；`4429` 已被握手限流占用，故用 `4430` |
+| `4503` | `CAPACITY_FULL` | 节点容量已满（队满/排队超时，对应 REST 的 `503`） | 可稍后指数退避重试 |
+| `4500` | `SESSION_UNAVAILABLE` | 会话不可用（复活失败等内部错误；内部驱逐异常不外泄，未知异常一律降级到此码） | 提示重试或新建会话 |
 
 #### 客户端 → 服务端消息（JSON 文本帧）
 
@@ -394,7 +521,7 @@ Router 前缀：`/v1/sessions`，tag：`sessions`。
 | `turn_error` | `message`、`turn_index?` | 轮次错误（超时 `turn timed out`、后端退出、超过 `max_turns_per_session` 等） |
 | `busy` | — | 并发提交被拒（单写者约束） |
 | `pong` | — | 心跳应答 |
-| `error` | `message` | 协议级错误（非法 JSON、未知 op） |
+| `error` | `message`、`code?` | 协议级错误（非法 JSON、未知 op）；准入失败时额外携带 `code`（reason 常量，见上方准入失败表）并随后 close |
 | `event` | `event`（原始事件透传）、`turn_index` | 未知后端事件透传 |
 
 > ⚠️ **超大事件保护**：单条后端事件 payload 超过 `OH_BACKEND_EVENT_MAX_BYTES`（默认 1 MiB）时**不会**作为任何帧下发，而是截断后转入服务端诊断日志流（防内存耗尽）。
@@ -412,6 +539,20 @@ Client                            Server
   |--- {"op":"approval","request_id":...} ----->|
   |<-- {"type":"turn_complete","turn_index":N} -|
 ```
+
+### 3.2 历史会话切换流程（session-history-switch）
+
+前端实现「会话历史侧栏 + 点击切换」的推荐流程：
+
+1. **列表**：`GET /v1/sessions` 拉取会话列表，用 `resumable`/`read_only` 决定每项可否点击切换/仅只读（不要自行解读 `status`）。
+2. **回显**：点击目标会话后先 `GET /v1/sessions/{sid}/turns` 分页回显历史对话（只读会话到此为止）。
+3. **连目标 WS**：`resumable=true` 时直接连 `WS /v1/sessions/{sid}/ws`（可带 `last_turn_index` 去重已回显轮次）：
+   - 目标为 `cold` → 服务端自动 `--resume` 复活；0 轮无快照时自动回退全新拉起；
+   - 若本租户配额已满但原会话处于空闲（无 WS、非 busy），原会话**自动让位**被驱逐为 `cold`（快照保留，后续可切回），无需先手动断开/关闭；
+   - 让位不可行（原会话正在执行 turn 或仍有 WS 挂着）→ 收到 `error` 帧 `code=TENANT_QUOTA_EXCEEDED` + close `4430`。
+4. **就绪**：收到首帧 `session_ready` 后即可继续 `submit`；来回切换重复 1–4 即可（A ↔ B 切换时另一侧自动变 `cold`，历史不丢）。
+
+并发切换同一租户多个目标时，让位驱逐有单飞行保护（恰驱逐一次）：恰好一个连接获得槽位，其余收 `4430`。
 
 ---
 
@@ -506,14 +647,16 @@ Tag：`health`。**均豁免鉴权。**
 | # | 方法 | 路径 | 说明 | 鉴权 | 主要成功码 |
 | --- | --- | --- | --- | --- | --- |
 | 1 | POST | `/v1/sessions` | 创建会话 | 是* | 201 |
-| 2 | GET | `/v1/sessions/{sid}` | 查询会话详情 | 是* | 200 |
-| 3 | DELETE | `/v1/sessions/{sid}` | 关闭会话 | 是* | 200 |
-| 4 | POST | `/v1/sessions/{sid}/turns` | 提交一轮对话（REST 兜底，阻塞式） | 是* | 200 |
-| 5 | GET | `/v1/sessions/{sid}/turns/{idx}/artifact` | 下载轮次产物（Range/S3 302） | 是* | 200/206/302 |
-| 6 | WS | `/v1/sessions/{sid}/ws` | 实时流式对话（submit/interrupt/approval） | 是*（头或 `?api_key=`） | — |
-| 7 | GET | `/healthz` | 存活探针 | 否（豁免） | 200 |
-| 8 | GET | `/readyz` | 就绪探针 | 否（豁免） | 200/503 |
-| 9 | GET | `/metrics` | Prometheus 指标 | 否（豁免） | 200 |
+| 2 | GET | `/v1/sessions` | 会话历史列表（分页/过滤，含 `resumable`/`read_only`） | 是* | 200 |
+| 3 | GET | `/v1/sessions/{sid}` | 查询会话详情 | 是* | 200 |
+| 4 | DELETE | `/v1/sessions/{sid}` | 关闭会话 | 是* | 200 |
+| 5 | POST | `/v1/sessions/{sid}/turns` | 提交一轮对话（REST 兜底，阻塞式） | 是* | 200 |
+| 6 | GET | `/v1/sessions/{sid}/turns` | 轮次历史列表（游标分页回显） | 是* | 200 |
+| 7 | GET | `/v1/sessions/{sid}/turns/{idx}/artifact` | 下载轮次产物（Range/S3 302） | 是* | 200/206/302 |
+| 8 | WS | `/v1/sessions/{sid}/ws` | 实时流式对话（submit/interrupt/approval） | 是*（头或 `?api_key=`） | — |
+| 9 | GET | `/healthz` | 存活探针 | 否（豁免） | 200 |
+| 10 | GET | `/readyz` | 就绪探针 | 否（豁免） | 200/503 |
+| 11 | GET | `/metrics` | Prometheus 指标 | 否（豁免） | 200 |
 
 > \* “是*” 表示仅当 `OH_REQUIRE_AUTH=true` 或配置了 `OH_API_KEY` 时才需要鉴权，否则开放访问。
 
@@ -524,5 +667,5 @@ Tag：`health`。**均豁免鉴权。**
 - 本文档基于源码静态分析，运行时以 `/openapi.json` 为准（WS 接口不出现在 OpenAPI 中）。
 - 与 video-service 的差异点：本服务 `/metrics` 豁免鉴权；`extra_oh_args` 白名单额外允许 `--effort`；限流之外还有租户并发配额（`429`，`detail` 不同）与每日配额（`403`）。
 - 会话生命周期参数（可影响前端交互设计）：空闲宽限 `OH_IDLE_GRACE_SECONDS=300`、会话 TTL `OH_SESSION_TTL_SECONDS=86400`、单轮超时 `OH_TURN_TIMEOUT_SECONDS=900`、单会话最大轮次 `OH_MAX_TURNS_PER_SESSION=200`（超过后 submit 收到 `turn_error`）、审批超时 `OH_APPROVAL_TIMEOUT_SECONDS=300`（超时视为拒绝）。
-- WS 断线重连策略：带上 `last_turn_index` 可补发错过的 `turn_complete`（含 `assistant_text`）；`cold` 会话重连会自动复活（并发重连仅触发一次 `--resume`），首帧恒为 `session_ready`。
+- WS 断线重连策略：带上 `last_turn_index` 可补发错过的 `turn_complete`（含 `assistant_text`）；`cold` 会话重连会自动复活（并发重连仅触发一次 `--resume`），首帧恒为 `session_ready`。会话切换（列表 → turns 回显 → 连目标 WS）见 §2.6/§2.7/§3.2；准入失败先收 `error` 帧（带 `code`）再收 close `4430`/`4503`/`4500`。
 - `ArtifactResponse` 已定义但无对应元数据查询路由，前端如需元数据列表接口请与后端确认。每日配额 `OH_TENANT_MAX_DAILY=200` **已强制校验**（超限 `403`，见 §1.3/§2.1）。

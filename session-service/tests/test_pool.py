@@ -188,6 +188,93 @@ async def test_backends_live_gauge_tracks_slots():
     assert REGISTRY.get_sample_value("oh_pool_backends_live") == base
 
 
+# --- session-history-switch: same-tenant idle yield (stage 1b) -----------------
+
+
+@pytest.mark.asyncio
+async def test_tenant_quota_evicts_same_tenant_idle_then_claims():
+    """Quota miss triggers the tenant hook; the freed slot lets the retry claim."""
+    calls: list[str] = []
+    pool: ContainerPool | None = None
+
+    async def _yield_idle(tenant_id: str) -> bool:
+        calls.append(tenant_id)
+        assert pool is not None
+        await pool.release("sid-a")  # supervisor._evict frees the slot
+        return True
+
+    pool = ContainerPool(evict_tenant_idle=_yield_idle)
+    await pool.acquire("tenant-a", "sid-a")
+    before = _counter("oh_pool_evictions_total")
+    await pool.acquire("tenant-a", "sid-b")
+    assert calls == ["tenant-a"]
+    assert pool.holds("sid-b") and not pool.holds("sid-a")
+    assert pool.tenant_slot_count("tenant-a") == 1
+    assert _counter("oh_pool_evictions_total") == before + 1
+
+
+@pytest.mark.asyncio
+async def test_tenant_quota_hook_false_raises_and_never_queues():
+    """A False hook result (no candidate / internal failure) keeps the existing
+    rejection semantics: TenantQuotaExceeded, never the capacity queue."""
+    calls = 0
+
+    async def _no_candidate(_tenant_id: str) -> bool:
+        nonlocal calls
+        calls += 1
+        return False
+
+    pool = ContainerPool(evict_tenant_idle=_no_candidate)
+    await pool.acquire("tenant-a", "sid-a")
+    with pytest.raises(TenantQuotaExceeded):
+        await pool.acquire("tenant-a", "sid-b")
+    assert calls == 1
+    assert pool.queue_depth() == 0  # quota-limited tenants never enqueue
+
+
+@pytest.mark.asyncio
+async def test_tenant_quota_evict_retry_is_bounded():
+    """A lying hook (True but nothing freed) cannot loop: the shared
+    _EVICT_ATTEMPTS bound raises on the final attempt without calling it."""
+    calls = 0
+
+    async def _lies(_tenant_id: str) -> bool:
+        nonlocal calls
+        calls += 1
+        return True
+
+    pool = ContainerPool(evict_tenant_idle=_lies)
+    await pool.acquire("tenant-a", "sid-a")
+    with pytest.raises(TenantQuotaExceeded):
+        await pool.acquire("tenant-a", "sid-b")
+    assert calls == pool_module._EVICT_ATTEMPTS - 1
+
+
+@pytest.mark.asyncio
+async def test_tenant_yield_does_not_jump_the_queue():
+    """A slot freed by a same-tenant yield is handed to the queue head first
+    (strict FIFO): the yielding tenant's own retry cannot overtake a waiter."""
+    pool: ContainerPool | None = None
+
+    async def _yield_idle(_tenant_id: str) -> bool:
+        assert pool is not None
+        await pool.release("sid-a")
+        return True
+
+    pool = ContainerPool(evict_tenant_idle=_yield_idle)
+    await pool.acquire("tenant-a", "sid-a")
+    waiter = asyncio.create_task(pool.acquire("tenant-b", "sid-b"))
+    await asyncio.sleep(0.02)
+    assert pool.queue_depth() == 1
+
+    # tenant-a's yield frees a slot, but the queue head (tenant-b) gets it;
+    # the retry then sees capacity full again and ends up queue-timing out.
+    with pytest.raises(QueueTimeoutError):
+        await pool.acquire("tenant-a", "sid-a2")
+    await asyncio.wait_for(waiter, timeout=1.0)
+    assert pool.holds("sid-b") and not pool.holds("sid-a2")
+
+
 @pytest.mark.asyncio
 async def test_create_503_retry_after_on_queue_timeout(client, monkeypatch):
     """HTTP mapping (task 4.2): queue timeout -> 503 with a Retry-After header."""

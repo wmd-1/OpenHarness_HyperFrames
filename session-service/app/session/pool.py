@@ -99,7 +99,10 @@ class ContainerPool:
     """Slot accounting + admission for live backends (process or container)."""
 
     def __init__(
-        self, *, evict_one: Callable[[], Awaitable[bool]] | None = None
+        self,
+        *,
+        evict_one: Callable[[], Awaitable[bool]] | None = None,
+        evict_tenant_idle: Callable[[str], Awaitable[bool]] | None = None,
     ) -> None:
         # sid -> tenant_id for every held slot. After WS-D wiring, one entry
         # per live backend; every teardown path must release().
@@ -108,6 +111,10 @@ class ContainerPool:
         # Supervisor hook: evict the longest-idle IDLE session to COLD and
         # release its slot; returns True when a session was evicted.
         self._evict_one = evict_one
+        # Supervisor hook (session-history-switch D2): on a tenant-quota miss,
+        # evict that tenant's longest-idle unattached session so a switch
+        # target can claim the slot; returns True only when a slot was freed.
+        self._evict_tenant_idle = evict_tenant_idle
 
     # --- introspection --------------------------------------------------
 
@@ -153,9 +160,26 @@ class ContainerPool:
         """
         sid = str(sid)
         # Stages 1-3: claim, or evict-then-claim. Each _try_claim call is one
-        # atomic critical section; the eviction await sits between them.
-        for _ in range(_EVICT_ATTEMPTS):
-            if self._try_claim(tenant_id, sid):
+        # atomic critical section; the eviction awaits sit between them.
+        for attempt in range(_EVICT_ATTEMPTS):
+            try:
+                claimed = self._try_claim(tenant_id, sid)
+            except TenantQuotaExceeded:
+                # Stage 1b (session-history-switch D2): same-tenant idle
+                # yield. The supervisor hook demotes this tenant's
+                # longest-idle unattached session to COLD; only a truthful
+                # True result warrants a claim retry, bounded by the shared
+                # eviction-attempt limit. False (no candidate / re-entrant
+                # skip / internal failure) or exhausted attempts keep the
+                # existing rejection semantics (429 / WS 4430) — a
+                # quota-limited tenant never enters the capacity queue.
+                if attempt == _EVICT_ATTEMPTS - 1 or self._evict_tenant_idle is None:
+                    raise
+                if not await self._evict_tenant_idle(tenant_id):
+                    raise
+                POOL_EVICTIONS.inc()
+                continue
+            if claimed:
                 return self._build(tenant_id, sid, backend_kwargs)
             if self._evict_one is None:
                 break

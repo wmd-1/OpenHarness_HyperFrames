@@ -1,9 +1,11 @@
 """/v1/sessions REST surface (non-WS endpoints).
 
 - ``POST /v1/sessions`` — create a session (rate-limited, quota-checked).
+- ``GET /v1/sessions`` — tenant session list (paged, business fields).
 - ``GET /v1/sessions/{sid}`` — session details.
 - ``DELETE /v1/sessions/{sid}`` — kill + clean + CLOSED (preserves turn records).
 - ``POST /v1/sessions/{sid}/turns`` — non-WS turn fallback (409 if busy).
+- ``GET /v1/sessions/{sid}/turns`` — historical turns (cursor-paged, read-only OK).
 - ``GET /v1/sessions/{sid}/turns/{idx}/artifact`` — artifact download (Range).
 """
 
@@ -16,7 +18,7 @@ import uuid
 from datetime import datetime, time as dt_time, timezone
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
@@ -24,17 +26,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.deps import actor_from_request, get_db, tenant_from_request
-from app.models import Conversation, SessionStatus, TurnArtifact, TurnStatus
+from app.models import (
+    Conversation,
+    ConversationTurn,
+    SessionStatus,
+    TurnArtifact,
+    TurnStatus,
+)
 from app.observability.metrics import SESSION_CREATE_DURATION
 from app.ratelimit import _client_ip, check_rate_limit
 from app.schemas import (
     ArtifactResponse,
     DeleteResponse,
     SessionCreateRequest,
+    SessionListResponse,
     SessionResponse,
+    SessionSummary,
+    TurnListResponse,
     TurnResponse,
     TurnSubmitRequest,
 )
+from app.session import tenant_store
 from app.session.pool import PoolAdmissionError, TenantQuotaExceeded
 from app.session.supervisor import CapacityFullError, SessionBusy, SessionNotFound, get_supervisor
 from app.session.tenant_store import TenantStoreError
@@ -73,6 +85,83 @@ async def _load_owned(sid: uuid.UUID, tenant_id: str, db: AsyncSession) -> Conve
     if conv is None or conv.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Session not found")
     return conv
+
+
+async def _business_fields(conv: Conversation) -> tuple[bool, bool]:
+    """Centralized ``(resumable, read_only)`` mapping (session-history-switch
+    D7/D8) — the single place internal status maps to the frontend contract.
+
+    ``read_only``: terminal states (closed/expired) are view-only.
+    ``resumable``: not read-only, and for COLD/FAILED sessions the snapshot
+    presence check must pass — except 0-turn sessions, which stay resumable
+    because rehydrate falls back to a fresh spawn (no context to lose).
+    """
+    read_only = conv.status in (SessionStatus.CLOSED, SessionStatus.EXPIRED)
+    resumable = not read_only
+    if (
+        resumable
+        and conv.status in (SessionStatus.COLD, SessionStatus.FAILED)
+        and conv.turn_count > 0
+    ):
+        resumable = await tenant_store.has_session_snapshot(
+            conv.tenant_id, conv.oh_session_id or ""
+        )
+    return resumable, read_only
+
+
+# NOTE: the collection route is registered before the ``/{sid}`` routes
+# (D9) — the ``sid: uuid.UUID`` converter would not match "" anyway, but the
+# ordering keeps resolution explicit.
+@router.get("", response_model=SessionListResponse)
+async def list_sessions(
+    request: Request,
+    status: SessionStatus | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> SessionListResponse:
+    """Tenant session list: newest-first, paged, with business fields (D9)."""
+    tenant_id = tenant_from_request(request)
+    where = [Conversation.tenant_id == tenant_id]
+    if status is not None:
+        where.append(Conversation.status == status)
+    total = (await db.execute(
+        select(func.count()).select_from(Conversation).where(*where)
+    )).scalar_one()
+    convs = (await db.execute(
+        select(Conversation)
+        .where(*where)
+        .order_by(Conversation.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )).scalars().all()
+    # Title source: first-turn prompts for the whole page in ONE query (no
+    # N+1), truncated to 80 chars.
+    titles: dict[uuid.UUID, str] = {}
+    if convs:
+        rows = (await db.execute(
+            select(ConversationTurn.conversation_id, ConversationTurn.prompt).where(
+                ConversationTurn.conversation_id.in_([c.id for c in convs]),
+                ConversationTurn.turn_index == 0,
+            )
+        )).all()
+        titles = {cid: prompt[:80] for cid, prompt in rows}
+    items = []
+    for conv in convs:
+        resumable, read_only = await _business_fields(conv)
+        items.append(
+            SessionSummary(
+                session_id=conv.id,
+                status=conv.status,
+                title=titles.get(conv.id),
+                turn_count=conv.turn_count,
+                resumable=resumable,
+                read_only=read_only,
+                created_at=conv.created_at,
+                last_active_at=conv.last_active_at,
+            )
+        )
+    return SessionListResponse(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.post("", response_model=SessionResponse, status_code=201)
@@ -180,6 +269,61 @@ async def delete_session(
     return DeleteResponse(session_id=sid, status=SessionStatus.CLOSED, message="Session closed")
 
 
+@router.get("/{sid}/turns", response_model=TurnListResponse)
+async def list_turns(
+    sid: uuid.UUID,
+    request: Request,
+    after_index: int = Query(default=-1, ge=-1),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> TurnListResponse:
+    """Historical turns, cursor-paged by ``after_index`` (D9).
+
+    Closed/expired sessions remain readable (read-only history); access is
+    tenant-scoped (404 for other tenants' sessions).
+    """
+    tenant_id = tenant_from_request(request)
+    await _load_owned(sid, tenant_id, db)
+    total = (await db.execute(
+        select(func.count())
+        .select_from(ConversationTurn)
+        .where(ConversationTurn.conversation_id == sid)
+    )).scalar_one()
+    turns = (await db.execute(
+        select(ConversationTurn)
+        .where(
+            ConversationTurn.conversation_id == sid,
+            ConversationTurn.turn_index > after_index,
+        )
+        .order_by(ConversationTurn.turn_index.asc())
+        .limit(limit)
+    )).scalars().all()
+    # Batched has_artifact flags for the page (one query, no N+1).
+    artifact_turns: set[int] = set()
+    if turns:
+        artifact_turns = set((await db.execute(
+            select(TurnArtifact.turn_index).where(
+                TurnArtifact.conversation_id == sid,
+                TurnArtifact.turn_index.in_([t.turn_index for t in turns]),
+            )
+        )).scalars().all())
+    items = [
+        TurnResponse(
+            turn_id=t.id,
+            turn_index=t.turn_index,
+            status=t.status,
+            prompt=t.prompt,
+            assistant_text=t.assistant_text,
+            error_message=t.error_message,
+            has_artifact=t.turn_index in artifact_turns,
+            started_at=t.started_at,
+            finished_at=t.finished_at,
+        )
+        for t in turns
+    ]
+    return TurnListResponse(items=items, total=total)
+
+
 @router.post("/{sid}/turns", response_model=TurnResponse)
 async def submit_turn_rest(
     sid: uuid.UUID,
@@ -202,8 +346,6 @@ async def submit_turn_rest(
     has_artifact = False
     async for frame in sup.stream_turn(sid, body.text, db=db):
         if frame.get("type") == "turn_complete":
-            from app.models import ConversationTurn
-
             has_artifact = bool(frame.get("has_artifact", False))
             turns = (await db.execute(
                 select(ConversationTurn)

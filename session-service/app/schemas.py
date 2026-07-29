@@ -70,6 +70,40 @@ class TurnResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SessionSummary(BaseModel):
+    """List item for ``GET /v1/sessions`` (session-history-switch D7/D9).
+
+    ``resumable``/``read_only`` are the frontend's sole decision inputs —
+    clients never interpret the internal ``status`` enum.
+    """
+
+    session_id: uuid.UUID
+    status: SessionStatus
+    # First turn's prompt truncated to 80 chars; None for 0-turn sessions.
+    title: str | None = None
+    turn_count: int
+    resumable: bool
+    read_only: bool
+    created_at: datetime
+    last_active_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SessionListResponse(BaseModel):
+    items: list[SessionSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class TurnListResponse(BaseModel):
+    """Cursor-paged historical turns for ``GET /v1/sessions/{sid}/turns``."""
+
+    items: list[TurnResponse]
+    total: int
+
+
 class ArtifactResponse(BaseModel):
     artifact_id: uuid.UUID
     turn_index: int

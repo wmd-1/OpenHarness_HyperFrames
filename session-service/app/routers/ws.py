@@ -25,11 +25,68 @@ from app import db
 from app.models import Conversation, ConversationTurn, SessionStatus, TurnArtifact, TurnStatus
 from app.ratelimit import _client_ip, check_rate_limit
 from app.security import resolve_tenant
-from app.session.pool import PoolAdmissionError
+from app.session.pool import (
+    PoolAdmissionError,
+    QueueFullError,
+    QueueTimeoutError,
+    TenantQuotaExceeded,
+)
 from app.session.supervisor import CapacityFullError, SessionNotFound, get_supervisor
 from app.session.tenant_store import TenantStoreError
 
 router = APIRouter(tags=["ws"])
+
+# Machine-parseable admission-failure reason constants (session-history-switch
+# D6). The WS close reason carries ONLY the constant (safe within the 123-byte
+# reason limit); the human-readable text travels in the structured error frame
+# sent just before close.
+REASON_TENANT_QUOTA_EXCEEDED = "TENANT_QUOTA_EXCEEDED"
+REASON_CAPACITY_FULL = "CAPACITY_FULL"
+REASON_SESSION_UNAVAILABLE = "SESSION_UNAVAILABLE"
+
+_ADMISSION_CLOSE_CODES = {
+    REASON_TENANT_QUOTA_EXCEEDED: 4430,  # 4429 is taken by handshake rate limiting
+    REASON_CAPACITY_FULL: 4503,
+    REASON_SESSION_UNAVAILABLE: 4500,
+}
+
+
+def _admission_failure(exc: Exception) -> tuple[str, str]:
+    """Map an admission exception to ``(reason constant, human message)``.
+
+    The :class:`TenantQuotaExceeded` subclass is matched before the
+    :class:`PoolAdmissionError` base (D6 ordering); internal eviction errors
+    never leak — anything unrecognized degrades to SESSION_UNAVAILABLE.
+    """
+    if isinstance(exc, TenantQuotaExceeded):
+        return (
+            REASON_TENANT_QUOTA_EXCEEDED,
+            "tenant concurrent-session quota exceeded and no idle session could yield",
+        )
+    if isinstance(exc, (CapacityFullError, QueueFullError, QueueTimeoutError)):
+        return (
+            REASON_CAPACITY_FULL,
+            "node capacity exhausted (or admission queue full/timed out); retry later",
+        )
+    return REASON_SESSION_UNAVAILABLE, "session could not be made available"
+
+
+async def _close_admission_failure(
+    websocket: WebSocket, exc: Exception
+) -> None:
+    """Send the structured error frame, then close with the mapped code.
+
+    The frame is best-effort (D6): a send failure must never prevent the
+    close from carrying the machine-parseable reason.
+    """
+    reason, message = _admission_failure(exc)
+    try:
+        await websocket.send_json(
+            {"type": "error", "code": reason, "message": message}
+        )
+    except Exception:
+        pass
+    await websocket.close(code=_ADMISSION_CLOSE_CODES[reason], reason=reason)
 
 
 async def _ws_authed(websocket: WebSocket) -> tuple[bool, str, str | None]:
@@ -138,8 +195,8 @@ async def session_ws(
                 async with db.async_session() as session:
                     try:
                         live = await sup.register_live_session(live, db=session)
-                    except (CapacityFullError, PoolAdmissionError, RuntimeError):
-                        await websocket.close(code=4500, reason="session unavailable")
+                    except (CapacityFullError, PoolAdmissionError, RuntimeError) as exc:
+                        await _close_admission_failure(websocket, exc)
                         return
                     conv_r = await session.get(Conversation, sid_uuid)
                     if conv_r is not None:
@@ -171,8 +228,8 @@ async def session_ws(
                 # client triggers rehydrate; the rest reuse the live session.
                 try:
                     live = await sup.register_live_session(cold, db=session)
-                except (CapacityFullError, PoolAdmissionError, RuntimeError):
-                    await websocket.close(code=4500, reason="session unavailable")
+                except (CapacityFullError, PoolAdmissionError, RuntimeError) as exc:
+                    await _close_admission_failure(websocket, exc)
                     return
                 conv2.status = SessionStatus.LIVE
                 await session.commit()
@@ -183,16 +240,22 @@ async def session_ws(
             if conv3 is not None:
                 try:
                     await sup.create_session_from_existing(conv3, tenant_id, db=session)
-                except (CapacityFullError, PoolAdmissionError, TenantStoreError):
+                except (CapacityFullError, PoolAdmissionError, TenantStoreError) as exc:
                     # TenantStoreError: stage-in from the authoritative bucket
-                    # failed (WS-B fail-fast) -> same 4500 close as capacity.
-                    await websocket.close(code=4500, reason="session unavailable")
+                    # failed (WS-B fail-fast) -> SESSION_UNAVAILABLE / 4500.
+                    await _close_admission_failure(websocket, exc)
                     return
                 live = sup.get(sid_uuid)
 
     if live is None:
-        await websocket.send_json({"type": "turn_error", "message": "session unavailable"})
-        await websocket.close(code=4500, reason="session unavailable")
+        await websocket.send_json(
+            {
+                "type": "error",
+                "code": REASON_SESSION_UNAVAILABLE,
+                "message": "session could not be made available",
+            }
+        )
+        await websocket.close(code=4500, reason=REASON_SESSION_UNAVAILABLE)
         return
 
     sup.attach_ws(sid_uuid, websocket)

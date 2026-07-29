@@ -103,6 +103,9 @@ class LiveSession:
         # WS connection tracking (for idle eviction).
         self.ws_connections: set[Any] = set()
         self.idle_since: float | None = None  # monotonic clock when entered idle (no ws)
+        # Eviction re-entrancy guard (session-history-switch D3): set before
+        # the first await of the eviction body, cleared in try/finally.
+        self.evicting: bool = False
         self._idle_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._log_task: asyncio.Task[None] | None = None
@@ -128,10 +131,17 @@ class SessionSupervisor:
         # (create + rehydrate). Its check-and-claim sections are event-loop
         # atomic, so the concurrent-quota/capacity TOCTOU the quota_lock used
         # to close is handled inside the pool itself.
-        self.pool = ContainerPool(evict_one=self._evict_longest_idle)
+        self.pool = ContainerPool(
+            evict_one=self._evict_longest_idle,
+            evict_tenant_idle=self._evict_tenant_idle,
+        )
         # Per-sid registration locks (SS-4): serialize COLD-reconnect
         # registration so only one WS client triggers rehydrate.
         self._registration_locks: dict[uuid.UUID, asyncio.Lock] = {}
+        # Per-tenant eviction locks (session-history-switch D4): serialize
+        # concurrent quota-triggered evictions so a session is never
+        # double-evicted by two racing switch requests.
+        self._tenant_evict_locks: dict[str, asyncio.Lock] = {}
 
     # --- registry queries ---------------------------------------------------
 
@@ -307,7 +317,10 @@ class SessionSupervisor:
         live._turn_index = conv.turn_count
         live.state = SessionState.CREATING
         self._sessions[conv.id] = live
-        await self._spawn(live, resume=False)
+        # Resume semantics (session-history-switch D10): the new live process
+        # must restore the source session's conversation context — spawning
+        # without --resume would silently drop it.
+        await self._spawn(live, resume=True)
         conv.status = SessionStatus.LIVE
         await db.commit()
 
@@ -423,14 +436,47 @@ class SessionSupervisor:
         evictable (the pool then falls through to its wait queue)."""
         candidates = [
             s for s in self._sessions.values()
-            if s.is_live() and not s.ws_connections and not s.busy
+            if s.is_live() and not s.ws_connections and not s.busy and not s.evicting
         ]
         if not candidates:
             return False
         # Longest-idle first; sessions that never went idle rank last.
         candidates.sort(key=lambda s: s.idle_since if s.idle_since is not None else float("inf"))
-        await self._evict(candidates[0])
-        return True
+        # Propagate the real eviction result (D3): a re-entrant skip must not
+        # be reported as success or the pool would retry a claim for a slot
+        # that was never freed.
+        return await self._evict(candidates[0])
+
+    async def _evict_tenant_idle(self, tenant_id: str) -> bool:
+        """Pool tenant-quota hook (session-history-switch D2/D4): demote this
+        tenant's longest-idle unattached session to COLD so a switch target
+        can claim the freed slot.
+
+        Serialized by a per-tenant eviction lock; candidates are re-scanned
+        under the lock because a concurrent switch may have already evicted.
+        Internal eviction errors are logged and reported as ``False`` (D5.3)
+        so ``acquire`` falls back to the existing rejection/queue path.
+        """
+        lock = self._tenant_evict_locks.setdefault(tenant_id, asyncio.Lock())
+        async with lock:
+            candidates = [
+                s for s in self._sessions.values()
+                if s.tenant_id == tenant_id
+                and s.is_live()
+                and not s.ws_connections
+                and not s.busy
+                and not s.evicting
+            ]
+            if not candidates:
+                return False
+            candidates.sort(
+                key=lambda s: s.idle_since if s.idle_since is not None else float("inf")
+            )
+            try:
+                return await self._evict(candidates[0])
+            except Exception:
+                log.exception("tenant idle eviction failed (tenant=%s)", tenant_id)
+                return False
 
     async def _persist_status(self, sid: uuid.UUID, status: SessionStatus) -> None:
         """Best-effort DB status mirror (COLD on evict/crash) so REST reads and
@@ -446,23 +492,48 @@ class SessionSupervisor:
         except Exception:
             log.warning("status persist failed (sid=%s)", sid)
 
-    async def _evict(self, live: LiveSession) -> None:
-        """Gracefully shut down a session to COLD (snapshot preserved)."""
+    async def _evict(self, live: LiveSession) -> bool:
+        """Gracefully shut down a session to COLD (snapshot preserved).
+
+        Returns ``True`` when the slot was actually freed, ``False`` on a
+        re-entrant call or a non-evictable state (session-history-switch D3).
+        Failure semantics (D5): the ``evicting`` marker is always restored in
+        ``finally``; the COLD transition + pool release run in a protected
+        section so a teardown exception can never leak the slot (graceful
+        shutdown failure already escalates to ``kill_group`` inside
+        ``_teardown_process``); stage-out stays best-effort.
+        """
+        # Re-entrancy guard: checked and set before the first await.
+        if live.evicting:
+            return False
         if live.state not in (SessionState.LIVE, SessionState.IDLE):
-            return
-        log.info("evicting session %s to COLD", live.sid)
-        await self._teardown_process(live, graceful=True)
-        live.state = transition(live.state, SessionState.COLD)
-        SESSIONS_LIVE.dec()
-        # Freed slot wakes the pool queue head (WS-D).
-        await self.pool.release(live.sid)
-        await self._persist_status(live.sid, SessionStatus.COLD)
-        # Stage-out hook ② (WS-B): the backend is gone, mirror its final
-        # memory/session state to the bucket before the node forgets it.
+            return False
+        live.evicting = True
         try:
-            await tenant_store.stage_out(live.tenant_id)
-        except Exception:
-            log.warning("evict stage-out failed (sid=%s)", live.sid)
+            log.info("evicting session %s to COLD", live.sid)
+            try:
+                await self._teardown_process(live, graceful=True)
+            finally:
+                # Protected section: once teardown ran (even if it raised,
+                # the process was force-killed on the way) the slot must not
+                # leak — COLD + release + persist happen regardless.
+                try:
+                    live.state = transition(live.state, SessionState.COLD)
+                except IllegalTransition:
+                    live.state = SessionState.COLD
+                SESSIONS_LIVE.dec()
+                # Freed slot wakes the pool queue head (WS-D).
+                await self.pool.release(live.sid)
+                await self._persist_status(live.sid, SessionStatus.COLD)
+            # Stage-out hook ② (WS-B): the backend is gone, mirror its final
+            # memory/session state to the bucket before the node forgets it.
+            try:
+                await tenant_store.stage_out(live.tenant_id)
+            except Exception:
+                log.warning("evict stage-out failed (sid=%s)", live.sid)
+            return True
+        finally:
+            live.evicting = False
 
     async def rehydrate(self, live: LiveSession, *, db: AsyncSession) -> None:
         """Rehydrate a COLD session via ``oh --resume <oh_session_id>``."""
@@ -477,7 +548,17 @@ class SessionSupervisor:
             # Refresh tenant staging from the authoritative bucket before the
             # backend resumes (WS-B; raises TenantStoreError -> 503 upstream).
             await tenant_store.stage_in(live.tenant_id)
-            await self._spawn(live, resume=True)
+            resume = True
+            if not await tenant_store.has_session_snapshot(
+                live.tenant_id, live.oh_session_id
+            ):
+                # 0-turn COLD session with no snapshot (D8 edge case): there
+                # is no context to restore and ``--resume`` would fail at the
+                # CLI level — fall back to a fresh spawn.
+                conv = await db.get(Conversation, live.sid)
+                if conv is not None and conv.turn_count == 0:
+                    resume = False
+            await self._spawn(live, resume=resume)
         finally:
             await route_registry.release_lock(str(live.sid), holder)
 
