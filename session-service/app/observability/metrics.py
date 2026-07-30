@@ -40,6 +40,12 @@ TENANT_SYNC_FAILURES = Counter(
     labelnames=("direction",),  # "in" | "out"
 )
 
+WORKSPACE_SYNC_FAILURES = Counter(
+    "oh_workspace_sync_failures_total",
+    "Workspace archive stage-in/stage-out rounds that exhausted retries.",
+    labelnames=("direction",),  # "in" | "out"
+)
+
 # --- Pool scheduling (WS-D, spec session-pool-scheduling) -------------------
 
 POOL_BACKENDS_LIVE = Gauge(

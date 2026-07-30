@@ -121,6 +121,22 @@ class Settings(BaseSettings):
     # tenant's bucket prefix and can be wiped and rebuilt from MinIO.
     tenants_root: Path = Path("/tenants")
 
+    # --- Session workspace archive (spec session-workspace-archive) ---
+    # Comma-separated path fragments excluded from workspace stage-out.
+    workspace_sync_ignore: str = "node_modules,.venv,__pycache__,.git,.cache,tmp"
+    # Per-file upload cap (MB); larger files are skipped with reason recorded.
+    workspace_sync_max_file_mb: int = 512
+    # Per-session total archive cap (MB); newest-mtime-first when over budget.
+    workspace_sync_max_total_mb: int = 2048
+    # Debounce window (ms) for the per-session background sync worker (rev2):
+    # multiple dirty marks within the window coalesce into one sync round.
+    workspace_sync_debounce_ms: int = 500
+    # Tombstones older than this are pruned from the manifest (rev2).
+    workspace_tombstone_retention_days: int = 7
+    # Public MinIO endpoint for presigned archive-file downloads. Unset ->
+    # the gateway streams archive files itself (no internal 302).
+    s3_public_endpoint: str | None = None
+
     # --- Backend runtime (WS-C) ---
     # Which backend runtime the supervisor spawns: "process" (default,
     # oh --backend-only subprocess — existing behaviour) or "container"

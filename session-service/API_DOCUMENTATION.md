@@ -453,6 +453,76 @@ Router 前缀：`/v1/sessions`，tag：`sessions`。
 
 ---
 
+### 2.8 工作区文件列表
+
+- **请求路径**：`GET /v1/sessions/{sid}/workspace/files`
+- **HTTP 方法**：`GET`
+- **鉴权**：需要（当鉴权启用时）；跨租户访问返回 `404`
+- **成功状态码**：`200 OK`
+- **说明**：列出会话工作目录（`/workspaces/{sid}`）的文件，`closed`/`expired` 会话**依然可读**（读 MinIO 归档）。**归档自本功能上线起生效**：上线前已 `closed` 的存量会话无归档，返回 `source:"none"` + 空列表（不 404）。
+
+#### 双源语义（`source`）
+
+| 取值 | 含义 |
+| --- | --- |
+| `live` | 会话 LIVE/IDLE 且在本节点：实时读本地目录（视图与归档规则一致：忽略名单/软链/同步状态文件不列出）；无归档但本地目录仍在（如本节点 COLD、未配 MinIO）时也走此源 |
+| `archive` | 读 MinIO `manifest.json`（`sync_state="complete"` 快照），附 `sync_seq`/`last_synced_at` |
+| `none` | 既无归档也无本地目录：空列表 |
+
+`stale=true`：会话状态为 LIVE/IDLE 但走了 `archive` 源（典型：跨节点 LIVE），表示返回的是最近一次归档快照，至多落后一个 turn。
+
+#### 请求参数
+
+| 参数 | 位置 | 类型 | 是否必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `sid` | path | UUID | 是 | — | 会话 ID |
+| `limit` | query | integer | 否 | `500` | 每页条数，1~5000 |
+| `page_token` | query | string | 否 | — | 不透明游标（上一页的 `next_page_token`）；非法游标 `400` |
+| `prefix` | query | string | 否 | — | 路径前缀过滤（如 `out/`） |
+
+#### 响应体结构（`WorkspaceFileListResponse`）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `source` | string | `live` / `archive` / `none` |
+| `stale` | boolean | 见上表；仅 `archive` 源可能为 `true` |
+| `sync_seq` | integer\|null | 归档同步序号（仅 `archive` 源） |
+| `last_synced_at` | string\|null | 最近一次归档时间 ISO-8601（仅 `archive` 源） |
+| `total` | integer | prefix 过滤后的文件总数（不受分页影响） |
+| `files` | WorkspaceFileEntry[] | 本页文件：`path`/`size`/`mtime`/`etag`（`etag` 仅 `archive` 源） |
+| `next_page_token` | string\|null | 下一页游标，末页为 `null` |
+
+#### 状态码说明
+
+| 状态码 | 含义 |
+| --- | --- |
+| `200` | 成功（含 `source:"none"` 空列表） |
+| `400` | `page_token` 非法 |
+| `401` | 鉴权失败（启用鉴权时） |
+| `404` | 会话不存在或不属于当前租户 |
+
+---
+
+### 2.9 工作区文件下载
+
+- **请求路径**：`GET /v1/sessions/{sid}/workspace/files/{path}`（`path` 为工作区相对路径，可含子目录）
+- **HTTP 方法**：`GET`
+- **鉴权**：需要（当鉴权启用时）
+- **成功状态码**：`200 OK`（流式）或 `302 Found`（presigned 重定向）
+- **说明**：`live` 源流式读本地文件；`archive` 源在配置了 `OH_S3_PUBLIC_ENDPOINT` 时优先返回 presigned `302`（可用 `?mode=stream` 强制网关流式代理），否则网关流式代理。响应带 `Content-Disposition: attachment` 与按扩展名推断的 `Content-Type`。
+
+#### 状态码说明
+
+| 状态码 | 含义 |
+| --- | --- |
+| `200` | 流式返回文件内容 |
+| `302` | 重定向到 presigned URL（仅 `archive` 源且配置了公开端点） |
+| `400` | 路径非法（`..`、绝对路径、反斜杠、软链逃逸） |
+| `401` | 鉴权失败（启用鉴权时） |
+| `404` | 会话/文件不存在、不属于当前租户，或请求了同步状态文件 `.oh_sync_state.json` |
+
+---
+
 ## 3. WebSocket 实时交互接口
 
 ### 3.1 会话 WS 连接
@@ -653,10 +723,12 @@ Tag：`health`。**均豁免鉴权。**
 | 5 | POST | `/v1/sessions/{sid}/turns` | 提交一轮对话（REST 兜底，阻塞式） | 是* | 200 |
 | 6 | GET | `/v1/sessions/{sid}/turns` | 轮次历史列表（游标分页回显） | 是* | 200 |
 | 7 | GET | `/v1/sessions/{sid}/turns/{idx}/artifact` | 下载轮次产物（Range/S3 302） | 是* | 200/206/302 |
-| 8 | WS | `/v1/sessions/{sid}/ws` | 实时流式对话（submit/interrupt/approval） | 是*（头或 `?api_key=`） | — |
-| 9 | GET | `/healthz` | 存活探针 | 否（豁免） | 200 |
-| 10 | GET | `/readyz` | 就绪探针 | 否（豁免） | 200/503 |
-| 11 | GET | `/metrics` | Prometheus 指标 | 否（豁免） | 200 |
+| 8 | GET | `/v1/sessions/{sid}/workspace/files` | 工作区文件列表（live/archive 双源，分页） | 是* | 200 |
+| 9 | GET | `/v1/sessions/{sid}/workspace/files/{path}` | 工作区文件下载（presigned 302/流式） | 是* | 200/302 |
+| 10 | WS | `/v1/sessions/{sid}/ws` | 实时流式对话（submit/interrupt/approval） | 是*（头或 `?api_key=`） | — |
+| 11 | GET | `/healthz` | 存活探针 | 否（豁免） | 200 |
+| 12 | GET | `/readyz` | 就绪探针 | 否（豁免） | 200/503 |
+| 13 | GET | `/metrics` | Prometheus 指标 | 否（豁免） | 200 |
 
 > \* “是*” 表示仅当 `OH_REQUIRE_AUTH=true` 或配置了 `OH_API_KEY` 时才需要鉴权，否则开放访问。
 

@@ -31,7 +31,7 @@ from app.models import Conversation, ConversationTurn, SessionStatus, TurnArtifa
 from app.observability.metrics import SESSIONS_LIVE, track_turn
 from app.session import logs as log_stream
 from app.session import registry as route_registry
-from app.session import tenant_store
+from app.session import tenant_store, workspace_store
 from app.session.adapter import ProtocolAdapter
 from app.session.artifacts import locate_output_file, probe_mp4_async
 from app.session.lifecycle import IllegalTransition, SessionState, is_live_process, transition
@@ -106,6 +106,12 @@ class LiveSession:
         # Eviction re-entrancy guard (session-history-switch D3): set before
         # the first await of the eviction body, cleared in try/finally.
         self.evicting: bool = False
+        # Workspace archive sync (session-workspace-archive): dirty flag +
+        # at most one background worker per session; ``closing`` makes new
+        # dirty marks rejected during the close ordering (rev3).
+        self.closing: bool = False
+        self._ws_dirty: bool = False
+        self._ws_sync_task: asyncio.Task[None] | None = None
         self._idle_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._log_task: asyncio.Task[None] | None = None
@@ -304,6 +310,8 @@ class SessionSupervisor:
         oh_session_id = conv.oh_session_id or derive_oh_session_id(cwd)
         # Same stage-in-before-backend guarantee as create_session (WS-B).
         await tenant_store.stage_in(tenant_id)
+        # Workspace restore before spawn (spec session-workspace-archive).
+        await workspace_store.stage_in(tenant_id, conv.id, cwd)
         epoch = await route_registry.next_epoch(str(conv.id))
         live = LiveSession(
             sid=conv.id,
@@ -430,6 +438,56 @@ class SessionSupervisor:
             "OPENHARNESS_DATA_DIR": str(tenant_store.local_data_dir(tenant_id)),
         }
 
+    # --- workspace archive sync (spec session-workspace-archive) -------------
+
+    def _mark_workspace_dirty(self, live: LiveSession) -> None:
+        """Turn hook ①: schedule an async archive round. Synchronous (no
+        await) so the ``turn_completed`` frame is never delayed; rejected
+        while the close ordering is in progress (rev3 step a)."""
+        if not workspace_store.enabled() or live.closing:
+            return
+        live._ws_dirty = True
+        if live._ws_sync_task is None or live._ws_sync_task.done():
+            live._ws_sync_task = asyncio.create_task(
+                self._workspace_sync_worker(live)
+            )
+
+    async def _workspace_sync_worker(self, live: LiveSession) -> None:
+        """Per-session single sync worker (rev2): the debounce window
+        coalesces dirty bursts into one round; loops until no dirty mark is
+        left; exits as soon as close begins (rev3 — the final stage-out is
+        owned by the close path, never by this worker)."""
+        try:
+            while live._ws_dirty and not live.closing:
+                await asyncio.sleep(settings.workspace_sync_debounce_ms / 1000.0)
+                if live.closing:
+                    return
+                live._ws_dirty = False
+                await workspace_store.stage_out(
+                    live.tenant_id,
+                    live.sid,
+                    live.cwd,
+                    oh_session_id=live.oh_session_id,
+                    session_status=str(getattr(live.state, "value", live.state)),
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # stage_out never raises; belt and braces
+            log.warning("workspace sync worker failed (sid=%s)", live.sid)
+
+    async def _drain_workspace_sync(self, live: LiveSession) -> None:
+        """Close ordering steps a+b (rev3): reject new dirty marks, then
+        await the existing worker's exit — after this the final stage-out
+        can never race a stale background round."""
+        live.closing = True
+        task = live._ws_sync_task
+        if task is not None:
+            try:
+                await task
+            except Exception:
+                pass
+            live._ws_sync_task = None
+
     async def _evict_longest_idle(self) -> bool:
         """Pool eviction hook (WS-D, spec 4.4): evict the longest-idle idle
         session to COLD and free its slot. Returns False when nothing is
@@ -531,6 +589,15 @@ class SessionSupervisor:
                 await tenant_store.stage_out(live.tenant_id)
             except Exception:
                 log.warning("evict stage-out failed (sid=%s)", live.sid)
+            # Workspace archive hook ② (best-effort; serialized with any
+            # in-flight background round by the per-session lock).
+            await workspace_store.stage_out(
+                live.tenant_id,
+                live.sid,
+                live.cwd,
+                oh_session_id=live.oh_session_id,
+                session_status="cold",
+            )
             return True
         finally:
             live.evicting = False
@@ -548,6 +615,11 @@ class SessionSupervisor:
             # Refresh tenant staging from the authoritative bucket before the
             # backend resumes (WS-B; raises TenantStoreError -> 503 upstream).
             await tenant_store.stage_in(live.tenant_id)
+            # Workspace restore BEFORE spawn (spec session-workspace-archive):
+            # a wiped/foreign-node workspace is rebuilt from its archive so
+            # OpenHarness sees the files from turn one. Best-effort.
+            live.cwd.mkdir(parents=True, exist_ok=True)
+            await workspace_store.stage_in(live.tenant_id, live.sid, live.cwd)
             resume = True
             if not await tenant_store.has_session_snapshot(
                 live.tenant_id, live.oh_session_id
@@ -663,6 +735,10 @@ class SessionSupervisor:
             yield {"type": "turn_error", "message": str(exc)}
         finally:
             live._busy = False
+            # Workspace archive hook ①: mark dirty for the per-session
+            # background worker — the terminal frame was already yielded, and
+            # the mark itself never awaits (WS latency unaffected).
+            self._mark_workspace_dirty(live)
             # Stage-out hook ① (WS-B): push the tenant's memory increments to
             # the authoritative bucket after every turn (loss-window SLO: at
             # most one in-flight turn). Failure keeps staging + bumps metric.
@@ -977,6 +1053,9 @@ class SessionSupervisor:
         completed turn history).
         """
         live = self.get(sid)
+        # Workspace archive close ordering (rev3) steps a+b: reject new dirty
+        # marks, await the background worker's exit.
+        await self._drain_workspace_sync(live)
         await self._teardown_process(live, graceful=False)
         if live.state in (SessionState.LIVE, SessionState.IDLE):
             SESSIONS_LIVE.dec()
@@ -991,10 +1070,21 @@ class SessionSupervisor:
             await tenant_store.destroy_session_data(live.tenant_id, live.oh_session_id)
         except Exception:
             log.warning("close stage-out/destroy failed (sid=%s)", live.sid)
-        # Clean workspace + native snapshot dir (blocking rmtree offloaded to
-        # the threadpool, SS-17).
+        # Step c: final workspace stage-out under the per-session lock — no
+        # concurrent round can exist now, so this manifest carries the highest
+        # sync_seq. The MinIO archive is KEPT (history switching reads it).
+        await workspace_store.stage_out(
+            live.tenant_id,
+            live.sid,
+            live.cwd,
+            oh_session_id=live.oh_session_id,
+            session_status="closed",
+        )
+        # Step d: only now remove the local workspace (+ the native snapshot
+        # dir; blocking rmtree offloaded to the threadpool, SS-17).
         if live.cwd.exists():
             await run_in_threadpool(shutil.rmtree, live.cwd, ignore_errors=True)
+        workspace_store.discard_lock(live.sid)
         await route_registry.clear_route(str(sid))
         await route_registry.release_lock(str(sid), f"{settings.node_id or 'local'}:{live.epoch}")
         await log_stream.clear_logs(str(sid))
@@ -1077,6 +1167,15 @@ class SessionSupervisor:
                                 await tenant_store.destroy_session_data(
                                     conv.tenant_id, conv.oh_session_id
                                 )
+                            # Workspace archive hook ④: flush the orphaned
+                            # workspace to its archive before reclaiming it.
+                            await workspace_store.stage_out(
+                                conv.tenant_id,
+                                sid,
+                                entry,
+                                oh_session_id=conv.oh_session_id or "",
+                                session_status="closed",
+                            )
                         except Exception:
                             log.warning("orphan stage-out failed (sid=%s)", sid)
                     # Blocking rmtree offloaded to the threadpool (SS-17).

@@ -7,16 +7,22 @@
 - ``POST /v1/sessions/{sid}/turns`` — non-WS turn fallback (409 if busy).
 - ``GET /v1/sessions/{sid}/turns`` — historical turns (cursor-paged, read-only OK).
 - ``GET /v1/sessions/{sid}/turns/{idx}/artifact`` — artifact download (Range).
+- ``GET /v1/sessions/{sid}/workspace/files`` — workspace listing (live/archive).
+- ``GET /v1/sessions/{sid}/workspace/files/{path}`` — workspace file download.
 """
 
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
 import re
 import time
 import uuid
 from datetime import datetime, time as dt_time, timezone
 from typing import AsyncGenerator
+
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
@@ -45,8 +51,11 @@ from app.schemas import (
     TurnListResponse,
     TurnResponse,
     TurnSubmitRequest,
+    WorkspaceFileEntry,
+    WorkspaceFileListResponse,
 )
-from app.session import tenant_store
+from app.session import tenant_store, workspace_store
+from app.session.lifecycle import SessionState
 from app.session.pool import PoolAdmissionError, TenantQuotaExceeded
 from app.session.supervisor import CapacityFullError, SessionBusy, SessionNotFound, get_supervisor
 from app.session.tenant_store import TenantStoreError
@@ -455,3 +464,194 @@ async def download_artifact(
         media_type="video/mp4",
         headers=headers,
     )
+
+
+# --- workspace files API (spec session-workspace-archive D7) -------------------
+
+
+def _ws_reject_traversal(rel: str) -> None:
+    """400 on ``..``, absolute or backslashed workspace paths (spec)."""
+    if not rel or rel.startswith(("/", "\\")) or "\\" in rel or ".." in Path(rel).parts:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+
+def _ws_page(
+    entries: list[WorkspaceFileEntry],
+    limit: int,
+    page_token: str | None,
+    prefix: str | None,
+) -> tuple[int, list[WorkspaceFileEntry], str | None]:
+    """Slice sorted entries into one page. The opaque cursor is the last
+    returned path (base64), so a path-ordered walk has no gaps/duplicates
+    even if files appear or vanish between pages (rev2 pagination)."""
+    if prefix:
+        entries = [e for e in entries if e.path.startswith(prefix)]
+    total = len(entries)
+    if page_token:
+        try:
+            # validate=True: garbage cursors are a 400, not silently-empty
+            # decodes (urlsafe_b64decode ignores foreign chars by default).
+            after = base64.b64decode(
+                page_token.encode(), altchars=b"-_", validate=True
+            ).decode()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid page_token")
+        entries = [e for e in entries if e.path > after]
+    page = entries[:limit]
+    next_token = (
+        base64.urlsafe_b64encode(page[-1].path.encode()).decode()
+        if len(entries) > limit
+        else None
+    )
+    return total, page, next_token
+
+
+def _ws_live_cwd(sid: uuid.UUID) -> Path | None:
+    """The real-time local directory when the session is LIVE/IDLE here."""
+    sup = get_supervisor()
+    if sup.has(sid):
+        live = sup.get(sid)
+        if live.state in (SessionState.LIVE, SessionState.IDLE):
+            return live.cwd
+    return None
+
+
+@router.get("/{sid}/workspace/files", response_model=WorkspaceFileListResponse)
+async def list_workspace_files(
+    sid: uuid.UUID,
+    request: Request,
+    limit: int = Query(500, ge=1, le=5000),
+    page_token: str | None = Query(None),
+    prefix: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> WorkspaceFileListResponse:
+    """Workspace file listing: live / archive / none sources (D7)."""
+    tenant_id = tenant_from_request(request)
+    conv = await _load_owned(sid, tenant_id, db)
+
+    cwd = _ws_live_cwd(sid)
+    if cwd is None:
+        manifest = await workspace_store.load_manifest(tenant_id, sid)
+        if manifest is not None:
+            entries = [
+                WorkspaceFileEntry(
+                    path=e["path"],
+                    size=int(e.get("size") or 0),
+                    mtime=e.get("mtime"),
+                    etag=e.get("etag"),
+                )
+                for e in manifest.get("files") or []
+                if e.get("path")
+            ]
+            entries.sort(key=lambda e: e.path)
+            total, page, next_token = _ws_page(entries, limit, page_token, prefix)
+            return WorkspaceFileListResponse(
+                source="archive",
+                # LIVE/IDLE served from the archive (live on another node):
+                # a snapshot lagging at most one turn.
+                stale=conv.status in (SessionStatus.LIVE, SessionStatus.IDLE),
+                sync_seq=manifest.get("sync_seq"),
+                last_synced_at=manifest.get("last_synced_at"),
+                total=total,
+                files=page,
+                next_page_token=next_token,
+            )
+        # No archive: a still-present local dir (COLD on this node, or a
+        # MinIO-less deployment) is served directly.
+        if conv.workspace_path and Path(conv.workspace_path).is_dir():
+            cwd = Path(conv.workspace_path)
+
+    if cwd is not None:
+        # Same view as archiving would produce (ignore rules + sidecar
+        # excluded, symlinks skipped).
+        stats = await run_in_threadpool(workspace_store._scan_local, cwd)
+        entries = [
+            WorkspaceFileEntry(path=p, size=st.st_size, mtime=st.st_mtime)
+            for p, st in stats.items()
+        ]
+        entries.sort(key=lambda e: e.path)
+        total, page, next_token = _ws_page(entries, limit, page_token, prefix)
+        return WorkspaceFileListResponse(
+            source="live", total=total, files=page, next_page_token=next_token
+        )
+
+    # No archive, no local directory: empty list, not 404 (the session exists).
+    return WorkspaceFileListResponse(source="none", files=[], next_page_token=None)
+
+
+@router.get("/{sid}/workspace/files/{path:path}")
+async def download_workspace_file(
+    sid: uuid.UUID,
+    path: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Workspace file download: live streams local; archive prefers a
+    presigned 302 (public endpoint configured) else proxies through the
+    gateway (D7)."""
+    tenant_id = tenant_from_request(request)
+    conv = await _load_owned(sid, tenant_id, db)
+    _ws_reject_traversal(path)
+    if path == workspace_store.SIDECAR_NAME:
+        raise HTTPException(status_code=404, detail="File not found")
+    media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{_sanitize_filename(Path(path).name)}"',
+    }
+
+    cwd = _ws_live_cwd(sid)
+    if cwd is None:
+        manifest = await workspace_store.load_manifest(tenant_id, sid)
+        if manifest is not None:
+            entry = next(
+                (e for e in manifest.get("files") or [] if e.get("path") == path),
+                None,
+            )
+            if entry is None:
+                raise HTTPException(status_code=404, detail="File not found")
+            presigned = workspace_store.presigned_archive_url(tenant_id, sid, path)
+            if presigned is not None and request.query_params.get("mode") != "stream":
+                from fastapi.responses import RedirectResponse
+
+                return RedirectResponse(url=presigned, status_code=302)
+            try:
+                resp = await run_in_threadpool(
+                    workspace_store.open_archive_object, tenant_id, sid, path
+                )
+            except FileNotFoundError:
+                raise HTTPException(status_code=404, detail="File not found")
+            size = int(entry.get("size") or 0)
+            if size:
+                headers["Content-Length"] = str(size)
+
+            async def _iter_archive() -> AsyncGenerator[bytes, None]:
+                it = resp.stream(1024 * 1024)
+                try:
+                    while True:
+                        chunk = await run_in_threadpool(lambda: next(it, None))
+                        if chunk is None:
+                            break
+                        yield chunk
+                finally:
+                    resp.close()
+                    resp.release_conn()
+
+            return StreamingResponse(
+                _iter_archive(), media_type=media_type, headers=headers
+            )
+        if conv.workspace_path and Path(conv.workspace_path).is_dir():
+            cwd = Path(conv.workspace_path)
+
+    if cwd is not None:
+        # Resolves symlink escapes on top of the raw traversal check above.
+        local = workspace_store._safe_local_path(cwd, path)
+        if local is None:
+            raise HTTPException(status_code=400, detail="Invalid path")
+        if local.is_symlink() or not local.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+        headers["Content-Length"] = str(local.stat().st_size)
+        fileobj = await run_in_threadpool(local.open, "rb")
+        return StreamingResponse(_iterfile(fileobj), media_type=media_type, headers=headers)
+
+    raise HTTPException(status_code=404, detail="File not found")
+

@@ -135,3 +135,31 @@ class ReadyResponse(BaseModel):
     redis: str
     live_sessions: int
     capacity: int
+
+
+class WorkspaceFileEntry(BaseModel):
+    """One workspace file (live directory or archive manifest entry)."""
+
+    path: str
+    size: int
+    mtime: float | None = None
+    etag: str | None = None
+
+
+class WorkspaceFileListResponse(BaseModel):
+    """``GET /v1/sessions/{sid}/workspace/files`` (session-workspace-archive D7).
+
+    ``source``: ``live`` (real-time local dir), ``archive`` (manifest-backed,
+    with ``sync_seq``/``last_synced_at``) or ``none`` (no archive, no local
+    dir). ``stale=true`` marks a LIVE/IDLE session served from the archive
+    (e.g. live on another node) — a snapshot lagging at most one turn.
+    """
+
+    source: str
+    stale: bool = False
+    sync_seq: int | None = None
+    last_synced_at: str | None = None
+    total: int = 0
+    files: list[WorkspaceFileEntry] = []
+    next_page_token: str | None = None
+
