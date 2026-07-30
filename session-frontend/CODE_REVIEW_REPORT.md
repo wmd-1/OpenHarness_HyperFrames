@@ -5,6 +5,13 @@
 - **参考文档**: openspec 归档 `2026-07-27-session-service-frontend`（proposal/design/tasks）及主规格 `openspec/specs/session-*.md`（7 份）
 - **后端契约核对**: `session-service/app`（`routers/ws.py`、`routers/sessions.py`、`security.py`、`main.py` 认证中间件、`session/supervisor.py`）
 - **处置状态**: ✅ 已通过 openspec 变更 `harden-session-frontend` 完成整改（2026-07-28）。除 B3、C3 两项明确接受为 won't-fix-now 外，其余问题均已修复并通过镜像内质量门（单测 159 例 + lint + Playwright E2E 6 场景 + 冒烟）。逐项状态见各条目「处置状态」行。
+- **后续演进（2026-07-30）**: openspec 变更 `session-frontend-history-switch` 在本报告基线上对齐 session-service 已交付契约：
+  - **会话列表服务端权威化（F1）**：`GET /v1/sessions` 取代本地缓存列表，新增 `useSessionList`（30s 轮询 + 事件驱动刷新）与语义谓词 `canConnectSession`/`isReadonlySession`/`canResumeSession`（`utils/session.ts`），`StatusBadge` 增「只读/不可恢复」变体；认证成功即拉列表，401 直接回认证页。
+  - **轮次历史回显（F2）**：切换会话经 `useTurnHistory` 走 `GET /turns` hydration，严格三步串行（历史回显 → 设去重游标 → 建 WS），按 `turn_index` 补发去重。
+  - **WS 准入细化（F3）**：4430（配额）/4503（容量）/4500 差异化文案与不重连策略，`session_ready` 触发列表刷新呈现让位（live→cold）。
+  - **创建错误映射（F4）**：POST /sessions 的 409/503/429 映射为可行动提示（503 带倒计时重试）。
+  - **工作区文件面板（F5）**：新增 `useWorkspaceFiles` + `WorkspaceFilesPanel`（live/archive 双源角标、stale 提示、page_token 分页、prefix 防抖过滤、`?api_key=` 直链下载）；closed/expired 只读会话保留历史与文件回看。
+  - 质量门：镜像内 vitest 233 例（19 文件）+ lint + Playwright 12 场景（含新增 6 个 history-switch 用例）全绿。
 
 ---
 
@@ -17,7 +24,8 @@ src/
 ├── api/          REST 客户端（ky + 拦截器）        ← spec: session-rest-api
 ├── ws/           WS 协议层（Client/protocol/Hook）  ← spec: session-ws-protocol
 ├── store/        Zustand 五仓（auth/session/conversation/ws/ui）
-├── hooks/        组合 Hook（useConversation/useApproval/useHealth/useTheme）
+├── hooks/        组合 Hook（useConversation/useApproval/useHealth/useTheme
+│                 /useSessionList/useTurnHistory/useWorkspaceFiles）
 ├── components/   按域分组（Chat/Terminal/Approval/Session/Layout/…）
 ├── theme/        CSS 变量主题（5 内置主题）         ← design D7
 ├── types/        与后端 schemas/ws 协议对齐的类型
@@ -43,14 +51,14 @@ src/
 
 ## 2. 问题分类总览
 
-| 分类 | Critical | High | Medium | Low | 合计 |
-|------|:--:|:--:|:--:|:--:|:--:|
-| Bug / 功能缺陷 (A) | 0 | 2 | 3 | 6 | 11 |
-| 安全 (B) | 0 | 0 | 1 | 4 | 5 |
-| 性能 (C) | 0 | 0 | 1 | 2 | 3 |
-| 可维护性 / 风格 (D) | 0 | 0 | 2 | 4 | 6 |
-| 规格偏离 (E) | 0 | 0 | 1 | 2 | 3 |
-| 测试覆盖 (F) | — | — | — | — | 见 §7 |
+| 分类                | Critical | High | Medium | Low |  合计  |
+| ------------------- | :------: | :--: | :----: | :-: | :----: |
+| Bug / 功能缺陷 (A)  |    0    |  2  |   3   |  6  |   11   |
+| 安全 (B)            |    0    |  0  |   1   |  4  |   5   |
+| 性能 (C)            |    0    |  0  |   1   |  2  |   3   |
+| 可维护性 / 风格 (D) |    0    |  0  |   2   |  4  |   6   |
+| 规格偏离 (E)        |    0    |  0  |   1   |  2  |   3   |
+| 测试覆盖 (F)        |    —    |  —  |   —   | — | 见 §7 |
 
 无 Critical 级问题；整体质量高于本仓库同类前端（web/）首轮审查水平。
 
@@ -59,6 +67,7 @@ src/
 ## 3. Bug / 功能缺陷（A 类）
 
 ### A1 产物预览/下载功能不可达 —— `hasArtifact` 永远为 `false`
+
 - **处置状态**: ✅ 已修复（任务 1.1/2.1/2.2：后端 `turn_complete`/`TurnResponse` 附带 `has_artifact`，前端透传）
 - **严重程度**: 🔴 High（整条功能链死代码）
 - **位置**: [useWebSocket.ts L106-121](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/ws/useWebSocket.ts#L106-L121)、[conversationStore.ts L100/L119](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/store/conversationStore.ts#L100)、[MessageBubble.tsx L60](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Chat/MessageBubble.tsx#L60)
@@ -68,6 +77,7 @@ src/
   2. 兜底：前端收到 `turn_complete` 后对 `GET /v1/sessions/{sid}/turns/{idx}/artifact` 发一次 HEAD/带 `Range: bytes=0-0` 的探测请求，200/206 则置 `hasArtifact=true`。
 
 ### A2 `<video>` 内嵌播放在启用认证时必然 401
+
 - **处置状态**: ✅ 已修复（任务 1.3/2.3：artifact GET 支持 `?api_key=`，前端直链播放/下载）
 - **严重程度**: 🔴 High（与 A1 联动；A1 修复后立即暴露）
 - **位置**: [VideoPlayer.tsx L10-17](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Artifact/VideoPlayer.tsx#L10-L17)
@@ -78,6 +88,7 @@ src/
   3. 改用一次性签名 URL（后端颁发短时效 token）。
 
 ### A3 4429 限流重连无上限，与注释语义不符
+
 - **处置状态**: ✅ 已修复（任务 3.3：独立计数 `rateLimitRetries`，超限转 failed）
 - **严重程度**: 🟡 Medium
 - **位置**: [WebSocketClient.ts L157-161](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/ws/WebSocketClient.ts#L157-L161)
@@ -85,6 +96,7 @@ src/
 - **修复方案**: 在 4429 分支加入独立的限流重试计数（如最多 1~3 次），超限后转 `failed` 状态交给手动 `retry()`；或统一并入指数退避主路径并纳入次数上限。
 
 ### A4 审批超时判定依赖错误消息字符串匹配
+
 - **处置状态**: ✅ 已修复（任务 1.2/4.1：结构化 `code: "approval_timeout"`，保留文案回退）
 - **严重程度**: 🟡 Medium
 - **位置**: [useWebSocket.ts L157-159](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/ws/useWebSocket.ts#L157-L159)
@@ -92,6 +104,7 @@ src/
 - **修复方案**: 与后端约定结构化错误码（如 `turn_error` 帧增加 `code: "approval_timeout"`），前端按 code 分发；过渡期保留字符串匹配作为回退。
 
 ### A5 关闭会话无确认 + 乐观更新失败无纠正
+
 - **处置状态**: ✅ 已修复（任务 3.2：`ConfirmDialog` + `useCloseSession`，失败回滚 + 错误横幅）
 - **严重程度**: 🟡 Medium
 - **位置**: [Sidebar.tsx L25-29](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Layout/Sidebar.tsx#L25-L29)、[ChatView.tsx L46-49](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Chat/ChatView.tsx#L46-L49)、TerminalView `/close` 同款
@@ -101,6 +114,7 @@ src/
 - **修复方案**: 关闭前加确认（复用 ApprovalModal 的对话框样式即可）；`closeSession` 失败时回滚 `patchSession` 原状态并弹错误横幅。
 
 ### A6 REST 兜底成功后未更新 `lastTurnIndex`
+
 - **处置状态**: ✅ 已修复（任务 2.2）
 - **严重程度**: 🟢 Low
 - **位置**: [useConversation.ts L64-76](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/hooks/useConversation.ts#L64-L76)
@@ -108,6 +122,7 @@ src/
 - **修复方案**: REST 提交成功回调里同步 `setLastTurnIndex(sid, turn.turn_index)`。
 
 ### A7 `useApproval` 倒计时基准不可靠
+
 - **处置状态**: ✅ 已修复（任务 5.2：`receivedAt` 基准 + `useRef` deadline）
 - **严重程度**: 🟢 Low
 - **位置**: [useApproval.ts L25-29](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/hooks/useApproval.ts#L25-L29)
@@ -115,6 +130,7 @@ src/
 - **修复方案**: 在 `conv.setPendingApproval` 写入帧时附带 `receivedAt: Date.now()`，Hook 从帧数据取基准；`deadline` 改用 `useRef` + `requestId` 变更时显式重置。
 
 ### A8 TODO 面板与助手消息缺少 GFM 渲染
+
 - **处置状态**: ✅ 已修复（任务 4.3：`remark-gfm` + 自定义 `li` 删除线）
 - **严重程度**: 🟢 Low（规格偏离 E3 同源）
 - **位置**: [TodoPanel.tsx L53](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Chat/TodoPanel.tsx#L53)、[AssistantStream.tsx L17](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Chat/AssistantStream.tsx#L17)
@@ -122,6 +138,7 @@ src/
 - **修复方案**: 新增 `remark-gfm` 依赖并传入 `remarkPlugins={[remarkGfm]}`；TodoPanel 可再加自定义 `li` 渲染器给已完成项加 `line-through`。
 
 ### A9 会话删除后 conversation / ws 状态残留（死代码）
+
 - **处置状态**: ✅ 已修复（任务 5.3：`removeSession` 级联清理）
 - **严重程度**: 🟢 Low
 - **位置**: [conversationStore.ts L235-240](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/store/conversationStore.ts#L235-L240)、[wsStore.ts L37-50](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/store/wsStore.ts#L37-L50)
@@ -129,6 +146,7 @@ src/
 - **修复方案**: 在 `removeSession` 的调用点（或做一个组合 action）级联调用两者；若决定不清理则删除死代码。
 
 ### A10 启动恢复无并发控制 / 分页
+
 - **处置状态**: ✅ 已修复（任务 5.4：批处理恢复 + 404 即时剔除）
 - **严重程度**: 🟢 Low
 - **位置**: [App.tsx L20](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/App.tsx#L20)
@@ -136,6 +154,7 @@ src/
 - **修复方案**: 简单批处理（如每批 10 个串行推进）即可；顺带把 rejected 且 HTTP 404 的 ID 立即从 localStorage 剔除（当前依赖「下次写入自然清理」）。
 
 ### A11 TerminalBridge 多行缓冲下 Tab 补全显示错乱
+
 - **处置状态**: ✅ 已修复（任务 4.5/5.2：多行状态禁用 Tab 补全，红测试转绿）
 - **严重程度**: 🟢 Low（边界场景）
 - **位置**: [TerminalBridge.ts L238-244](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Terminal/TerminalBridge.ts#L238-L244)
@@ -147,6 +166,7 @@ src/
 ## 4. 安全问题（B 类）
 
 ### B1 `stripHtmlTags` 破坏合法用户输入
+
 - **处置状态**: ✅ 已修复（任务 3.1：删除 HTML 剥离，spec 同步修订）
 - **严重程度**: 🟡 Medium（正确性受损，防护收益为零）
 - **位置**: [sanitize.ts L13-20](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/utils/sanitize.ts#L13-L20)、调用点 [useConversation.ts L56](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/hooks/useConversation.ts#L56)
@@ -154,6 +174,7 @@ src/
 - **修复方案**: `sanitizeUserInput` 仅保留 `stripControlChars`；同步用 openspec 流程修订 session-auth spec 对应 Scenario（防护判据改为「渲染层转义 + CSP」）。
 
 ### B2 Terminal 模式对服务端文本未过滤 ANSI/OSC 控制序列
+
 - **处置状态**: ✅ 已修复（任务 5.5：`sanitizeAnsi` 剥 OSC/危险 CSI、保留 SGR）
 - **严重程度**: 🟢 Low
 - **位置**: [TerminalBridge.ts L70](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Terminal/TerminalBridge.ts#L70)
@@ -161,6 +182,7 @@ src/
 - **修复方案**: 写入前剥离 `\x1b][^\x07\x1b]*(\x07|\x1b\\)`（OSC）与危险 CSI 子集，保留 SGR 颜色序列。
 
 ### B3 API Key 明文存 localStorage + WS 查询参数传输
+
 - **处置状态**: 🚫 won't-fix-now（接受的风险，远期改 WS ticket 方案）
 - **严重程度**: 🟢 Low（设计已知并已部分缓解，记录为接受的风险）
 - **位置**: [authStore.ts](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/store/authStore.ts)、[protocol.ts L54](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/ws/protocol.ts#L54)
@@ -168,6 +190,7 @@ src/
 - **改进建议**（远期）: 改为短时效 WS ticket（REST 换票 → WS 用一次性 ticket），Key 不再进 URL；或 HttpOnly cookie 会话化。
 
 ### B4 CSP `connect-src` 放行任意 `ws:`/`wss:` 目标
+
 - **处置状态**: ✅ 已修复（任务 5.6：三处收紧为 `connect-src 'self'`，冒烟断言防回归）
 - **严重程度**: 🟢 Low
 - **位置**: [nginx.conf.template](file:///root/projects/OpenHarness_HyperFrames/session-frontend/nginx.conf.template)（三处 CSP 声明）
@@ -175,6 +198,7 @@ src/
 - **修复方案**: 收紧为 `connect-src 'self'`；如需兼容老浏览器保留 `wss://$host`。
 
 ### B5 Markdown 外链无 `rel="noopener noreferrer"`
+
 - **处置状态**: ✅ 已修复（任务 5.7：`MarkdownLink` 组件注入两处 ReactMarkdown）
 - **严重程度**: 🟢 Low
 - **位置**: [AssistantStream.tsx](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Chat/AssistantStream.tsx)、[TodoPanel.tsx](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Chat/TodoPanel.tsx)
@@ -186,6 +210,7 @@ src/
 ## 5. 性能问题（C 类）
 
 ### C1 产物下载全量 blob 进内存
+
 - **处置状态**: ✅ 已修复（任务 2.3：直链 `<a download>`，删除 fetch→blob 路径）
 - **严重程度**: 🟡 Medium
 - **位置**: [sessions.ts L44-59](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/api/sessions.ts#L44-L59)
@@ -193,6 +218,7 @@ src/
 - **修复方案**: 与 A2 一并解决——支持带认证的直链（查询参数或签名 URL）后改回 `<a href download>` 让浏览器流式落盘。
 
 ### C2 流式渲染每次 flush 全量重解析 Markdown（design D6 的 `useDeferredValue` 未实现）
+
 - **处置状态**: ✅ 已修复（任务 5.1：`useDeferredValue` 接入 AssistantStream）
 - **严重程度**: 🟢 Low
 - **位置**: [AssistantStream.tsx L15-19](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Chat/AssistantStream.tsx#L15-L19)
@@ -200,6 +226,7 @@ src/
 - **修复方案**: `const deferredText = useDeferredValue(text)` 传给 ReactMarkdown；或 streaming 期间以 `<pre>` 纯文本渲染、`turn_complete` 后一次性切换 Markdown。
 
 ### C3 `appendAssistantText` 每次 flush 复制全量消息数组
+
 - **处置状态**: 🚫 won't-fix-now（任务 5.13：已在 `conversationStore.ts` 留 TODO(C3) 备查）
 - **严重程度**: 🟢 Low（可接受，记录备查）
 - **位置**: [conversationStore.ts L83-106](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/store/conversationStore.ts#L83-L106)
@@ -211,6 +238,7 @@ src/
 ## 6. 可维护性 / 代码风格（D 类）
 
 ### D1 禁用 React StrictMode 以回避 WS 双连
+
 - **处置状态**: ✅ 已修复（任务 4.2：恢复 `<StrictMode>`，WS 无双活连接）
 - **严重程度**: 🟡 Medium
 - **位置**: [main.tsx L2-3](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/main.tsx#L2-L3)
@@ -218,6 +246,7 @@ src/
 - **修复方案**: 恢复 `<StrictMode>`；如嫌噪音可在 `WebSocketClient.connect` 加 50ms 防抖或在开发态日志降噪。
 
 ### D2 ESLint 配置依赖幽灵依赖（phantom dependencies）
+
 - **处置状态**: ✅ 已修复（任务 3.4：显式声明 `@eslint/js`、`globals`）
 - **严重程度**: 🟡 Medium
 - **位置**: [eslint.config.js L1-2](file:///root/projects/OpenHarness_HyperFrames/session-frontend/eslint.config.js#L1-L2)、[package.json](file:///root/projects/OpenHarness_HyperFrames/session-frontend/package.json)
@@ -225,6 +254,7 @@ src/
 - **修复方案**: `npm i -D @eslint/js globals` 显式声明。
 
 ### D3 slash 命令分发逻辑在双模式各复制一份
+
 - **处置状态**: ✅ 已修复（任务 5.8：`utils/slashCommands.ts` 统一分发表，`/help` 双视图一致）
 - **严重程度**: 🟢 Low
 - **位置**: [ChatView.tsx L27-63](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Chat/ChatView.tsx#L27-L63)、[TerminalView.tsx L26-52](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Terminal/TerminalView.tsx#L26-L52)
@@ -232,6 +262,7 @@ src/
 - **修复方案**: 提取 `utils/slashCommands.ts` 统一分发表（command → handler），两个视图只注入差异项（如 `/clear` 的宿主行为）。
 
 ### D4 TerminalBridge 与 store 的输入历史双数据源
+
 - **处置状态**: ✅ 已修复（任务 5.9：历史改 getter 回调，提交统一走 `pushInputHistory`）
 - **严重程度**: 🟢 Low
 - **位置**: [TerminalBridge.ts L39/L49/L182/L191](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Terminal/TerminalBridge.ts#L39)
@@ -239,6 +270,7 @@ src/
 - **修复方案**: bridge 提交时统一走 `pushInputHistory`，历史读取改为 getter 回调（`() => convRef.current.inputHistory`）。
 
 ### D5 CreateDialog / SettingsPanel 缺焦点圈定，a11y 实现不一致
+
 - **处置状态**: ✅ 已修复（任务 5.10：提取 `useFocusTrap` 复用四处对话框）
 - **严重程度**: 🟢 Low
 - **位置**: [CreateDialog.tsx L90-102](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Session/CreateDialog.tsx#L90-L102)、[SettingsPanel.tsx](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Settings/SettingsPanel.tsx)
@@ -246,6 +278,7 @@ src/
 - **修复方案**: 把 ApprovalModal 的焦点圈定 effect 提取为 `useFocusTrap(dialogRef, onEscape)` 复用三处。
 
 ### D6 `useWebSocket` 内 store 快照捕获与即时 `getState()` 混用
+
 - **处置状态**: ✅ 已修复（任务 5.11：统一 `getState()` 现取现用）
 - **严重程度**: 🟢 Low（风格问题，因 zustand action 引用稳定而无实际 bug）
 - **位置**: [useWebSocket.ts L89-91 vs L94/L114/L141](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/ws/useWebSocket.ts#L89-L91)
@@ -257,6 +290,7 @@ src/
 ## 7. 规格偏离（E 类，独立于上文者）
 
 ### E1 403 配额耗尽未按规格弹全局 fatal 横幅
+
 - **处置状态**: ✅ 已修复（任务 1.5/2.4：后端 403 附 `code`，拦截器分支处理）
 - **严重程度**: 🟡 Medium
 - **位置**: [client.ts L33-46](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/api/client.ts#L33-L46)
@@ -264,6 +298,7 @@ src/
 - **修复方案**: 拦截器补 `response.status === 403 → showBanner('fatal', '今日会话配额已用完，请明天再试', false)`；注意需与「无权限访问他人会话」的 403 区分（可按后端 detail 判别）。
 
 ### E2 429 横幅缺少重试等待时间
+
 - **处置状态**: ✅ 已修复（任务 4.4：读取 `Retry-After` 拼入文案）
 - **严重程度**: 🟢 Low
 - **位置**: [client.ts L40](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/api/client.ts#L40)
@@ -271,6 +306,7 @@ src/
 - **修复方案**: `const retryAfter = response.headers.get('Retry-After')` 拼入横幅文案。
 
 ### E3 创建会话缺「并发超限（8 个）」专属提示
+
 - **处置状态**: ✅ 已修复（任务 4.4：CreateDialog 专属文案 + 抑制全局横幅）
 - **严重程度**: 🟢 Low
 - **位置**: [CreateDialog.tsx L83-84](file:///root/projects/OpenHarness_HyperFrames/session-frontend/src/components/Session/CreateDialog.tsx#L83-L84)
@@ -283,15 +319,15 @@ src/
 
 **现有覆盖**（6 个单测文件 + 1 个 Playwright E2E，均在 Docker 镜像内执行 ✅）：
 
-| 模块 | 文件 | 评价 |
-|---|---|---|
-| WS 协议编解码 | `protocol.test.ts`（13 用例） | 覆盖未知帧透传、URL 构建 |
-| useWebSocket | `useWebSocket.test.ts`（276 行） | MockWebSocket 质量高，覆盖重连/帧分发/审批 |
-| 五个 store | `stores.test.ts`（197 行） | 覆盖持久化与状态迁移 |
-| 输入校验 | `sanitize.test.ts`（21 用例） | 白名单/元字符边界充分 |
-| 审批弹窗 | `ApprovalModal.test.tsx`（12 用例） | 含键盘交互 |
-| 创建对话框 | `CreateDialog.test.tsx`（6 用例） | 基本流 |
-| E2E | `session-flow.spec.ts`（6 场景）+ mock-backend | 主链路冒烟 |
+| 模块          | 文件                                             | 评价                                       |
+| ------------- | ------------------------------------------------ | ------------------------------------------ |
+| WS 协议编解码 | `protocol.test.ts`（13 用例）                  | 覆盖未知帧透传、URL 构建                   |
+| useWebSocket  | `useWebSocket.test.ts`（276 行）               | MockWebSocket 质量高，覆盖重连/帧分发/审批 |
+| 五个 store    | `stores.test.ts`（197 行）                     | 覆盖持久化与状态迁移                       |
+| 输入校验      | `sanitize.test.ts`（21 用例）                  | 白名单/元字符边界充分                      |
+| 审批弹窗      | `ApprovalModal.test.tsx`（12 用例）            | 含键盘交互                                 |
+| 创建对话框    | `CreateDialog.test.tsx`（6 用例）              | 基本流                                     |
+| E2E           | `session-flow.spec.ts`（6 场景）+ mock-backend | 主链路冒烟                                 |
 
 **主要缺口**（按风险排序；✅ 均已在 harden-session-frontend 中补齐，见任务 2.5/3.5/4.5/4.6/4.7/5.12）：
 
@@ -322,20 +358,20 @@ session-frontend 是一个**结构清晰、规格可追溯、协议层扎实**�
 
 ### 修复优先级
 
-| 优先级 | 问题 | 工作量 | 说明 |
-|:--:|---|:--:|---|
-| **P0** | A1 + A2 产物预览/下载链路 | 中（需后端配合） | 规格能力缺失，建议一个变更内联动修复 |
-| **P0** | E1 403 全局横幅 | 小 | 规格明确要求，5 行拦截器改动 |
-| **P1** | B1 停用 HTML 剥离 | 小（含 spec 修订） | 正在破坏真实用户输入 |
-| **P1** | A5 关闭确认 + 失败回滚 | 小 | 不可逆操作的防误触 |
-| **P1** | A3 4429 重试上限 | 小 | 防限流风暴 |
-| **P1** | D2 幽灵依赖 | 极小 | 防 CI 随机崩溃 |
-| **P2** | A4 审批超时结构化 code | 中（需后端配合） | 与 A1 后端改动可合并 |
-| **P2** | D1 恢复 StrictMode | 小 | 回归验证 WS 生命周期 |
-| **P2** | A8/E2/E3 GFM 渲染与文案 | 小 | 体验与规格对齐 |
-| **P2** | F 补测：TerminalBridge / REST 兜底 / client 拦截器 | 中 | 覆盖最高风险缺口 |
-| **P3** | C1/C2 性能（blob 下载、useDeferredValue） | 中 | 随 P0 产物链路一并考虑 |
-| **P3** | A6/A7/A9/A10/A11、B2/B4/B5、D3~D6 | 小~中 | 常规迭代消化 |
+|    优先级    | 问题                                               |       工作量       | 说明                                 |
+| :----------: | -------------------------------------------------- | :----------------: | ------------------------------------ |
+| **P0** | A1 + A2 产物预览/下载链路                          |  中（需后端配合）  | 规格能力缺失，建议一个变更内联动修复 |
+| **P0** | E1 403 全局横幅                                    |         小         | 规格明确要求，5 行拦截器改动         |
+| **P1** | B1 停用 HTML 剥离                                  | 小（含 spec 修订） | 正在破坏真实用户输入                 |
+| **P1** | A5 关闭确认 + 失败回滚                             |         小         | 不可逆操作的防误触                   |
+| **P1** | A3 4429 重试上限                                   |         小         | 防限流风暴                           |
+| **P1** | D2 幽灵依赖                                        |        极小        | 防 CI 随机崩溃                       |
+| **P2** | A4 审批超时结构化 code                             |  中（需后端配合）  | 与 A1 后端改动可合并                 |
+| **P2** | D1 恢复 StrictMode                                 |         小         | 回归验证 WS 生命周期                 |
+| **P2** | A8/E2/E3 GFM 渲染与文案                            |         小         | 体验与规格对齐                       |
+| **P2** | F 补测：TerminalBridge / REST 兜底 / client 拦截器 |         中         | 覆盖最高风险缺口                     |
+| **P3** | C1/C2 性能（blob 下载、useDeferredValue）          |         中         | 随 P0 产物链路一并考虑               |
+| **P3** | A6/A7/A9/A10/A11、B2/B4/B5、D3~D6                  |       小~中       | 常规迭代消化                         |
 
 > 验证方式提醒：所有修复的回归验证按项目规则在已有镜像内执行——单测/lint 走 `docker build --target test session-frontend/`，E2E 走 `e2e/run-session-frontend-docker-tests.sh`，勿在宿主机直接运行 vitest/playwright。
 

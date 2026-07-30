@@ -12,6 +12,11 @@ vi.mock('../../../api/sessions', () => ({
   createSession: vi.fn(),
 }));
 
+// 隔离创建成功后的列表刷新副作用（避免真实 listSessions 请求）
+vi.mock('../../../hooks/useSessionList', () => ({
+  requestSessionListRefresh: vi.fn(),
+}));
+
 const mockedCreateSession = vi.mocked(createSession);
 
 const makeSession = (sid: string): Session => ({
@@ -108,5 +113,99 @@ describe('CreateDialog', () => {
     render(<CreateDialog />);
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(useUiStore.getState().createDialogOpen).toBe(false);
+  });
+});
+
+// ---- 容器池四类错误映射（F4）----
+
+/** 构造 ky HTTPError 形状的拒绝对象（errorStatus/extract* 只依赖 .response）。 */
+function httpError(
+  status: number,
+  body?: unknown,
+  headers?: Record<string, string>,
+): { response: Response } {
+  return {
+    response: new Response(body === undefined ? null : JSON.stringify(body), {
+      status,
+      headers,
+    }),
+  };
+}
+
+describe('CreateDialog 容器池错误映射（F4）', () => {
+  it('429 频率限流（detail=Rate limit）→「请求过于频繁」', async () => {
+    mockedCreateSession.mockRejectedValue(httpError(429, { detail: 'Rate limit exceeded' }));
+    render(<CreateDialog />);
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('请求过于频繁，请稍后再试');
+    });
+  });
+
+  it('429 并发配额（detail=Concurrent session quota）→「并发会话已达上限」', async () => {
+    mockedCreateSession.mockRejectedValue(
+      httpError(429, { detail: 'Concurrent session quota exceeded' }),
+    );
+    render(<CreateDialog />);
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/并发会话已达上限/);
+    });
+  });
+
+  it('403 daily_quota_exceeded（结构化 code）→「今日会话创建次数已用完」', async () => {
+    mockedCreateSession.mockRejectedValue(
+      httpError(403, { detail: { code: 'daily_quota_exceeded', message: 'quota used up' } }),
+    );
+    render(<CreateDialog />);
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        '今日会话创建次数已用完（UTC 日重置）',
+      );
+    });
+  });
+
+  it('403 其他 code 不误入配额文案，展示 detail 原文', async () => {
+    mockedCreateSession.mockRejectedValue(
+      httpError(403, { detail: { code: 'forbidden', message: 'no permission' } }),
+    );
+    render(<CreateDialog />);
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('no permission');
+    });
+  });
+
+  it('503 + Retry-After：展示容量满 + 倒计时重试按钮，归零后自动可点', async () => {
+    mockedCreateSession.mockRejectedValue(
+      httpError(503, { detail: 'capacity full' }, { 'Retry-After': '2' }),
+    );
+    render(<CreateDialog />);
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+
+    // 倒计时期间：按钮变「重试（Ns）」且禁用
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('服务容量已满');
+    });
+    expect(screen.getByRole('button', { name: '重试（2s）' })).toBeDisabled();
+
+    // 真实计时递减到归零：按钮变「重试」且可点
+    await waitFor(
+      () => {
+        expect(screen.getByRole('button', { name: '重试' })).toBeEnabled();
+      },
+      { timeout: 3500 },
+    );
+  });
+
+  it('503 无 Retry-After：不倒计时，按钮保持可点可直接重试', async () => {
+    mockedCreateSession.mockRejectedValue(httpError(503));
+    render(<CreateDialog />);
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('服务容量已满');
+    });
+    expect(screen.getByRole('button', { name: '创建' })).toBeEnabled();
   });
 });

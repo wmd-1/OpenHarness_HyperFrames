@@ -3,12 +3,17 @@
 //
 // 行为约定：
 // - 认证：X-API-Key 头必须等于 MOCK_API_KEY（默认 test-key）；
-//   仅 artifact GET 与 WS 握手额外接受 ?api_key= 查询参数（对齐 A2）
+//   仅 artifact/workspace 文件 GET 与 WS 握手额外接受 ?api_key= 查询参数（对齐 A2）
 // - POST /v1/sessions 创建 live 会话；GET 查询；DELETE 关闭
+// - GET /v1/sessions 列表（limit/offset，created_at 倒序，summary 形状）
+// - GET /v1/sessions/{sid}/turns 轮次历史（after_index 游标）
+// - GET /v1/sessions/{sid}/workspace/files 列表（page_token/prefix）+ 单文件下载
 // - GET /v1/sessions/{sid}/turns/{idx}/artifact 返回伪 mp4 字节
 // - WS /v1/sessions/{sid}/ws：session_ready → submit 回显 "Echo: {text}"
 // - submit 文本为 "make-video" 时 turn_complete 带 has_artifact: true
 // - submit 文本为 "force-drop" 时直接掐断连接（测试断线重连）
+// - POST /__mock/seed 预置会话（历史轮次/状态/ws_scenario 准入场景开关）
+//   ws_scenario: 'quota_4430' → error 帧(code)+close 4430；'capacity_4503' → close 4503
 
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
@@ -16,7 +21,7 @@ import { WebSocketServer } from 'ws';
 const PORT = Number(process.env.MOCK_PORT ?? 8001);
 const API_KEY = process.env.MOCK_API_KEY ?? 'test-key';
 
-/** sid -> { session, turnIndex } */
+/** sid -> { session, turnIndex, turns, files, filesSource, filesStale, wsScenario, resumable, readOnly } */
 const sessions = new Map();
 let seq = 0;
 
@@ -35,8 +40,56 @@ const makeSession = (policy) => {
     last_active_at: nowIso(),
     ws_url: `/v1/sessions/${sid}/ws`,
   };
-  sessions.set(sid, { session, turnIndex: -1 });
+  sessions.set(sid, {
+    session,
+    turnIndex: -1,
+    turns: [],
+    files: [],
+    filesSource: null,
+    filesStale: false,
+    wsScenario: null,
+    resumable: null,
+    readOnly: null,
+    titleOverride: null,
+  });
   return session;
+};
+
+/** summary 形状（§2.6）：title 取首轮 prompt 截断；resumable/read_only 可被 seed 覆盖。 */
+const toSummary = (entry) => {
+  const s = entry.session;
+  const defaultResumable = s.status === 'live' || s.status === 'cold';
+  const defaultReadOnly = s.status === 'closed' || s.status === 'expired';
+  return {
+    session_id: s.session_id,
+    status: s.status,
+    title: entry.titleOverride ?? (entry.turns.length ? entry.turns[0].prompt.slice(0, 80) : null),
+    turn_count: s.turn_count,
+    resumable: entry.resumable ?? defaultResumable,
+    read_only: entry.readOnly ?? defaultReadOnly,
+    created_at: s.created_at,
+    last_active_at: s.last_active_at,
+  };
+};
+
+/** 记一轮完成的轮次（submit 与 seed 共用）。 */
+const pushTurn = (entry, prompt, assistantText, hasArtifact) => {
+  entry.turnIndex += 1;
+  const turnIndex = entry.turnIndex;
+  entry.turns.push({
+    turn_id: `turn-${entry.session.session_id}-${turnIndex}`,
+    turn_index: turnIndex,
+    status: 'completed',
+    prompt,
+    assistant_text: assistantText,
+    error_message: null,
+    has_artifact: hasArtifact,
+    started_at: nowIso(),
+    finished_at: nowIso(),
+  });
+  entry.session.turn_count = turnIndex + 1;
+  entry.session.last_active_at = nowIso();
+  return turnIndex;
 };
 
 const sendJson = (res, status, body) => {
@@ -70,11 +123,14 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // ---- 认证：仅 artifact GET 额外接受 ?api_key= 查询参数（对齐后端 A2） ----
+  // ---- 认证：仅 artifact / workspace 文件 GET 额外接受 ?api_key= 查询参数（对齐后端 A2） ----
   const isArtifactGet =
     req.method === 'GET' && /^\/v1\/sessions\/[^/]+\/turns\/\d+\/artifact$/.test(path);
+  const isWorkspaceFileGet =
+    req.method === 'GET' && /^\/v1\/sessions\/[^/]+\/workspace\/files\/.+/.test(path);
   const headerOk = req.headers['x-api-key'] === API_KEY;
-  const queryOk = isArtifactGet && url.searchParams.get('api_key') === API_KEY;
+  const queryOk =
+    (isArtifactGet || isWorkspaceFileGet) && url.searchParams.get('api_key') === API_KEY;
   if (!headerOk && !queryOk) {
     sendJson(res, 401, { detail: 'invalid api key' });
     return;
@@ -98,6 +154,121 @@ const server = createServer(async (req, res) => {
   if (req.method === 'POST' && path === '/v1/sessions') {
     const body = await readBody(req);
     sendJson(res, 201, makeSession(body.permission_policy));
+    return;
+  }
+
+  // ---- 会话列表（§2.6）：limit/offset，created_at 倒序 ----
+  if (req.method === 'GET' && path === '/v1/sessions') {
+    const limit = Number(url.searchParams.get('limit') ?? 20);
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    const all = [...sessions.values()].sort((a, b) =>
+      b.session.created_at.localeCompare(a.session.created_at) ||
+      b.session.session_id.localeCompare(a.session.session_id),
+    );
+    sendJson(res, 200, {
+      items: all.slice(offset, offset + limit).map(toSummary),
+      total: all.length,
+      limit,
+      offset,
+    });
+    return;
+  }
+
+  // ---- 轮次历史（§2.7）：after_index 游标，升序 ----
+  const turnsMatch = path.match(/^\/v1\/sessions\/([^/]+)\/turns$/);
+  if (turnsMatch && req.method === 'GET') {
+    const entry = sessions.get(turnsMatch[1]);
+    if (!entry) {
+      sendJson(res, 404, { detail: 'session not found' });
+      return;
+    }
+    const afterIndex = Number(url.searchParams.get('after_index') ?? -1);
+    const limit = Number(url.searchParams.get('limit') ?? 50);
+    const items = entry.turns.filter((t) => t.turn_index > afterIndex).slice(0, limit);
+    sendJson(res, 200, { items, total: entry.turns.length });
+    return;
+  }
+
+  // ---- 工作区文件列表（§2.8）：page_token 游标 + prefix 过滤 ----
+  const filesListMatch = path.match(/^\/v1\/sessions\/([^/]+)\/workspace\/files$/);
+  if (filesListMatch && req.method === 'GET') {
+    const entry = sessions.get(filesListMatch[1]);
+    if (!entry) {
+      sendJson(res, 404, { detail: 'session not found' });
+      return;
+    }
+    const rawToken = url.searchParams.get('page_token');
+    let start = 0;
+    if (rawToken) {
+      start = Number(rawToken);
+      if (!Number.isInteger(start) || start < 0) {
+        sendJson(res, 400, { detail: 'invalid page_token' });
+        return;
+      }
+    }
+    const limit = Number(url.searchParams.get('limit') ?? 200);
+    const prefix = url.searchParams.get('prefix') ?? '';
+    const filtered = entry.files.filter((f) => f.path.startsWith(prefix));
+    const page = filtered.slice(start, start + limit);
+    const nextStart = start + page.length;
+    const source = entry.filesSource ?? (entry.files.length ? 'live' : 'none');
+    sendJson(res, 200, {
+      source,
+      stale: entry.filesStale,
+      sync_seq: source === 'none' ? null : entry.session.turn_count,
+      last_synced_at: source === 'none' ? null : entry.session.last_active_at,
+      total: filtered.length,
+      files: page,
+      next_page_token: nextStart < filtered.length ? String(nextStart) : null,
+    });
+    return;
+  }
+
+  // ---- 工作区单文件下载（F5.4，?api_key= 直链） ----
+  const fileGetMatch = path.match(/^\/v1\/sessions\/([^/]+)\/workspace\/files\/(.+)$/);
+  if (fileGetMatch && req.method === 'GET') {
+    const entry = sessions.get(fileGetMatch[1]);
+    const filePath = decodeURIComponent(fileGetMatch[2]);
+    const file = entry?.files.find((f) => f.path === filePath);
+    if (!file) {
+      sendJson(res, 404, { detail: 'file not found' });
+      return;
+    }
+    const data = Buffer.alloc(Math.min(file.size, 1024), 1);
+    res.writeHead(200, {
+      'content-type': 'application/octet-stream',
+      'content-length': data.length,
+      'content-disposition': `attachment; filename="${encodeURIComponent(filePath.split('/').pop())}"`,
+    });
+    res.end(data);
+    return;
+  }
+
+  // ---- E2E 预置：注入历史会话（状态/轮次/文件/准入场景开关） ----
+  if (req.method === 'POST' && path === '/__mock/seed') {
+    const body = await readBody(req);
+    const session = makeSession(body.permission_policy);
+    const entry = sessions.get(session.session_id);
+    session.status = body.status ?? 'live';
+    if (body.title) entry.titleOverride = body.title;
+    if (body.resumable !== undefined) entry.resumable = body.resumable;
+    if (body.read_only !== undefined) entry.readOnly = body.read_only;
+    entry.wsScenario = body.ws_scenario ?? null;
+    const turnCount = Number(body.turn_count ?? 0);
+    for (let i = 0; i < turnCount; i += 1) {
+      pushTurn(entry, `历史消息 ${i + 1}`, `历史回答 ${i + 1}`, false);
+    }
+    if (Array.isArray(body.files)) {
+      entry.files = body.files.map((f) => ({
+        path: f.path,
+        size: f.size ?? 1024,
+        mtime: f.mtime ?? nowIso(),
+        etag: f.etag ?? null,
+      }));
+    }
+    if (body.files_source) entry.filesSource = body.files_source;
+    entry.filesStale = Boolean(body.files_stale);
+    sendJson(res, 201, toSummary(entry));
     return;
   }
 
@@ -149,6 +320,29 @@ server.on('upgrade', (req, socket, head) => {
     }
 
     const send = (frame) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(frame));
+
+    // ---- 准入失败场景开关（F3）：error 帧(code) + 差异化 close 码 ----
+    if (entry.wsScenario === 'quota_4430') {
+      send({ type: 'error', code: 'TENANT_QUOTA_EXCEEDED', message: 'tenant quota exceeded' });
+      ws.close(4430, 'TENANT_QUOTA_EXCEEDED');
+      return;
+    }
+    if (entry.wsScenario === 'capacity_4503') {
+      send({ type: 'error', code: 'CAPACITY_FULL', message: 'capacity full' });
+      ws.close(4503, 'CAPACITY_FULL');
+      return;
+    }
+
+    // 冷/失败会话唤醒：单容器模型下其他 live 会话让位变 cold（F3.5 让位可视化）
+    if (entry.session.status !== 'live') {
+      for (const other of sessions.values()) {
+        if (other !== entry && other.session.status === 'live') {
+          other.session.status = 'cold';
+        }
+      }
+      entry.session.status = 'live';
+    }
+
     send({ type: 'session_ready', session_id: sid });
 
     ws.on('message', (raw) => {
@@ -170,13 +364,18 @@ server.on('upgrade', (req, socket, head) => {
             setTimeout(() => ws.terminate(), 100);
             return;
           }
-          entry.turnIndex += 1;
-          const turnIndex = entry.turnIndex;
-          entry.session.turn_count = turnIndex + 1;
-          entry.session.last_active_at = nowIso();
           // 产物场景触发器：turn_complete 带 has_artifact: true（A1）
           const hasArtifact = frame.text === 'make-video';
           const reply = `Echo: ${frame.text}`;
+          const turnIndex = pushTurn(entry, frame.text, reply, hasArtifact);
+          if (hasArtifact) {
+            entry.files.push({
+              path: `output/turn-${turnIndex}.mp4`,
+              size: 2048,
+              mtime: nowIso(),
+              etag: null,
+            });
+          }
           // 两段 delta 模拟流式输出
           send({ type: 'delta', text: reply.slice(0, 5), turn_index: turnIndex });
           setTimeout(() => {

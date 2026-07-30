@@ -5,7 +5,7 @@
 
 import { useCallback } from 'react';
 import { submitTurnRest } from '../api/sessions';
-import { extractErrorDetail } from '../api/client';
+import { errorStatus, extractErrorDetail } from '../api/client';
 import { useConversationStore } from '../store/conversationStore';
 import type { PendingApproval } from '../store/conversationStore';
 import { useWsStore } from '../store/wsStore';
@@ -81,6 +81,11 @@ export function useConversation(sessionId: string | null): UseConversationResult
         .catch(async (err: unknown) => {
           const store = useConversationStore.getState();
           store.setTurnActive(sessionId, false);
+          // 409：会话未在本节点 live（cold/让位中），REST 兜底不可用（F3.6）
+          if (errorStatus(err) === 409) {
+            store.addSystemMessage(sessionId, 'error', '会话未激活，请等待 WS 连接就绪后重试');
+            return;
+          }
           store.addSystemMessage(sessionId, 'error', (await extractErrorDetail(err)) ?? '提交失败');
         });
       return true;

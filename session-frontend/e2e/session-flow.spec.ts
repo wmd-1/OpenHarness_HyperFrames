@@ -110,9 +110,7 @@ test('关闭会话需二次确认：取消后会话仍存活', async ({ page }) 
 
 test('错误恢复：无效 API Key 触发 401 后回到认证页', async ({ page }) => {
   await login(page, 'wrong-key');
-  // 创建会话请求返回 401 → 清除 Key 并回到欢迎页提示重新认证
-  await page.getByRole('button', { name: '新建会话' }).click();
-  await page.getByRole('button', { name: '创建', exact: true }).click();
+  // F1.3：认证后立即拉取会话列表 → 401 → 清除 Key 并回到欢迎页提示重新认证
   await expect(page.getByTestId('auth-expired-notice')).toBeVisible({ timeout: 10_000 });
 
   // 输入正确 Key 可恢复正常使用

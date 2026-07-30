@@ -31,7 +31,11 @@ export const WS_CLOSE_CODES = {
   SESSION_CLOSED: 4403,
   SESSION_NOT_FOUND: 4404,
   RATE_LIMITED: 4429,
+  /** 租户并发配额已满且无可让位会话（准入失败，不自动重连）。 */
+  QUOTA_EXCEEDED: 4430,
   SERVER_ERROR: 4500,
+  /** 节点容量已满（队满/排队超时，对应 REST 503）。 */
+  CAPACITY_FULL: 4503,
 } as const;
 
 export const WS_CLOSE_MESSAGES: Record<number, string> = {
@@ -41,6 +45,14 @@ export const WS_CLOSE_MESSAGES: Record<number, string> = {
   [WS_CLOSE_CODES.SESSION_NOT_FOUND]: '会话不存在',
   [WS_CLOSE_CODES.RATE_LIMITED]: '连接过于频繁，已被限流，稍后将自动重试',
   [WS_CLOSE_CODES.SERVER_ERROR]: '会话暂不可用（服务端错误）',
+};
+
+/** 准入失败 reason 常量 → 中文文案（error 帧 code / close reason，F3.0 契约优先）。 */
+export const WS_ADMISSION_MESSAGES: Record<string, string> = {
+  TENANT_QUOTA_EXCEEDED:
+    '并发配额已满：另一会话正在执行任务或仍被其他窗口连接，请先等待或中断该会话',
+  CAPACITY_FULL: '服务容量已满，将自动重试，请稍候',
+  SESSION_UNAVAILABLE: '会话复活失败，可稍后重试或新建会话',
 };
 
 // ---- 心跳 / 重连 ----
@@ -54,6 +66,14 @@ export const RECONNECT_MAX_ATTEMPTS = 10;
 export const RATE_LIMIT_RETRY_DELAY_MS = 60_000;
 /** 4429 限流最大有界重试次数，超限转 failed。 */
 export const RATE_LIMIT_MAX_RETRIES = 2;
+/** 4503 容量满重试间隔（对齐后端 OH_POOL_QUEUE_TIMEOUT，固定非指数）。 */
+export const CAPACITY_RETRY_DELAY_MS = 15_000;
+/** 4503 容量满最大有界重试次数，超限转 failed。 */
+export const CAPACITY_MAX_RETRIES = 4;
+/** 4500 会话不可用最大有界重试次数（覆盖 rehydrate 瞬态竞争），超限转 failed。 */
+export const UNAVAILABLE_MAX_RETRIES = 2;
+/** 唤醒等待超过该时长追加「仍在排队/冷启动中」提示（F3.4，纯前端计时）。 */
+export const WAKEUP_SLOW_HINT_MS = 30_000;
 
 // ---- 流式渲染批量 flush（design D6）----
 export const STREAM_FLUSH_INTERVAL_MS = 50;
@@ -78,6 +98,10 @@ export const MAX_INPUT_LENGTH = 32_000;
 export const STORAGE_KEYS = {
   apiKey: 'sf.apiKey',
   theme: 'sf.theme',
-  sessionIds: 'sf.sessionIds',
+  /** 选中会话 ID 持久化（启动恢复选中，F1.7）。 */
+  currentSessionId: 'sf.currentSessionId',
   mode: 'sf.mode',
 } as const;
+
+/** 已废弃的 localStorage 会话 ID 缓存 key（列表已服务端权威化），启动时清除。 */
+export const LEGACY_SESSION_IDS_KEY = 'sf.sessionIds';

@@ -5,12 +5,19 @@ import { StrictMode } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWebSocket } from '../useWebSocket';
+import { requestSessionListRefresh } from '../../hooks/useSessionList';
 import { useAuthStore } from '../../store/authStore';
 import { useConversationStore } from '../../store/conversationStore';
 import { useSessionStore } from '../../store/sessionStore';
 import { useUiStore } from '../../store/uiStore';
 import { useWsStore } from '../../store/wsStore';
+import { WS_ADMISSION_MESSAGES } from '../../utils/constants';
 import type { Session } from '../../types/session';
+
+// 隔离 session_ready 触发的列表刷新（F3.5），避免测试中发真实 listSessions 请求
+vi.mock('../../hooks/useSessionList', () => ({
+  requestSessionListRefresh: vi.fn(),
+}));
 
 class MockWebSocket {
   static readonly CONNECTING = 0;
@@ -81,6 +88,7 @@ beforeEach(() => {
   useConversationStore.setState({ conversations: {} });
   useWsStore.setState({ status: {}, lastMessageAt: {}, reconnectAttempt: {}, lastTurnIndex: {} });
   useUiStore.setState({ banner: null });
+  vi.mocked(requestSessionListRefresh).mockClear();
 });
 
 afterEach(() => {
@@ -101,6 +109,12 @@ describe('useWebSocket 连接生命周期', () => {
 
   it('终态会话不建连', () => {
     useSessionStore.getState().patchSession(SID, { status: 'closed' });
+    renderHook(() => useWebSocket(SID));
+    expect(MockWebSocket.instances).toHaveLength(0);
+  });
+
+  it('resumable=false 不建连（canConnectSession 门控，resumable 优先于 status，F1.5）', () => {
+    useSessionStore.getState().patchSession(SID, { status: 'live', resumable: false });
     renderHook(() => useWebSocket(SID));
     expect(MockWebSocket.instances).toHaveLength(0);
   });
@@ -319,6 +333,82 @@ describe('useWebSocket 关闭码与重连', () => {
       vi.advanceTimersByTime(1000);
     });
     expect(MockWebSocket.instances).toHaveLength(2);
+  });
+});
+
+describe('useWebSocket 准入错误映射（F3.3/F3.5）', () => {
+  it('session_ready：非 live 会话 patch→live 并触发列表刷新（让位可视化）', () => {
+    useSessionStore.getState().patchSession(SID, { status: 'cold', resumable: true });
+    renderHook(() => useWebSocket(SID));
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.serverOpen();
+      ws.serverFrame({ type: 'session_ready' });
+    });
+    expect(useSessionStore.getState().sessions[SID].status).toBe('live');
+    expect(requestSessionListRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('error 帧 code 命中准入映射：落中文文案而非 message 原文', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    renderHook(() => useWebSocket(SID));
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.serverOpen();
+      ws.serverFrame({
+        type: 'error',
+        message: 'tenant quota exceeded: sess-xxx running',
+        code: 'TENANT_QUOTA_EXCEEDED',
+      });
+    });
+    const msg = useConversationStore.getState().conversations[SID].messages.at(-1);
+    expect(msg).toMatchObject({
+      kind: 'system',
+      level: 'error',
+      text: WS_ADMISSION_MESSAGES.TENANT_QUOTA_EXCEEDED,
+    });
+    warnSpy.mockRestore();
+  });
+
+  it('error 帧无 code 或 code 未知：仍展示 message 原文（回归）', () => {
+    renderHook(() => useWebSocket(SID));
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.serverOpen();
+      ws.serverFrame({ type: 'error', message: 'plain failure', code: 'UNKNOWN_REASON' });
+    });
+    const msg = useConversationStore.getState().conversations[SID].messages.at(-1);
+    expect(msg).toMatchObject({ kind: 'system', level: 'error', text: 'plain failure' });
+  });
+
+  it('同一次准入失败「error 帧 + close 4430」只出一条提示（去重）', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    renderHook(() => useWebSocket(SID));
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.serverOpen();
+      ws.serverFrame({
+        type: 'error',
+        message: 'quota exceeded',
+        code: 'TENANT_QUOTA_EXCEEDED',
+      });
+      ws.serverClose(4430);
+    });
+    // error 帧已落 system 消息，close 4430 不再叠加 banner
+    expect(useUiStore.getState().banner).toBeNull();
+    expect(useWsStore.getState().status[SID]).toBe('quota_exceeded');
+    warnSpy.mockRestore();
+  });
+
+  it('无 error 帧直接 close 4430：出 warning banner 且不重连', () => {
+    renderHook(() => useWebSocket(SID));
+    act(() => MockWebSocket.instances[0].serverClose(4430));
+    expect(useUiStore.getState().banner).toMatchObject({
+      level: 'warning',
+      text: WS_ADMISSION_MESSAGES.TENANT_QUOTA_EXCEEDED,
+    });
+    expect(useWsStore.getState().status[SID]).toBe('quota_exceeded');
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 });
 

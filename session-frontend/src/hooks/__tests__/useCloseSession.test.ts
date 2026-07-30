@@ -1,16 +1,22 @@
-// useCloseSession 单测（task 3.5 A5）：确认后乐观置 closed，
+// useCloseSession 单测（F1.8）：确认后乐观置 closed，成功后 patch 只读态保留在列表并触发列表刷新；
 // DELETE 失败回滚原状态并弹错误横幅；取消不触发请求。
 
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCloseSession } from '../useCloseSession';
 import { closeSession } from '../../api/sessions';
+import { requestSessionListRefresh } from '../useSessionList';
 import { useSessionStore } from '../../store/sessionStore';
 import { useUiStore } from '../../store/uiStore';
 import type { Session } from '../../types/session';
 
 vi.mock('../../api/sessions', () => ({
   closeSession: vi.fn(),
+}));
+
+// 隔离列表刷新副作用（避免真实 listSessions 请求）
+vi.mock('../useSessionList', () => ({
+  requestSessionListRefresh: vi.fn(),
 }));
 
 const SID = 's1';
@@ -42,7 +48,7 @@ afterEach(() => {
 });
 
 describe('useCloseSession', () => {
-  it('requestClose 打开确认，confirmClose 后乐观置 closed 并调用 DELETE', async () => {
+  it('requestClose 打开确认，confirmClose 后关闭成功 patch 只读态并保留在列表（F1.8）', async () => {
     vi.mocked(closeSession).mockResolvedValue(undefined as never);
     const { result } = renderHook(() => useCloseSession());
 
@@ -55,7 +61,16 @@ describe('useCloseSession', () => {
     await act(async () => result.current.confirmClose());
     expect(result.current.pendingSid).toBeNull();
     expect(closeSession).toHaveBeenCalledWith(SID);
-    expect(useSessionStore.getState().sessions[SID].status).toBe('closed');
+    // 保留在列表中只读回看，不 removeSession
+    const state = useSessionStore.getState();
+    expect(state.order).toContain(SID);
+    expect(state.sessions[SID]).toMatchObject({
+      status: 'closed',
+      read_only: true,
+      resumable: false,
+    });
+    // 刷新触发③：关闭成功后同步服务端列表
+    expect(requestSessionListRefresh).toHaveBeenCalled();
     expect(useUiStore.getState().banner).toBeNull();
   });
 
@@ -67,6 +82,7 @@ describe('useCloseSession', () => {
     await act(async () => result.current.confirmClose());
 
     expect(useSessionStore.getState().sessions[SID].status).toBe('live');
+    expect(requestSessionListRefresh).not.toHaveBeenCalled();
     expect(useUiStore.getState().banner).toEqual({
       level: 'error',
       text: '关闭会话失败，请重试',

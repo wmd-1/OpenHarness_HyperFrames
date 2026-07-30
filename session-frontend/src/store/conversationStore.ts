@@ -3,6 +3,7 @@
 // flush 时调用这里的 appendAssistantText。
 
 import { create } from 'zustand';
+import type { TurnResponse } from '../types/api';
 import type { ApprovalRequestFrame } from '../types/ws';
 import type { Message, ToolCall } from '../types/conversation';
 
@@ -17,6 +18,8 @@ export interface ConversationState {
   pendingApproval: PendingApproval | null;
   /** 输入历史（上下箭头导航，chat 与 terminal 共享）。 */
   inputHistory: string[];
+  /** 历史回显完成时刻（F2.1：切走再切回不重复拉）；null 表示未 hydrate 过。 */
+  hydratedAt: number | null;
 }
 
 const emptyConversation = (): ConversationState => ({
@@ -25,6 +28,7 @@ const emptyConversation = (): ConversationState => ({
   todoMarkdown: '',
   pendingApproval: null,
   inputHistory: [],
+  hydratedAt: null,
 });
 
 let messageSeq = 0;
@@ -47,6 +51,8 @@ interface ConversationStoreState {
   setTodo: (sid: string, markdown: string) => void;
   setPendingApproval: (sid: string, frame: ApprovalRequestFrame | null) => void;
   addSystemMessage: (sid: string, level: 'info' | 'warning' | 'error', text: string) => void;
+  /** 轮次历史回显（F2.3）：整体替换 messages（前提本地为空）并打 hydratedAt 标记。 */
+  hydrateHistory: (sid: string, turns: TurnResponse[]) => void;
   setTurnActive: (sid: string, active: boolean) => void;
   pushInputHistory: (sid: string, text: string) => void;
   clearMessages: (sid: string) => void;
@@ -234,6 +240,57 @@ export const useConversationStore = create<ConversationStoreState>((set) => ({
 
   setTurnActive: (sid, active) =>
     set((state) => withConversation(state, sid, (conv) => ({ ...conv, turnActive: active }))),
+
+  hydrateHistory: (sid, turns) =>
+    set((state) =>
+      withConversation(state, sid, (conv) => {
+        const messages: Message[] = [];
+        for (const turn of turns) {
+          const startedAt = Date.parse(turn.started_at) || Date.now();
+          const finishedAt = turn.finished_at ? Date.parse(turn.finished_at) : startedAt;
+          messages.push({
+            kind: 'user',
+            id: nextMessageId(),
+            text: turn.prompt,
+            turnIndex: turn.turn_index,
+            createdAt: startedAt,
+          });
+          if (turn.assistant_text) {
+            messages.push({
+              kind: 'assistant',
+              id: nextMessageId(),
+              text: turn.assistant_text,
+              streaming: false,
+              hasArtifact: turn.has_artifact ?? false,
+              turnIndex: turn.turn_index,
+              createdAt: finishedAt,
+            });
+          }
+          if (turn.status === 'interrupted') {
+            messages.push({
+              kind: 'system',
+              id: nextMessageId(),
+              level: 'warning',
+              text: '轮次已中断',
+              turnIndex: turn.turn_index,
+              createdAt: finishedAt,
+            });
+          }
+          if (turn.error_message) {
+            messages.push({
+              kind: 'system',
+              id: nextMessageId(),
+              level: 'error',
+              text: turn.error_message,
+              turnIndex: turn.turn_index,
+              createdAt: finishedAt,
+            });
+          }
+        }
+        // 整体替换（F2.1 保证此时本地为空），不做插入合并
+        return { ...conv, messages, hydratedAt: Date.now() };
+      }),
+    ),
 
   pushInputHistory: (sid, text) =>
     set((state) =>

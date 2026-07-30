@@ -115,6 +115,29 @@ describe('useConversation REST 兜底', () => {
     });
   });
 
+  it('REST 兜底遇 409（会话未在本节点 live）：明确提示会话未激活（F3.6）', async () => {
+    mockedUseWebSocket.mockReturnValue(stubWs(false));
+    mockedSubmitTurnRest.mockRejectedValue({
+      response: new Response(JSON.stringify({ detail: 'Session not live on this node' }), {
+        status: 409,
+      }),
+    });
+    const { result } = renderHook(() => useConversation(SID));
+    act(() => {
+      expect(result.current.submit('hello')).toBe(true);
+    });
+    await waitFor(() => {
+      const conv = useConversationStore.getState().conversations[SID];
+      expect(conv.turnActive).toBe(false);
+    });
+    const conv = useConversationStore.getState().conversations[SID];
+    expect(conv.messages.at(-1)).toMatchObject({
+      kind: 'system',
+      level: 'error',
+      text: '会话未激活，请等待 WS 连接就绪后重试',
+    });
+  });
+
   it('清理后为空的输入不提交', () => {
     const ws = stubWs(true);
     mockedUseWebSocket.mockReturnValue(ws);

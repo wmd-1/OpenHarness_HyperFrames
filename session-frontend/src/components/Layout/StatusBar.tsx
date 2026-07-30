@@ -14,6 +14,7 @@ const WS_STATUS_META: Record<WsStatus, { label: string; className: string; live:
   session_closed: { label: '会话已关闭', className: 'text-muted', live: false },
   session_not_found: { label: '会话不存在', className: 'text-err', live: false },
   rate_limited: { label: '已限流', className: 'text-warn', live: false },
+  quota_exceeded: { label: '并发配额已满', className: 'text-warn', live: false },
   failed: { label: '连接失败', className: 'text-err', live: false },
   closed: { label: '已断开', className: 'text-muted', live: false },
 };

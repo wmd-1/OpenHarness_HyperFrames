@@ -3,9 +3,11 @@
 // - 消息发送（submit / interrupt / approval / ping）
 // - 指数退避重连（1s→30s，最多 10 次）；4429 每次等待 60s，最多重试 2 次后转 failed
 // - 心跳保活（30s ping，连续 3 次无 pong 判定死连接）
-// - 关闭码差异化处理（4401/4403/4404/4429）
+// - 关闭码差异化处理（4401/4403/4404/4429 + 准入类 4430/4503/4500，F3.2）
 
 import {
+  CAPACITY_MAX_RETRIES,
+  CAPACITY_RETRY_DELAY_MS,
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_MAX_MISSED,
   RATE_LIMIT_MAX_RETRIES,
@@ -13,6 +15,7 @@ import {
   RECONNECT_BASE_DELAY_MS,
   RECONNECT_MAX_ATTEMPTS,
   RECONNECT_MAX_DELAY_MS,
+  UNAVAILABLE_MAX_RETRIES,
   WS_CLOSE_CODES,
 } from '../utils/constants';
 import type { ApprovalReply, ClientFrame, ServerFrame, WsStatus } from '../types/ws';
@@ -35,6 +38,10 @@ export class WebSocketClient {
   private reconnectAttempt = 0;
   /** 4429 限流独立重试计数（连接成功或手动 retry 时清零）。 */
   private rateLimitRetries = 0;
+  /** 4503 容量满有界重试计数（F3.2，固定 15s 非指数）。 */
+  private capacityRetries = 0;
+  /** 4500 会话不可用有界重试计数（F3.2，覆盖 rehydrate 瞬态竞争）。 */
+  private unavailableRetries = 0;
   private reconnectTimer: number | null = null;
   private heartbeatTimer: number | null = null;
   private missedPongs = 0;
@@ -65,10 +72,12 @@ export class WebSocketClient {
     this.cleanup();
   }
 
-  /** 手动重试（达到最大重连次数后 UI 按钮调用）。 */
+  /** 手动重试（达到最大重连次数后 UI 按钮调用；4430 准入失败后也走此入口）。 */
   retry(): void {
     this.reconnectAttempt = 0;
     this.rateLimitRetries = 0;
+    this.capacityRetries = 0;
+    this.unavailableRetries = 0;
     this.connect();
   }
 
@@ -118,6 +127,8 @@ export class WebSocketClient {
     ws.onopen = () => {
       this.reconnectAttempt = 0;
       this.rateLimitRetries = 0;
+      this.capacityRetries = 0;
+      this.unavailableRetries = 0;
       this.missedPongs = 0;
       this.startHeartbeat();
       // ready 状态在收到 session_ready 帧时上报
@@ -168,6 +179,31 @@ export class WebSocketClient {
         this.rateLimitRetries += 1;
         this.opts.onStatus('rate_limited', { closeCode: code });
         this.scheduleReconnect(RATE_LIMIT_RETRY_DELAY_MS);
+        return;
+      case WS_CLOSE_CODES.QUOTA_EXCEEDED:
+        // 4430 租户并发配额已满：另一会话在跑 turn 或仍被其他窗口连着，
+        // 自动重试只会继续 4430 → 不重连，等待手动重试（F3.2）
+        this.opts.onStatus('quota_exceeded', { closeCode: code });
+        return;
+      case WS_CLOSE_CODES.CAPACITY_FULL:
+        // 4503 节点容量满：固定 15s 有界重试（对齐后端排队超时语义），超限转 failed
+        if (this.capacityRetries >= CAPACITY_MAX_RETRIES) {
+          this.opts.onStatus('failed', { closeCode: code });
+          return;
+        }
+        this.capacityRetries += 1;
+        this.opts.onStatus('reconnecting', { attempt: this.capacityRetries, closeCode: code });
+        this.scheduleReconnect(CAPACITY_RETRY_DELAY_MS);
+        return;
+      case WS_CLOSE_CODES.SERVER_ERROR:
+        // 4500 会话不可用（复活失败/瞬态竞争）：有界 2 次后转 failed（不再无限退避）
+        if (this.unavailableRetries >= UNAVAILABLE_MAX_RETRIES) {
+          this.opts.onStatus('failed', { closeCode: code });
+          return;
+        }
+        this.unavailableRetries += 1;
+        this.opts.onStatus('reconnecting', { attempt: this.unavailableRetries, closeCode: code });
+        this.scheduleReconnect(RECONNECT_BASE_DELAY_MS * 2 ** (this.unavailableRetries - 1));
         return;
       default:
         break;

@@ -5,20 +5,69 @@ import { useAuthStore } from '../store/authStore';
 import type {
   DeleteResponse,
   SessionCreateRequest,
+  SessionListResponse,
   SessionResponse,
+  TurnListResponse,
   TurnResponse,
+  WorkspaceFileListResponse,
 } from '../types/api';
 
 export async function createSession(body: SessionCreateRequest): Promise<SessionResponse> {
   return api.post('v1/sessions', { json: body }).json<SessionResponse>();
 }
 
+/** 服务端权威会话列表（§2.6，limit/offset 分页，按 created_at 倒序）。 */
+export async function listSessions(params?: {
+  limit?: number;
+  offset?: number;
+}): Promise<SessionListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.limit !== undefined) searchParams.set('limit', String(params.limit));
+  if (params?.offset !== undefined) searchParams.set('offset', String(params.offset));
+  return api.get('v1/sessions', { searchParams }).json<SessionListResponse>();
+}
+
 export async function getSession(sid: string): Promise<SessionResponse> {
   return api.get(`v1/sessions/${sid}`).json<SessionResponse>();
 }
 
+/** 轮次历史（§2.7，按 turn_index 升序，after_index 游标分页）。 */
+export async function listTurns(
+  sid: string,
+  params?: { after_index?: number; limit?: number },
+): Promise<TurnListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.after_index !== undefined) searchParams.set('after_index', String(params.after_index));
+  if (params?.limit !== undefined) searchParams.set('limit', String(params.limit));
+  return api.get(`v1/sessions/${sid}/turns`, { searchParams }).json<TurnListResponse>();
+}
+
 export async function closeSession(sid: string): Promise<DeleteResponse> {
   return api.delete(`v1/sessions/${sid}`).json<DeleteResponse>();
+}
+
+/** 工作区文件列表（§2.8，page_token 游标分页 + prefix 前缀过滤，F5.2）。 */
+export async function listWorkspaceFiles(
+  sid: string,
+  params?: { limit?: number; page_token?: string; prefix?: string },
+): Promise<WorkspaceFileListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.limit !== undefined) searchParams.set('limit', String(params.limit));
+  if (params?.page_token) searchParams.set('page_token', params.page_token);
+  if (params?.prefix) searchParams.set('prefix', params.prefix);
+  return api
+    .get(`v1/sessions/${sid}/workspace/files`, { searchParams })
+    .json<WorkspaceFileListResponse>();
+}
+
+/**
+ * 工作区单文件下载直链（F5.4，复用产物直链模式）：path 逐段 encode、
+ * 保留 / 分隔；<a download> 导航由浏览器跟随后端 presigned 302。
+ */
+export function workspaceFileUrl(sid: string, path: string): string {
+  const apiKey = useAuthStore.getState().apiKey ?? '';
+  const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+  return `/v1/sessions/${sid}/workspace/files/${encodedPath}?api_key=${encodeURIComponent(apiKey)}`;
 }
 
 /** REST 兜底提交轮次（WS 不可用时，阻塞直到轮次完成）。 */

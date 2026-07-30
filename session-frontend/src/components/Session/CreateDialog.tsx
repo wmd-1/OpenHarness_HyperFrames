@@ -1,14 +1,20 @@
 // 创建会话对话框（task 7.7）：权限策略选择 + 高级参数（白名单前端校验）。
 // 焦点圈定 + Escape 关闭统一走 useFocusTrap（task 5.10 D5）。
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bot, Loader2, ShieldCheck, X } from 'lucide-react';
 import { createSession } from '../../api/sessions';
-import { errorStatus, extractErrorDetail } from '../../api/client';
+import {
+  errorStatus,
+  extractErrorCode,
+  extractErrorDetail,
+  extractRetryAfter,
+} from '../../api/client';
 import { useSessionStore } from '../../store/sessionStore';
 import { useUiStore } from '../../store/uiStore';
 import type { PermissionPolicy } from '../../types/session';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { requestSessionListRefresh } from '../../hooks/useSessionList';
 import { tokenizeArgs, validateExtraArgs } from '../../utils/sanitize';
 
 const POLICIES: {
@@ -43,14 +49,26 @@ export function CreateDialog() {
   const [argError, setArgError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // 503 容量满：Retry-After 倒计时，归零后重试按钮自动可点（F4）
+  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
 
   const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (retryCountdown === null || retryCountdown <= 0) return;
+    const timer = window.setTimeout(
+      () => setRetryCountdown((v) => (v === null ? null : v - 1)),
+      1000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [retryCountdown]);
 
   const close = () => {
     if (submitting) return;
     setOpen(false);
     setSubmitError(null);
     setArgError(null);
+    setRetryCountdown(null);
   };
 
   // 焦点圈定 + Escape 关闭（D5）
@@ -78,6 +96,7 @@ export function CreateDialog() {
     }
     setSubmitting(true);
     setSubmitError(null);
+    setRetryCountdown(null);
     try {
       const session = await createSession({
         permission_policy: policy,
@@ -87,10 +106,25 @@ export function CreateDialog() {
       selectSession(session.session_id);
       setOpen(false);
       setRawArgs('');
+      // 刷新触发②：创建成功后同步服务端权威列表（F1.3）
+      requestSessionListRefresh();
     } catch (err) {
-      // 429 并发超限：对话框就地提示（全局横幅已在 client.ts 拦截器中抑制，E3）
-      if (errorStatus(err) === 429) {
-        setSubmitError('并发会话数已达上限（最多 8 个），请关闭部分会话后重试');
+      // 容器池四类错误映射（F4）；429/503 全局横幅已在 client.ts 拦截器中抑制，对话框就地提示
+      const status = errorStatus(err);
+      if (status === 429) {
+        // 双语义：频率限流 vs 并发会话配额（detail 文本判定，计划 F4 明确允许）
+        const detail = (await extractErrorDetail(err)) ?? '';
+        setSubmitError(
+          detail.includes('Rate limit')
+            ? '请求过于频繁，请稍后再试'
+            : '并发会话已达上限：当前会话正在执行任务时无法新建，请等待完成或关闭它',
+        );
+      } else if (status === 403 && (await extractErrorCode(err)) === 'daily_quota_exceeded') {
+        setSubmitError('今日会话创建次数已用完（UTC 日重置）');
+      } else if (status === 503) {
+        setSubmitError('服务容量已满');
+        // 无 Retry-After 头时不倒计时，重试按钮立即可点
+        setRetryCountdown(extractRetryAfter(err));
       } else {
         setSubmitError(await extractErrorDetail(err));
       }
@@ -202,11 +236,15 @@ export function CreateDialog() {
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={submitting || !!argError}
+            disabled={submitting || !!argError || (retryCountdown !== null && retryCountdown > 0)}
             className="bg-accent text-accent-fg flex items-center gap-2 rounded-lg px-4 py-2 text-sm disabled:opacity-50"
           >
             {submitting && <Loader2 size={14} className="animate-spin" />}
-            创建
+            {retryCountdown !== null
+              ? retryCountdown > 0
+                ? `重试（${retryCountdown}s）`
+                : '重试'
+              : '创建'}
           </button>
         </div>
       </div>

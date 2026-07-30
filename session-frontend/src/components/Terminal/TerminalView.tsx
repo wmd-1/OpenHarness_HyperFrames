@@ -71,7 +71,7 @@ export function TerminalView({ session, conversation }: TerminalViewProps) {
       <ConfirmDialog
         open={pendingSid !== null}
         title="关闭会话"
-        message="确认关闭当前会话？关闭后不可恢复。"
+        message="确认关闭当前会话？关闭后不可再对话，历史消息与文件仍可查看。"
         confirmLabel="关闭会话"
         onConfirm={confirmClose}
         onCancel={cancelClose}

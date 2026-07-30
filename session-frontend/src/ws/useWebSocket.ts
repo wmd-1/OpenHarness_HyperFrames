@@ -3,16 +3,19 @@
 // （50ms 或 384 字符，design D6）。
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { requestSessionListRefresh } from '../hooks/useSessionList';
 import { useAuthStore } from '../store/authStore';
 import { useConversationStore } from '../store/conversationStore';
 import { useSessionStore } from '../store/sessionStore';
 import { useUiStore } from '../store/uiStore';
 import { useWsStore } from '../store/wsStore';
-import { isSessionTerminal } from '../types/session';
+import { canConnectSession } from '../types/session';
 import type { ApprovalReply, ServerFrame, WsStatus } from '../types/ws';
 import {
   STREAM_FLUSH_CHAR_THRESHOLD,
   STREAM_FLUSH_INTERVAL_MS,
+  WS_ADMISSION_MESSAGES,
+  WS_CLOSE_CODES,
   WS_CLOSE_MESSAGES,
 } from '../utils/constants';
 import { WebSocketClient, type WebSocketClientOptions } from './WebSocketClient';
@@ -71,10 +74,12 @@ export interface UseWebSocketResult {
 
 export function useWebSocket(sessionId: string | null): UseWebSocketResult {
   const apiKey = useAuthStore((s) => s.apiKey);
-  // 终态会话不建连（closed/expired/failed）；状态变终态时自动断开
-  const sessionTerminal = useSessionStore((s) => {
-    const status = sessionId ? s.sessions[sessionId]?.status : undefined;
-    return status ? isSessionTerminal(status) : false;
+  // 建连准入（F1.5）：canConnectSession（resumable=false 或终态回退 → 不建连，
+  // 状态翻转时自动断开）；store 中暂无该会话时按旧行为放行（兼容直连场景）
+  const canConnect = useSessionStore((s) => {
+    if (!sessionId) return false;
+    const session = s.sessions[sessionId];
+    return session ? canConnectSession(session) : true;
   });
   const status = useWsStore((s) => (sessionId ? (s.status[sessionId] ?? 'idle') : 'idle'));
   const reconnectAttempt = useWsStore((s) =>
@@ -84,9 +89,12 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
   const listenersRef = useRef(new Set<(frame: ServerFrame) => void>());
 
   useEffect(() => {
-    if (!sessionId || !apiKey || sessionTerminal) return;
+    if (!sessionId || !apiKey || !canConnect) return;
     const sid = sessionId;
     // 注意：store 动作统一 getState() 现取现用，不在 effect 顶部快照（D6）
+
+    // 同一次准入失败「error 帧 + close 码」只出一条提示（以 error 帧为准，F3.3）
+    let admissionNotified = false;
 
     const streamBuffer = new StreamBuffer((turnIndex, text) => {
       useConversationStore.getState().appendAssistantText(sid, turnIndex, text);
@@ -96,8 +104,16 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
       const conv = useConversationStore.getState();
       useWsStore.getState().markMessage(sid);
       switch (frame.type) {
-        case 'session_ready':
+        case 'session_ready': {
+          // 唤醒/就绪：patch 本地 status→live（仅展示同步，不参与判定，F3.4）；
+          // 触发列表刷新——旧会话可能已让位变 cold（F3.5/F1.3-④）
+          const session = useSessionStore.getState().sessions[sid];
+          if (session && session.status !== 'live') {
+            useSessionStore.getState().patchSession(sid, { status: 'live' });
+          }
+          requestSessionListRefresh();
           break;
+        }
         case 'delta':
           streamBuffer.push(frame.turn_index, frame.text);
           if (frame.final) streamBuffer.flush();
@@ -137,9 +153,10 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
           conv.setTodo(sid, frame.todo_markdown ?? '');
           break;
         case 'approval_request': {
-          // full_auto 策略下忽略审批帧（后端自动处理，spec session-approval）
+          // full_auto 策略下忽略审批帧（后端自动处理，spec session-approval）；
+          // policy 缺失（detail 懒加载未完成，F1.4）时保守按 interactive 处理
           const session = useSessionStore.getState().sessions[sid];
-          if (session?.permission_policy === 'interactive' && frame.modal) {
+          if (session?.permission_policy !== 'full_auto' && frame.modal) {
             conv.setPendingApproval(sid, frame);
           }
           break;
@@ -147,9 +164,19 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
         case 'busy':
           conv.addSystemMessage(sid, 'warning', '当前有轮次正在执行，请等待完成');
           break;
-        case 'error':
-          conv.addSystemMessage(sid, 'error', frame.message);
+        case 'error': {
+          // F3.3 契约优先：按 code 查准入文案映射，message 原文仅入 console 调试；
+          // 命中时打一次性标志，随后的 close 码处理发现已消费则跳过
+          const admissionMsg = frame.code ? WS_ADMISSION_MESSAGES[frame.code] : undefined;
+          if (admissionMsg) {
+            admissionNotified = true;
+            console.warn(`[ws] admission error ${frame.code}:`, frame.message);
+            conv.addSystemMessage(sid, 'error', admissionMsg);
+          } else {
+            conv.addSystemMessage(sid, 'error', frame.message);
+          }
           break;
+        }
         case 'turn_error': {
           streamBuffer.flush();
           conv.addSystemMessage(sid, 'error', frame.message);
@@ -186,6 +213,22 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
         useSessionStore.getState().removeSession(sid);
       } else if (nextStatus === 'rate_limited') {
         useUiStore.getState().showBanner('warning', '连接已被限流，60 秒后自动重试');
+      } else if (nextStatus === 'quota_exceeded') {
+        // 4430：不自动重连；error 帧已出提示则去重（F3.2/F3.3）
+        if (!admissionNotified) {
+          useUiStore.getState().showBanner('warning', WS_ADMISSION_MESSAGES.TENANT_QUOTA_EXCEEDED);
+        }
+        admissionNotified = false;
+      } else if (nextStatus === 'failed' && detail?.closeCode === WS_CLOSE_CODES.CAPACITY_FULL) {
+        if (!admissionNotified) {
+          useUiStore.getState().showBanner('error', '服务容量已满，多次重试仍失败，请稍后再试');
+        }
+        admissionNotified = false;
+      } else if (nextStatus === 'failed' && detail?.closeCode === WS_CLOSE_CODES.SERVER_ERROR) {
+        if (!admissionNotified) {
+          useUiStore.getState().showBanner('error', WS_ADMISSION_MESSAGES.SESSION_UNAVAILABLE);
+        }
+        admissionNotified = false;
       }
     };
 
@@ -205,7 +248,7 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
       clientRef.current = null;
       useWsStore.getState().setStatus(sid, 'idle');
     };
-  }, [sessionId, apiKey, sessionTerminal]);
+  }, [sessionId, apiKey, canConnect]);
 
   const submit = useCallback(
     (text: string): boolean => {

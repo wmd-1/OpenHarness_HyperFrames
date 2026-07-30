@@ -105,6 +105,8 @@ export interface PongFrame {
 export interface ErrorFrame {
   type: 'error';
   message: string;
+  /** 准入失败时携带的 reason 常量（TENANT_QUOTA_EXCEEDED/CAPACITY_FULL/SESSION_UNAVAILABLE），随后 close。 */
+  code?: string;
 }
 
 export interface TurnErrorFrame {
@@ -146,5 +148,7 @@ export type WsStatus =
   | 'session_closed'
   | 'session_not_found'
   | 'rate_limited'
+  /** 4430 租户并发配额已满：不自动重连，等待手动重试。 */
+  | 'quota_exceeded'
   | 'failed'
   | 'closed';

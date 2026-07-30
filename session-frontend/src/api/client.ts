@@ -58,7 +58,10 @@ export const api = ky.create({
             );
           }
         } else if (response.status === 503) {
-          showBanner('fatal', '服务暂不可用，节点容量已满', false);
+          // 创建会话的 503（容量满）由 CreateDialog 就地倒计时重试，抑制全局 fatal 横幅（F4）
+          if (!isCreateSessionRequest(request)) {
+            showBanner('fatal', '服务暂不可用，节点容量已满', false);
+          }
         }
         return response;
       },
@@ -117,4 +120,22 @@ export async function extractErrorDetail(error: unknown): Promise<string | null>
     return text ?? `HTTP ${response.status}`;
   }
   return error instanceof Error ? error.message : null;
+}
+
+/** 从 HTTPError 中提取结构化 detail.code（如 daily_quota_exceeded）；无则 null。 */
+export async function extractErrorCode(error: unknown): Promise<string | null> {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const detail = await readErrorDetail((error as { response: Response }).response);
+    if (detail && typeof detail === 'object') return detail.code ?? null;
+  }
+  return null;
+}
+
+/** 从 HTTPError 响应中提取 Retry-After 等待秒数；无头/非法/非 HTTP 错误返回 null。 */
+export function extractRetryAfter(error: unknown): number | null {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const response = (error as { response: Response }).response;
+    return parseRetryAfter(response.headers.get('Retry-After'));
+  }
+  return null;
 }

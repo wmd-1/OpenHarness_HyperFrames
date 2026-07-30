@@ -2,7 +2,14 @@
 // 验证 401/403（配额 vs 权限）/429/503 分支与结构化 detail 提取。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, extractErrorDetail, NoApiKeyError, parseRetryAfter } from '../client';
+import {
+  api,
+  extractErrorCode,
+  extractErrorDetail,
+  extractRetryAfter,
+  NoApiKeyError,
+  parseRetryAfter,
+} from '../client';
 import { useAuthStore } from '../../store/authStore';
 import { useUiStore } from '../../store/uiStore';
 
@@ -169,5 +176,41 @@ describe('parseRetryAfter', () => {
   it('无法解析时返回 null', () => {
     expect(parseRetryAfter(null)).toBeNull();
     expect(parseRetryAfter('not-a-date')).toBeNull();
+  });
+});
+
+describe('extractRetryAfter', () => {
+  it('从 HTTPError 响应头提取等待秒数', () => {
+    const error = {
+      response: new Response(null, { status: 503, headers: { 'Retry-After': '120' } }),
+    };
+    expect(extractRetryAfter(error)).toBe(120);
+  });
+
+  it('无 Retry-After 头返回 null', () => {
+    const error = { response: new Response(null, { status: 503 }) };
+    expect(extractRetryAfter(error)).toBeNull();
+  });
+
+  it('非 HTTP 错误返回 null', () => {
+    expect(extractRetryAfter(new Error('boom'))).toBeNull();
+    expect(extractRetryAfter(null)).toBeNull();
+  });
+});
+
+describe('extractErrorCode', () => {
+  it('提取结构化 detail 的 code', async () => {
+    const error = {
+      response: jsonResponse(403, {
+        detail: { code: 'daily_quota_exceeded', message: 'quota' },
+      }),
+    };
+    expect(await extractErrorCode(error)).toBe('daily_quota_exceeded');
+  });
+
+  it('纯文本 detail / 非 HTTP 错误返回 null', async () => {
+    const error = { response: jsonResponse(404, { detail: 'not found' }) };
+    expect(await extractErrorCode(error)).toBeNull();
+    expect(await extractErrorCode(new Error('boom'))).toBeNull();
   });
 });
