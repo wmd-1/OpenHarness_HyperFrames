@@ -255,6 +255,24 @@ async def test_concurrent_creates_do_not_oversell_quota(client, monkeypatch):
     assert sorted([r1.status_code, r2.status_code]) == [201, 429]
 
 
+# --- F4: multi-worker startup is refused (in-process singleton state) ---------
+
+
+def test_assert_single_worker_rejects_multi_worker(monkeypatch):
+    from app.main import _assert_single_worker
+
+    monkeypatch.setattr(settings, "api_workers", 2)
+    with pytest.raises(RuntimeError, match="single worker"):
+        _assert_single_worker()
+
+
+def test_assert_single_worker_accepts_one_worker(monkeypatch):
+    from app.main import _assert_single_worker
+
+    monkeypatch.setattr(settings, "api_workers", 1)
+    _assert_single_worker()  # must not raise
+
+
 # --- SS-4: concurrent COLD reconnects trigger exactly one rehydrate ------------
 
 

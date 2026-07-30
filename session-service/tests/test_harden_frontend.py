@@ -132,6 +132,8 @@ async def test_approval_timeout_emits_structured_turn_error(monkeypatch):
     # Denial forwarded to the subprocess so it unblocks.
     assert adapter.calls == [("permission", "r1", False, "reject")]
     assert "r1" not in live._pending_approvals
+    # F6: the fired timeout task removed its own strong reference.
+    assert live._approval_timeout_tasks == {}
     # Synthetic event mapped to a structured turn_error frame.
     ev = adapter.events.get_nowait()
     assert ev.type == "approval_timeout"
@@ -160,6 +162,8 @@ async def test_approval_answered_in_time_emits_no_turn_error(monkeypatch):
     # Only the client's own reply was forwarded; no timeout injection.
     assert adapter.calls == [("permission", "r2", True, "once")]
     assert adapter.events.empty()
+    # F6: respond_approval cancelled the timeout task and dropped its reference.
+    assert live._approval_timeout_tasks == {}
     sup.remove_live_session(live.sid)
 
 

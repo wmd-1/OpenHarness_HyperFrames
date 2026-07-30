@@ -20,17 +20,6 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
-def get_current_tenant_id() -> str:
-    """Return the caller's tenant_id.
-
-    In single-node/open mode (no auth configured) this resolves to ``"default"``.
-    When auth is enabled the ``X-API-Key`` middleware (registered in main.py)
-    stashes the resolved tenant_id on ``request.state.tenant_id``; routers read
-    it from there via :func:`tenant_from_request`.
-    """
-    return "default"
-
-
 def tenant_from_request(request) -> str:
     """Read the tenant_id resolved by the auth middleware, or ``"default``."""
     return getattr(request.state, "tenant_id", "default") or "default"

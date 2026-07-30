@@ -13,6 +13,12 @@ from app.security import vet_extra_oh_args, InvalidOhArgError
 
 # ---- Request ----
 
+# Single source of truth for the max turn-submit text length. Referenced by both
+# the REST schema (below) and the WS submit branch (F5) so the ceiling stays in
+# lock-step across transports. Aligned with the frontend MAX_INPUT_LENGTH.
+MAX_TURN_TEXT_LEN = 32000
+
+
 class SessionCreateRequest(BaseModel):
     permission_policy: str = Field(default="full_auto", pattern="^(full_auto|interactive)$")
     extra_oh_args: list[str] = Field(default_factory=list, max_length=50)
@@ -27,7 +33,7 @@ class SessionCreateRequest(BaseModel):
 
 
 class TurnSubmitRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=32000)
+    text: str = Field(min_length=1, max_length=MAX_TURN_TEXT_LEN)
 
 
 class ApprovalRequest(BaseModel):

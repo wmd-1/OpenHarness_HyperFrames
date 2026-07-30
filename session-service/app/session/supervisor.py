@@ -99,6 +99,10 @@ class LiveSession:
 
         # Interactive approvals: request_id -> future awaiting client reply.
         self._pending_approvals: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        # Auto-deny timeout task per pending approval (F6): kept referenced so
+        # it is not GC'd mid-flight and can be cancelled once the approval is
+        # answered or the session tears down.
+        self._approval_timeout_tasks: dict[str, asyncio.Task[None]] = {}
 
         # WS connection tracking (for idle eviction).
         self.ws_connections: set[Any] = set()
@@ -705,7 +709,8 @@ class SessionSupervisor:
                             live.adapter.events.get(), timeout=timeout
                         )
                     except asyncio.TimeoutError:
-                        await live.process.kill_group() if live.process else None
+                        if live.process:
+                            await live.process.kill_group()
                         await self._finalize_turn(live, turn, db, TurnStatus.TIMED_OUT, "turn timed out")
                         yield {"type": "turn_error", "message": "turn timed out"}
                         return
@@ -822,14 +827,27 @@ class SessionSupervisor:
                             )
                     except Exception:
                         log.warning("approval timeout forwarding failed (sid=%s)", live.sid)
-        asyncio.create_task(_timeout())
+            except asyncio.CancelledError:
+                # Answered in time (respond_approval cancelled us) or session
+                # teardown — nothing to auto-deny.
+                pass
+            finally:
+                live._approval_timeout_tasks.pop(rid, None)
+        live._approval_timeout_tasks[rid] = asyncio.create_task(_timeout())
 
     async def respond_approval(
         self, sid: uuid.UUID | str, request_id: str, *, allowed: bool, reply: str | None = None, answer: str | None = None
     ) -> None:
         live = self.get(sid)
         fut = live._pending_approvals.pop(request_id, None)
-        assert live.adapter is not None
+        # F6: answered in time -> cancel the pending auto-deny timeout task.
+        timeout_task = live._approval_timeout_tasks.pop(request_id, None)
+        if timeout_task is not None and not timeout_task.done():
+            timeout_task.cancel()
+        # F7: adapter may be absent if the backend is not attached; an assert
+        # would be stripped under python -O, so check explicitly.
+        if live.adapter is None:
+            raise SessionNotFound(sid)
         modal_kind = None
         if fut is not None and not fut.done():
             fut.set_result({"allowed": allowed, "reply": reply, "answer": answer})
@@ -1036,6 +1054,12 @@ class SessionSupervisor:
                 except (asyncio.CancelledError, Exception):
                     pass
                 setattr(live, task_attr, None)
+        # F6: cancel any outstanding approval auto-deny timers so they don't
+        # linger for the full approval_timeout after the session is torn down.
+        for _rid, timeout_task in list(live._approval_timeout_tasks.items()):
+            if not timeout_task.done():
+                timeout_task.cancel()
+        live._approval_timeout_tasks.clear()
         if live.adapter is not None:
             await live.adapter.stop()
             live.adapter = None

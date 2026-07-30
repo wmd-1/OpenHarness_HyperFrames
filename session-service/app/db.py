@@ -32,11 +32,17 @@ def reconfigure(new_engine: AsyncEngine, new_factory: async_sessionmaker[AsyncSe
 
     global engine, async_session
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
+        # L2: asyncio.get_event_loop() is deprecated when there is no running
+        # loop. Detect a running loop explicitly and fall back to asyncio.run
+        # for the sync (no-loop) call path used by tests.
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None and loop.is_running():
             loop.create_task(engine.dispose())
         else:
-            loop.run_until_complete(engine.dispose())
+            asyncio.run(engine.dispose())
     except Exception:
         pass
     engine = new_engine

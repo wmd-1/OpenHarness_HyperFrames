@@ -25,6 +25,7 @@ from app import db
 from app.models import Conversation, ConversationTurn, SessionStatus, TurnArtifact, TurnStatus
 from app.ratelimit import _client_ip, check_rate_limit
 from app.security import resolve_tenant
+from app.schemas import MAX_TURN_TEXT_LEN
 from app.session.pool import (
     PoolAdmissionError,
     QueueFullError,
@@ -89,6 +90,20 @@ async def _close_admission_failure(
     await websocket.close(code=_ADMISSION_CLOSE_CODES[reason], reason=reason)
 
 
+def _ws_provided_key(websocket: WebSocket) -> str:
+    """Extract the raw credential the client presented on the WS handshake.
+
+    The key may arrive as a header or a ``?api_key=`` query param (browsers
+    cannot set headers on WS handshakes). Returned verbatim so it can be both
+    resolved locally and forwarded unchanged when proxying to the owner node.
+    """
+    return (
+        websocket.headers.get("X-API-Key")
+        or websocket.query_params.get("api_key")
+        or ""
+    )
+
+
 async def _ws_authed(websocket: WebSocket) -> tuple[bool, str, str | None]:
     """Resolve auth before accept. Returns (ok, tenant_id, actor_key_id).
 
@@ -97,11 +112,7 @@ async def _ws_authed(websocket: WebSocket) -> tuple[bool, str, str | None]:
     arrive as a header or a ``?api_key=`` query param (browsers cannot set
     headers on WS handshakes).
     """
-    provided = (
-        websocket.headers.get("X-API-Key")
-        or websocket.query_params.get("api_key")
-        or ""
-    )
+    provided = _ws_provided_key(websocket)
     resolved = await resolve_tenant(provided or None)
     if resolved is None:
         return False, "", None
@@ -166,7 +177,13 @@ async def session_ws(
     # process, transparently reverse-proxy the WS there (no client redirect).
     from app.session.proxy import proxy_ws
 
-    if await proxy_ws(websocket, sid, websocket.url.path, websocket.url.query):
+    if await proxy_ws(
+        websocket,
+        sid,
+        websocket.url.path,
+        websocket.url.query,
+        client_api_key=_ws_provided_key(websocket) or None,
+    ):
         return  # proxied to the owning node — nothing more to do here.
 
     # Load + tenant-check the session before accepting.
@@ -308,6 +325,19 @@ async def session_ws(
             if op == "submit":
                 text = msg.get("text", "")
                 if not text:
+                    continue
+                # F5: enforce the same ceiling as the REST schema so a WS
+                # submit cannot bypass TurnSubmitRequest's max_length. Reject
+                # with an error frame without dropping the connection or
+                # starting a turn.
+                if len(text) > MAX_TURN_TEXT_LEN:
+                    await _safe_send({
+                        "type": "error",
+                        "code": "text_too_long",
+                        "message": (
+                            f"text exceeds {MAX_TURN_TEXT_LEN} characters"
+                        ),
+                    })
                     continue
                 if turn_task is not None and not turn_task.done():
                     # Single-writer: reject concurrent submit with a busy frame.

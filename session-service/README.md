@@ -97,6 +97,30 @@ docker compose up
   `--backend-only` are always injected by the server; caller-supplied
   `extra_oh_args` are allowlist- and value-validated (422 on violation).
 
+## Production deployment notes (security)
+
+- **Enable auth in production**: the service defaults to *open mode* (no
+  auth) for local development. Set `OH_API_KEY=<random secret>` and
+  `OH_REQUIRE_AUTH=true` (both forwarded by `docker-compose.yml`) before
+  exposing the service beyond localhost. With auth enabled, only the GET
+  download endpoints (turn artifact + workspace file) accept `?api_key=` as
+  a fallback for `<a>`/`<video>` elements; everything else is header-only
+  (`X-API-Key`).
+- **Single worker per process — always**: `SessionSupervisor` /
+  `ContainerPool` / `SessionRegistry` are in-process singletons holding live
+  subprocess handles, the admission queue and approval futures. The service
+  fail-fasts at startup if `OH_API_WORKERS != 1`. Scale horizontally by
+  running more *nodes* (`OH_NODE_ID` + Redis routing table), never more
+  uvicorn workers.
+- **Multi-node proxying is plaintext `ws://`**: the transparent WS
+  reverse-proxy between gateway nodes (`app/session/proxy.py`) forwards the
+  client's `X-API-Key` over unencrypted `ws://` to the owning node. Node-to-
+  node traffic MUST stay on a trusted/encrypted internal network (compose
+  network, VPC, WireGuard/mTLS mesh) — never across the public internet.
+- **Port binding**: compose publishes the gateway as `127.0.0.1:8001` only;
+  external clients go through the nginx front (`web/`), which also
+  terminates TLS and upgrades the WS handshake.
+
 ## Multi-tenant auth & data isolation (WS-A / WS-B)
 
 - **Multi-key auth (WS-A)**: besides the legacy single `OH_API_KEY` (tenant

@@ -57,7 +57,7 @@ from app.schemas import (
 from app.session import tenant_store, workspace_store
 from app.session.lifecycle import SessionState
 from app.session.pool import PoolAdmissionError, TenantQuotaExceeded
-from app.session.supervisor import CapacityFullError, SessionBusy, SessionNotFound, get_supervisor
+from app.session.supervisor import CapacityFullError, SessionNotFound, get_supervisor
 from app.session.tenant_store import TenantStoreError
 from app.storage.s3 import storage_for_kind
 
@@ -564,7 +564,7 @@ async def list_workspace_files(
     if cwd is not None:
         # Same view as archiving would produce (ignore rules + sidecar
         # excluded, symlinks skipped).
-        stats = await run_in_threadpool(workspace_store._scan_local, cwd)
+        stats = await run_in_threadpool(workspace_store.scan_local, cwd)
         entries = [
             WorkspaceFileEntry(path=p, size=st.st_size, mtime=st.st_mtime)
             for p, st in stats.items()
@@ -644,7 +644,7 @@ async def download_workspace_file(
 
     if cwd is not None:
         # Resolves symlink escapes on top of the raw traversal check above.
-        local = workspace_store._safe_local_path(cwd, path)
+        local = workspace_store.safe_local_path(cwd, path)
         if local is None:
             raise HTTPException(status_code=400, detail="Invalid path")
         if local.is_symlink() or not local.is_file():

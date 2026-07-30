@@ -154,6 +154,16 @@ def _reset_apikey_cache():
     reset_apikey_cache()
 
 
+@pytest.fixture(autouse=True)
+def _reset_health_probe_cache():
+    """Drop the health probe TTL cache between tests (F10)."""
+    from app.routers import health
+
+    health._probe_cache.clear()
+    yield
+    health._probe_cache.clear()
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def _reset_supervisor():
     """Clear the supervisor registry between tests (async — can await teardown)."""

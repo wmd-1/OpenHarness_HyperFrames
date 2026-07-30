@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 
 _ROUTE_PREFIX = "session:route:"
 _LOCK_PREFIX = "session:lock:"
+_EPOCH_PREFIX = "session:epoch:"
 
 # Atomic GET + compare + DEL — releases the lock only if we still hold it
 # (SS-7): a non-atomic GET/compare/DELETE could delete another holder's lock
@@ -92,6 +93,10 @@ def _lock_key(sid: str) -> str:
     return f"{_LOCK_PREFIX}{sid}"
 
 
+def _epoch_key(sid: str) -> str:
+    return f"{_EPOCH_PREFIX}{sid}"
+
+
 def _node_id() -> str:
     return settings.node_id or "local"
 
@@ -126,7 +131,9 @@ async def get_route(sid: str) -> RouteEntry | None:
 async def clear_route(sid: str) -> None:
     try:
         r = await _client()
-        await r.delete(_route_key(sid))
+        # Drop the route and the per-session epoch counter together so a fully
+        # closed session starts fresh on any future (re)creation.
+        await r.delete(_route_key(sid), _epoch_key(sid))
     except Exception:
         pass
 
@@ -163,5 +170,28 @@ async def release_lock(sid: str, holder: str) -> None:
 
 
 async def next_epoch(sid: str) -> int:
-    """Return a monotonically increasing epoch for ``sid`` (time-based)."""
-    return int(time.time() * 1000)
+    """Return a strictly monotonically increasing epoch for ``sid``.
+
+    Uses a per-session Redis counter (``INCR session:epoch:<sid>``) so successive
+    rehydrations always get a strictly greater fencing token — even within the
+    same millisecond or across a backwards clock jump, both of which the former
+    time-based scheme could tie or regress on. The counter is seeded once
+    (``SET NX``) to ``max(now_ms, existing route epoch)`` so it never regresses
+    below a legacy time-based epoch already published for this session; the
+    first ``INCR`` then yields a value strictly greater than that seed.
+
+    Falls back to the time-based value when Redis is unavailable (single-node
+    degrades gracefully, matching the rest of this module).
+    """
+    try:
+        r = await _client()
+        seed = int(time.time() * 1000)
+        existing = await get_route(sid)
+        if existing is not None and existing.epoch >= seed:
+            # Don't regress below a legacy timestamp epoch still in the table.
+            seed = existing.epoch
+        await r.set(_epoch_key(sid), seed, nx=True)
+        return int(await r.incr(_epoch_key(sid)))
+    except Exception as exc:
+        log.debug("next_epoch fallback (sid=%s): %s", sid, exc)
+        return int(time.time() * 1000)

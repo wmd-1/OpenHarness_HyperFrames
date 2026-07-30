@@ -51,11 +51,21 @@ def _ws_target_url(node_id: str, path: str, query: str) -> str | None:
     return f"ws://{host}:{port}{path}{qs}"
 
 
-async def proxy_ws(websocket: WebSocket, sid: str, path: str, query: str) -> bool:
+async def proxy_ws(
+    websocket: WebSocket,
+    sid: str,
+    path: str,
+    query: str,
+    client_api_key: str | None = None,
+) -> bool:
     """Transparently proxy an inbound WS to the owning node.
 
     Returns True if proxied (the caller must not handle the connection further),
     False if the session is owned locally (caller proceeds normally).
+
+    ``client_api_key`` is the credential the connecting client presented (header
+    or ?api_key=). It is forwarded verbatim so the owning node authenticates the
+    *client's* tenant, not this proxy node's legacy single key (F2).
     """
     route = await get_route(sid)
     if route is None:
@@ -71,10 +81,12 @@ async def proxy_ws(websocket: WebSocket, sid: str, path: str, query: str) -> boo
 
     await websocket.accept()
     try:
-        # Forward the API key so the owner can authenticate the proxied client.
+        # Forward the connecting client's own credential so the owner
+        # authenticates the client's tenant (F2). In open mode the client sends
+        # nothing and we forward no header.
         headers = {}
-        if settings.api_key is not None:
-            headers["X-API-Key"] = settings.api_key.get_secret_value()
+        if client_api_key:
+            headers["X-API-Key"] = client_api_key
         async with websockets.connect(target, additional_headers=headers) as upstream:
             async def _client_to_upstream():
                 try:

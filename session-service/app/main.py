@@ -65,8 +65,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=bool(_cors_origins),
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Narrowed to the methods/headers the frontend actually uses (F11): GET /
+    # POST / DELETE plus the CORS preflight OPTIONS; only X-API-Key and
+    # Content-Type are ever sent by the client.
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["X-API-Key", "Content-Type"],
 )
 
 
@@ -78,11 +81,40 @@ def _assert_auth_config() -> None:
         )
 
 
-_assert_auth_config()
+def _assert_single_worker() -> None:
+    # SessionSupervisor / ContainerPool / SessionRegistry are in-process
+    # singletons holding live-session state, the admission queue and approval
+    # futures. Running multiple workers in one process would fork this state and
+    # corrupt scheduling. Scale horizontally via multi-node affinity
+    # (OH_NODE_ID + Redis routing table), never OH_API_WORKERS > 1.
+    if settings.api_workers != 1:
+        raise RuntimeError(
+            f"api_workers={settings.api_workers} but the session service holds "
+            "in-process singleton state and MUST run with a single worker; "
+            "scale out via multi-node affinity (OH_NODE_ID + Redis routing), "
+            "not OH_API_WORKERS > 1"
+        )
 
-# A2: only the artifact GET may authenticate via ?api_key= (media elements
+
+_assert_auth_config()
+_assert_single_worker()
+
+# A2: only download GETs may authenticate via ?api_key= (media/anchor elements
 # cannot set request headers). Every other REST path stays header-only.
+# F1: workspace file downloads are surfaced by the frontend as ?api_key= direct
+# links too, so they must join the artifact GET on the query-param allowlist —
+# otherwise enabling auth breaks workspace downloads with a 401.
 _ARTIFACT_PATH_RE = re.compile(r"^/v1/sessions/[0-9a-fA-F-]+/turns/\d+/artifact$")
+_WORKSPACE_FILE_PATH_RE = re.compile(
+    r"^/v1/sessions/[0-9a-fA-F-]+/workspace/files/.+$"
+)
+
+
+def _is_query_param_auth_path(method: str, path: str) -> bool:
+    """Only GET download endpoints may fall back to ?api_key= auth."""
+    if method != "GET":
+        return False
+    return bool(_ARTIFACT_PATH_RE.match(path) or _WORKSPACE_FILE_PATH_RE.match(path))
 
 
 # Unified auth middleware (WS-A): every request goes through resolve_tenant
@@ -94,10 +126,8 @@ async def api_key_middleware(request: Request, call_next):
     if request.url.path in ("/healthz", "/readyz", "/metrics"):
         return await call_next(request)
     provided = request.headers.get("X-API-Key", "")
-    if (
-        not provided
-        and request.method == "GET"
-        and _ARTIFACT_PATH_RE.match(request.url.path)
+    if not provided and _is_query_param_auth_path(
+        request.method, request.url.path
     ):
         provided = request.query_params.get("api_key", "")
     resolved = await resolve_tenant(provided or None)

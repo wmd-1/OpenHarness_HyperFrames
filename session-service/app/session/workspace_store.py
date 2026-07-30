@@ -166,6 +166,13 @@ def _scan_local(cwd: Path) -> dict[str, os.stat_result]:
     return out
 
 
+# F8: public API for cross-module callers (the sessions router). The
+# underscore-prefixed originals stay for in-module use; these aliases avoid
+# routers reaching into private names.
+safe_local_path = _safe_local_path
+scan_local = _scan_local
+
+
 def _read_sidecar(cwd: Path) -> int | None:
     """The node's observed manifest baseline (``base_sync_seq``), if any."""
     try:

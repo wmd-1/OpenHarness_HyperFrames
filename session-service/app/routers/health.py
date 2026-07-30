@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import text
@@ -21,28 +22,52 @@ from app.session.supervisor import get_supervisor
 
 router = APIRouter(tags=["health"])
 
+# F10: cache the dependency probe results for a short window so frequent
+# liveness/readiness polling (k8s/compose, often 1-2s) does not open a fresh DB
+# connection + Redis socket on every hit. Single-threaded asyncio, so a plain
+# dict without a lock is sufficient; a rare concurrent double-probe on expiry is
+# harmless. Semantics and response bodies are unchanged (healthz stays 200).
+_PROBE_TTL_SECONDS = 5.0
+_probe_cache: dict[str, tuple[float, bool]] = {}
+
+
+async def _cached_probe(name: str, probe) -> bool:
+    now = time.monotonic()
+    cached = _probe_cache.get(name)
+    if cached is not None and (now - cached[0]) < _PROBE_TTL_SECONDS:
+        return cached[1]
+    ok = await probe()
+    _probe_cache[name] = (time.monotonic(), ok)
+    return ok
+
 
 async def _db_ok() -> bool:
-    try:
-        async with db.engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-        return True
-    except Exception:
-        return False
+    async def _probe() -> bool:
+        try:
+            async with db.engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            return True
+        except Exception:
+            return False
+
+    return await _cached_probe("db", _probe)
 
 
 async def _redis_ok() -> bool:
-    try:
-        import redis.asyncio as aioredis
-
-        r = aioredis.from_url(settings.broker_url, socket_timeout=2, socket_connect_timeout=2)
+    async def _probe() -> bool:
         try:
-            await asyncio.wait_for(r.ping(), timeout=2.0)
-            return True
-        finally:
-            await r.aclose()
-    except Exception:
-        return False
+            import redis.asyncio as aioredis
+
+            r = aioredis.from_url(settings.broker_url, socket_timeout=2, socket_connect_timeout=2)
+            try:
+                await asyncio.wait_for(r.ping(), timeout=2.0)
+                return True
+            finally:
+                await r.aclose()
+        except Exception:
+            return False
+
+    return await _cached_probe("redis", _probe)
 
 
 @router.get("/healthz", response_model=HealthResponse)

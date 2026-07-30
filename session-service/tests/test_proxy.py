@@ -101,14 +101,12 @@ async def test_proxy_ws_remote_owner_unreachable_closes_4502(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_proxy_ws_forwards_api_key_header(monkeypatch):
-    """The gateway forwards X-API-Key so the owner can authenticate the client."""
-    from pydantic import SecretStr
-
+async def test_proxy_ws_forwards_client_api_key_header(monkeypatch):
+    """The gateway forwards the *client's* X-API-Key so the owner can
+    authenticate the client's tenant (F2) — never this node's own key."""
     r = await registry._client()
     entry = RouteEntry(node_id="other-node", pid=42, epoch=1)
     await r.set(registry._route_key("sid-auth"), entry.to_json())
-    monkeypatch.setattr(settings, "api_key", SecretStr("sk-proxy-secret"))
 
     captured: dict = {}
 
@@ -119,8 +117,14 @@ async def test_proxy_ws_forwards_api_key_header(monkeypatch):
 
     monkeypatch.setattr(proxy.websockets, "connect", _capture_connect)
     ws = FakeWebSocket()
-    proxied = await proxy.proxy_ws(ws, "sid-auth", "/v1/sessions/sid-auth/ws", "q=1")
+    proxied = await proxy.proxy_ws(
+        ws,
+        "sid-auth",
+        "/v1/sessions/sid-auth/ws",
+        "q=1",
+        client_api_key="sk-client-cred",
+    )
     assert proxied is True
     assert captured["target"].startswith("ws://other-node:")
     assert captured["target"].endswith("/v1/sessions/sid-auth/ws?q=1")
-    assert captured["headers"] == {"X-API-Key": "sk-proxy-secret"}
+    assert captured["headers"] == {"X-API-Key": "sk-client-cred"}
