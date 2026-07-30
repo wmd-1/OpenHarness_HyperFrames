@@ -40,6 +40,11 @@ export interface DeltaFrame {
   text: string;
   turn_index: number;
   final?: boolean;
+  /**
+   * assistant_complete 兼容 envelope（P0-1）：final 帧携带权威全文，
+   * 语义是「整体覆盖」而非再追加一段 delta；旧后端无此字段。
+   */
+  full_text?: string;
 }
 
 export interface TurnCompleteFrame {

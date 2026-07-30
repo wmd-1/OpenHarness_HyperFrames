@@ -13,6 +13,21 @@ async def test_healthz_200(client):
 
 
 @pytest.mark.asyncio
+async def test_healthz_observability_fields(client):
+    """P1-3: healthz exposes version (pyproject source of truth), oh_bin, runtime."""
+    from app.config import settings
+
+    resp = await client.get("/healthz")
+    assert resp.status_code == 200
+    data = resp.json()
+    # version comes from pyproject.toml and must never be empty/unknown here
+    # (the source tree is present in the test image).
+    assert data["version"] not in ("", "unknown")
+    assert data["oh_bin"] == settings.oh_bin
+    assert data["runtime"] == settings.session_runtime
+
+
+@pytest.mark.asyncio
 async def test_readyz_200_when_healthy(client):
     resp = await client.get("/readyz")
     assert resp.status_code == 200

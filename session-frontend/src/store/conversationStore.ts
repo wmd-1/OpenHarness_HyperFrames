@@ -40,6 +40,8 @@ interface ConversationStoreState {
   addUserMessage: (sid: string, text: string) => void;
   /** 追加流式文本到当前轮次的助手消息（无则创建）。 */
   appendAssistantText: (sid: string, turnIndex: number, text: string) => void;
+  /** 用权威全文整体替换当前轮次助手消息（assistant_complete 覆盖语义，P0-1）。 */
+  replaceAssistantText: (sid: string, turnIndex: number, text: string) => void;
   /** 轮次完成：结束流式状态；replayed 补发时若无消息则用 assistant_text 创建。 */
   completeTurn: (
     sid: string,
@@ -102,6 +104,31 @@ export const useConversationStore = create<ConversationStoreState>((set) => ({
           const m = messages[i];
           if (m.kind === 'assistant' && m.turnIndex === turnIndex && m.streaming) {
             messages[i] = { ...m, text: m.text + text };
+            return { ...conv, messages, turnActive: true };
+          }
+        }
+        messages.push({
+          kind: 'assistant',
+          id: nextMessageId(),
+          text,
+          streaming: true,
+          hasArtifact: false,
+          turnIndex,
+          createdAt: Date.now(),
+        });
+        return { ...conv, messages, turnActive: true };
+      }),
+    ),
+
+  // assistant_complete 最终覆盖：全文替换而非拼接，抗 WS 丢帧/重发重复
+  replaceAssistantText: (sid, turnIndex, text) =>
+    set((state) =>
+      withConversation(state, sid, (conv) => {
+        const messages = [...conv.messages];
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const m = messages[i];
+          if (m.kind === 'assistant' && m.turnIndex === turnIndex && m.streaming) {
+            messages[i] = { ...m, text };
             return { ...conv, messages, turnActive: true };
           }
         }

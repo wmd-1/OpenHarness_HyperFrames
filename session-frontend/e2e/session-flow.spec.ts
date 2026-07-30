@@ -32,6 +32,9 @@ test('完整对话流程：认证 → 创建会话 → 流式回复', async ({ p
   // 用户消息与流式回显都渲染
   await expect(page.getByText('你好', { exact: true })).toBeVisible();
   await expect(page.getByText('Echo: 你好')).toBeVisible({ timeout: 10_000 });
+  // P0-1：final envelope 覆盖语义——气泡文本恰为单份全文，无重复拼接
+  await expect(page.getByText('Echo: 你好Echo: 你好')).toHaveCount(0);
+  await expect(page.getByText('Echo: 你好')).toHaveCount(1);
 
   // 第二轮对话（轮次递增）
   await sendMessage(page, '继续');

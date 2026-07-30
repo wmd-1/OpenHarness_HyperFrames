@@ -26,6 +26,14 @@ ARG PW_CHROMIUM_PATH=/opt/chrome-headless-shell-linux64/chrome-headless-shell
 # ---- Stage: build the SPA ---------------------------------------------------
 FROM node:22-alpine AS build
 
+# Version stamp build args (P1-3). APP_VERSION's source of truth is
+# package.json `version` (used when the arg is left empty); GIT_SHA/BUILD_TIME
+# default to "unknown" so a plain local build still emits a complete
+# version.json. The e2e pipeline passes real values (git rev-parse / date -u).
+ARG APP_VERSION=
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=unknown
+
 WORKDIR /app
 
 # Install deps first for better layer caching. `npm ci` needs a lockfile;
@@ -36,6 +44,10 @@ RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 # Copy the rest of the source and build.
 COPY . .
 RUN npm run build
+
+# Emit dist/version.json for runtime version probing (nginx serves it with
+# Cache-Control: no-store, see nginx.conf.template).
+RUN node -e "const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));const out={version:process.env.APP_VERSION||pkg.version||'unknown',git_sha:process.env.GIT_SHA||'unknown',build_time:process.env.BUILD_TIME||'unknown'};fs.writeFileSync('dist/version.json',JSON.stringify(out)+'\n');console.log('version.json:',JSON.stringify(out))"
 
 # ---- Stage: test (lint + unit/integration tests, run INSIDE the image) ------
 # All tests are image-based: `docker build --target test .` executes the full

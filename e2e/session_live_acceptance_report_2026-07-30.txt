@@ -1,0 +1,58 @@
+Session live-acceptance 2026-07-30T13:08:24Z
+healthz: {"status":"ok","db":"ok","redis":"ok","version":"0.1.0","oh_bin":"/opt/oh-session-service/scripts/oh_backend_stub.py","runtime":"process"}
+tenants: acceptance-a-1785416904-12648 / acceptance-b-1785416904-12648 (keys issued)
+-- rest.sh against http://127.0.0.1:8001 --
+PASS: no-key list rejected 401
+PASS: create session 201
+PASS: create response carries session_id (0be47748-8d81-47c7-892d-6cc748e1348c)
+PASS: second concurrent create -> 429
+PASS: REST turn 200
+PASS: turn status completed
+PASS: turn has_artifact true
+PASS: assistant_text carries the stub reply exactly once
+PASS: list sessions 200
+PASS: list contains the new session
+PASS: turns list 200
+PASS: turns list has turn_index 0
+PASS: artifact download 200
+PASS: artifact content-type video/mp4
+PASS: artifact Range bytes=0-99 -> 206
+PASS: workspace traversal ..%2f -> 400
+PASS: workspace absolute path -> 400
+PASS: nonexistent session -> 404
+PASS: empty turn text -> 422
+PASS: tenant B reads tenant A session -> 404
+PASS: tenant B list 200
+PASS: tenant B list hides tenant A session
+PASS: DELETE session 200
+PASS: DELETE leaves session closed
+== rest.sh: 24 passed, 0 failed, 0 warned ==
+-- ws.sh against http://127.0.0.1:8001 (driver: docker compose -f docker-compose.yml -f docker-compose.stub.yml exec -T session) --
+PASS: ws lifecycle: create session 201
+PASS: WS turn #1 driver exit code
+PASS: WS turn #1 yields turn_complete
+PASS: session evicted to cold after idle grace
+PASS: cold workspace files 200
+PASS: cold workspace files source=archive
+PASS: WS turn #2 (resume from cold) driver exit code
+PASS: WS turn #2 yields turn_complete
+PASS: turn_count continuous after resume (=2)
+PASS: DELETE session 200
+PASS: DELETE leaves session closed
+PASS: turns readable after close
+PASS: closed history keeps both turns
+== ws.sh: 13 passed, 0 failed, 0 warned ==
+-- frontend.sh against http://127.0.0.1:5174 --
+PASS: frontend / returns 200
+PASS: frontend / serves the SPA shell
+PASS: frontend /healthz proxied 200
+PASS: frontend /healthz reports backend status
+PASS: version.json has field version
+PASS: version.json has field git_sha
+PASS: version.json has field build_time
+PASS: version.json Cache-Control: no-store
+== frontend.sh: 8 passed, 0 failed, 0 warned ==
+== overall ==
+  rest: PASS
+  ws: PASS
+  frontend: PASS

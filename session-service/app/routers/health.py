@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import text
@@ -21,6 +22,26 @@ from app.schemas import HealthResponse, ReadyResponse
 from app.session.supervisor import get_supervisor
 
 router = APIRouter(tags=["health"])
+
+
+def _service_version() -> str:
+    """Service version, source of truth = pyproject.toml [project].version.
+
+    Read from the mounted source tree (the wheel is not installed in the
+    image), so a version bump lands without rebuilding. Fail-soft to
+    "unknown" rather than breaking the liveness probe.
+    """
+    try:
+        import tomllib
+
+        pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+        with pyproject.open("rb") as f:
+            return str(tomllib.load(f)["project"]["version"])
+    except Exception:
+        return "unknown"
+
+
+_SERVICE_VERSION = _service_version()
 
 # F10: cache the dependency probe results for a short window so frequent
 # liveness/readiness polling (k8s/compose, often 1-2s) does not open a fresh DB
@@ -76,7 +97,14 @@ async def health_check() -> HealthResponse:
     db_status = "ok" if await _db_ok() else "error"
     redis_status = "ok" if await _redis_ok() else "error"
     overall = "ok" if (db_status == "ok" and redis_status == "ok") else "degraded"
-    return HealthResponse(status=overall, db=db_status, redis=redis_status)
+    return HealthResponse(
+        status=overall,
+        db=db_status,
+        redis=redis_status,
+        version=_SERVICE_VERSION,
+        oh_bin=settings.oh_bin,
+        runtime=settings.session_runtime,
+    )
 
 
 @router.get("/readyz", response_model=ReadyResponse)

@@ -46,6 +46,8 @@ export class TerminalBridge {
   private draftBeforeHistory = '';
   /** 轮次执行中（禁用输入提交，仅允许 Ctrl+C/Escape）。 */
   private busy = false;
+  /** 本轮已写入终端的 delta 累计文本（final full_text 补齐/重放判定用，P0-1）。 */
+  private turnBuf = '';
   private disposed = false;
 
   constructor(term: Terminal, cb: TerminalBridgeCallbacks) {
@@ -70,11 +72,27 @@ export class TerminalBridge {
         break;
       case 'delta':
         this.busy = true;
-        // delta 文本剥离危险控制序列后输出（B2），\n → \r\n
-        this.term.write(sanitizeAnsi(frame.text).replace(/\n/g, '\r\n'));
+        if (frame.final && frame.full_text != null) {
+          // 最终覆盖 envelope：不能忽略 full_text，否则 WS 丢帧会让终端内容缺尾
+          if (frame.full_text.startsWith(this.turnBuf)) {
+            // 已写内容是全文前缀：只补写缺失尾部（无丢帧时尾部为空，零重复）
+            const missing = frame.full_text.slice(this.turnBuf.length);
+            if (missing) this.term.write(sanitizeAnsi(missing).replace(/\n/g, '\r\n'));
+          } else {
+            // 乱序/不一致：xterm 无法回擦滚动区，标注后重放全文（确定性纠正）
+            this.printLine(`${DIM}[resync]${RESET}`);
+            this.term.write(sanitizeAnsi(frame.full_text).replace(/\n/g, '\r\n'));
+          }
+          this.turnBuf = '';
+        } else {
+          // delta 文本剥离危险控制序列后输出（B2），\n → \r\n
+          this.turnBuf += frame.text;
+          this.term.write(sanitizeAnsi(frame.text).replace(/\n/g, '\r\n'));
+        }
         break;
       case 'turn_complete':
         this.busy = false;
+        this.turnBuf = '';
         if (frame.replayed && frame.assistant_text) {
           this.printLine(`${DIM}[补发轮次 ${frame.turn_index}]${RESET}`);
           this.printLine(frame.assistant_text);
@@ -110,6 +128,7 @@ export class TerminalBridge {
       case 'error':
       case 'turn_error':
         this.busy = false;
+        this.turnBuf = '';
         this.printLine(`${RED}[错误] ${frame.message}${RESET}`);
         this.drawPrompt();
         break;

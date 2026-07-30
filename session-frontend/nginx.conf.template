@@ -46,6 +46,20 @@ server {
     add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
   }
 
+  # Version probe (P1-3): must NEVER be cached, so operators/scripts always
+  # see the running build's stamp (no-store beats no-cache: no conditional
+  # revalidation, no stale copy at any layer). Security headers repeated for
+  # the same reason as /index.html above.
+  location = /version.json {
+    add_header Cache-Control "no-store";
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+    add_header X-XSS-Protection "0" always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+  }
+
   # Hashed build assets are immutable -> long-lived cache.
   location /assets/ {
     add_header Cache-Control "public, max-age=31536000, immutable";

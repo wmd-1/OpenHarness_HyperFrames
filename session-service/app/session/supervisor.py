@@ -759,8 +759,20 @@ class SessionSupervisor:
             live._assistant_buf.append(event.message or "")
             return {"type": "delta", "text": event.message or "", "turn_index": turn_index}
         if t == "assistant_complete":
-            live._assistant_buf.append(event.message or "")
-            return {"type": "delta", "text": event.message or "", "turn_index": turn_index, "final": True}
+            # Authoritative final overwrite (protocol.py contract): the complete
+            # message REPLACES the delta accumulation — real oh and the stub
+            # both re-send the full text here, so appending would duplicate it.
+            # Wire shape is a compatibility envelope: empty text keeps old
+            # clients from double-appending; full_text lets new clients heal
+            # dropped delta frames.
+            live._assistant_buf = [event.message or ""]
+            return {
+                "type": "delta",
+                "text": "",
+                "turn_index": turn_index,
+                "final": True,
+                "full_text": event.message or "",
+            }
         if t == "tool_started":
             return {"type": "tool_start", "tool_name": event.tool_name, "tool_input": event.tool_input, "turn_index": turn_index}
         if t == "tool_completed":

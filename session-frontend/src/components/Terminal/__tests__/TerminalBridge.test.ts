@@ -158,4 +158,71 @@ describe('TerminalBridge', () => {
     term.input('\r');
     expect(cb.submit).toHaveBeenCalledWith('context line\n/th');
   });
+
+  // P0-1：final full_text 最终覆盖——终端不忽略 full_text，按 turnBuf 前缀判定补齐/重放
+  describe('final full_text 替换（P0-1）', () => {
+    it('无丢帧：turnBuf 等于全文，final 帧零重复输出', () => {
+      const bridge = createBridge();
+      bridge.handleFrame({ type: 'delta', text: 'Hello world', turn_index: 0 });
+      term.clear();
+      bridge.handleFrame({
+        type: 'delta',
+        text: '',
+        turn_index: 0,
+        final: true,
+        full_text: 'Hello world',
+      });
+      expect(term.written).toBe('');
+    });
+
+    it('丢帧：turnBuf 是全文前缀，只补写缺失尾部', () => {
+      const bridge = createBridge();
+      bridge.handleFrame({ type: 'delta', text: 'Hello ', turn_index: 0 });
+      term.clear();
+      bridge.handleFrame({
+        type: 'delta',
+        text: '',
+        turn_index: 0,
+        final: true,
+        full_text: 'Hello world',
+      });
+      expect(term.written).toBe('world');
+      expect(term.written).not.toContain('[resync]');
+    });
+
+    it('乱序/不一致：非前缀时 [resync] 标注后重放全文', () => {
+      const bridge = createBridge();
+      bridge.handleFrame({ type: 'delta', text: 'wrong chunk', turn_index: 0 });
+      term.clear();
+      bridge.handleFrame({
+        type: 'delta',
+        text: '',
+        turn_index: 0,
+        final: true,
+        full_text: 'Hello world',
+      });
+      expect(term.written).toContain('[resync]');
+      expect(term.written).toContain('Hello world');
+    });
+
+    it('final 后 turnBuf 重置：下一轮独立判定', () => {
+      const bridge = createBridge();
+      bridge.handleFrame({ type: 'delta', text: 'turn0', turn_index: 0 });
+      bridge.handleFrame({ type: 'delta', text: '', turn_index: 0, final: true, full_text: 'turn0' });
+      bridge.handleFrame({ type: 'turn_complete', turn_index: 0 });
+      bridge.handleFrame({ type: 'delta', text: 'turn1', turn_index: 1 });
+      term.clear();
+      bridge.handleFrame({ type: 'delta', text: '', turn_index: 1, final: true, full_text: 'turn1' });
+      // 上一轮的 turnBuf 已清空，本轮前缀匹配且无缺失尾部
+      expect(term.written).toBe('');
+    });
+
+    it('旧后端 final 无 full_text：维持追加行为不变', () => {
+      const bridge = createBridge();
+      bridge.handleFrame({ type: 'delta', text: 'partial ', turn_index: 0 });
+      term.clear();
+      bridge.handleFrame({ type: 'delta', text: 'reply', turn_index: 0, final: true });
+      expect(term.written).toBe('reply');
+    });
+  });
 });

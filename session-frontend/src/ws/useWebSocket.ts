@@ -26,7 +26,10 @@ class StreamBuffer {
   private turnIndex = -1;
   private timer: number | null = null;
 
-  constructor(private readonly onFlush: (turnIndex: number, text: string) => void) {}
+  constructor(
+    private readonly onFlush: (turnIndex: number, text: string) => void,
+    private readonly onReplace: (turnIndex: number, text: string) => void,
+  ) {}
 
   push(turnIndex: number, text: string): void {
     if (this.turnIndex !== -1 && this.turnIndex !== turnIndex) {
@@ -53,6 +56,24 @@ class StreamBuffer {
       this.onFlush(this.turnIndex, this.buf);
     }
     this.buf = '';
+  }
+
+  /**
+   * assistant_complete 最终覆盖（P0-1）：丢弃本轮未 flush 的增量（已被
+   * 全文超集覆盖），用权威全文整体替换该轮次的助手文本。
+   */
+  replace(turnIndex: number, text: string): void {
+    if (this.turnIndex !== -1 && this.turnIndex !== turnIndex) {
+      // 缓冲里是其他轮次的增量：先正常 flush，不能丢
+      this.flush();
+    }
+    if (this.timer !== null) {
+      window.clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.buf = '';
+    this.turnIndex = -1;
+    this.onReplace(turnIndex, text);
   }
 
   dispose(): void {
@@ -96,9 +117,14 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
     // 同一次准入失败「error 帧 + close 码」只出一条提示（以 error 帧为准，F3.3）
     let admissionNotified = false;
 
-    const streamBuffer = new StreamBuffer((turnIndex, text) => {
-      useConversationStore.getState().appendAssistantText(sid, turnIndex, text);
-    });
+    const streamBuffer = new StreamBuffer(
+      (turnIndex, text) => {
+        useConversationStore.getState().appendAssistantText(sid, turnIndex, text);
+      },
+      (turnIndex, text) => {
+        useConversationStore.getState().replaceAssistantText(sid, turnIndex, text);
+      },
+    );
 
     const handleFrame = (frame: ServerFrame) => {
       const conv = useConversationStore.getState();
@@ -115,8 +141,13 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
           break;
         }
         case 'delta':
-          streamBuffer.push(frame.turn_index, frame.text);
-          if (frame.final) streamBuffer.flush();
+          if (frame.final && frame.full_text != null) {
+            // 新后端 final envelope：权威全文整体替换（抗丢帧/零重复）
+            streamBuffer.replace(frame.turn_index, frame.full_text);
+          } else {
+            streamBuffer.push(frame.turn_index, frame.text);
+            if (frame.final) streamBuffer.flush(); // 旧后端兼容：final 仅触发 flush
+          }
           break;
         case 'turn_complete': {
           streamBuffer.flush();

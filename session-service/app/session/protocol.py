@@ -8,6 +8,19 @@ upstream field/type drift. These models use ``extra="allow"`` and a permissive
 
 Design source: add-interactive-session-service spec D2 ("protocol bridge details")
 and the "Native backend-only protocol bridge" requirement.
+
+Assistant event contract (session-acceptance-hardening D1):
+
+- ``assistant_delta``: an *incremental* chunk of the assistant reply. Deltas
+  are best-effort streaming hints only.
+- ``assistant_complete``: the *authoritative final full text* of the reply.
+  Its ``message`` OVERWRITES anything accumulated from deltas — it is never
+  appended. Backends (real ``oh`` and the stub alike) may emit overlapping
+  delta/complete text; consumers MUST NOT concatenate the two.
+- On the wire the complete event is emitted as a ``delta`` frame with
+  ``text: ""``, ``final: true`` and ``full_text: <full reply>`` — this frame
+  shape is only a *compatibility envelope* for older clients; the semantic
+  truth is "final overwrite", not "one more delta".
 """
 
 from __future__ import annotations
@@ -81,7 +94,7 @@ class FrontendRequest(BaseModel):
 EVENT_TO_FRAME: dict[str, str] = {
     "ready": "session_ready",
     "assistant_delta": "delta",
-    "assistant_complete": "delta",  # final assistant text; emitted as a delta flush
+    "assistant_complete": "delta",  # authoritative full text; envelope frame: text="" final=true full_text=<reply>
     "tool_started": "tool_start",
     "tool_completed": "tool_end",
     "todo_update": "todo",

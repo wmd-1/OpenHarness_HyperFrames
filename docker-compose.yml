@@ -203,6 +203,8 @@ services:
   # ---- FastAPI 交互会话服务 (oh --backend-only 桥接) ----
   # 独立进程，复用同一 Postgres/Redis（Redis 用 db=1 避免与视频服务键空间冲突），
   # 共享 /workspaces 卷（会话快照冷态保留）。每个会话 spawn 一个 oh --backend-only。
+  # Stub 模式（e2e/实况验收，用 override 固化避免配置漂移，见 docker-compose.stub.yml）：
+  #   docker compose -f docker-compose.yml -f docker-compose.stub.yml up -d session
   session:
     extends: openharness
     container_name: openharness-session
@@ -315,7 +317,9 @@ services:
     build:
       context: ./session-frontend
       dockerfile: Dockerfile
-    image: openharness_session_frontend:v0.1.0
+    # 镜像 tag 经 SESSION_FRONTEND_VERSION 参数化（与 session-frontend/package.json
+    # 的 version 同步 bump，见 .env.example）；未设时回退 v0.1.0。
+    image: openharness_session_frontend:${SESSION_FRONTEND_VERSION:-v0.1.0}
     container_name: openharness-session-frontend
     environment:
       # Session-service coordinates for the standalone nginx reverse-proxy.

@@ -120,11 +120,14 @@ RUN mkdir -p /root/.openharness/skills /root/.openharness/plugins \
 COPY hyperframes_github_skills/ /opt/oh-skills-builtin/
 
 # ---- 命令 Wrapper（强制注入 full_auto 最高权限 + skills 同步）+ oh-serve ----
-# 每次启动时先删后拷（rm + cp -a）将镜像内置 skills 同步到命名卷：确保重建镜像后
-# skills 自动更新，且上游已删除的 skill 不会残留在卷里
-RUN printf '#!/bin/bash\nrm -rf /root/.openharness/skills 2>/dev/null; mkdir -p /root/.openharness/skills\ncp -a /opt/oh-skills-builtin/. /root/.openharness/skills/ 2>/dev/null || true\nexec /root/.openharness-venv/bin/oh --permission-mode full_auto "$@"\n' > /root/.local/bin/oh \
-    && printf '#!/bin/bash\nrm -rf /root/.openharness/skills 2>/dev/null; mkdir -p /root/.openharness/skills\ncp -a /opt/oh-skills-builtin/. /root/.openharness/skills/ 2>/dev/null || true\nexec /root/.openharness-venv/bin/ohmo --permission-mode full_auto "$@"\n' > /root/.local/bin/ohmo \
-    && printf '#!/bin/bash\nrm -rf /root/.openharness/skills 2>/dev/null; mkdir -p /root/.openharness/skills\ncp -a /opt/oh-skills-builtin/. /root/.openharness/skills/ 2>/dev/null || true\nexec /root/.openharness-venv/bin/openharness --permission-mode full_auto "$@"\n' > /root/.local/bin/openharness \
+# 每次启动时先删后拷（rm + cp -a）将镜像内置 skills 同步到三处：命名卷
+# /root/.openharness/skills、/app/skills、以及与租户工作目录（/workspaces/{sid}）
+# 同级的 /workspaces/skills——确保重建镜像后 skills 自动更新，且上游已删除的
+# skill 不会残留（/workspaces 为命名卷，须运行时同步；孤儿回收只清理 UUID 目录名，
+# skills 目录不会被误删）
+RUN printf '#!/bin/bash\nrm -rf /root/.openharness/skills 2>/dev/null; mkdir -p /root/.openharness/skills\ncp -a /opt/oh-skills-builtin/. /root/.openharness/skills/ 2>/dev/null || true\nrm -rf /app/skills 2>/dev/null; mkdir -p /app/skills\ncp -a /opt/oh-skills-builtin/. /app/skills/ 2>/dev/null || true\nrm -rf /workspaces/skills 2>/dev/null; mkdir -p /workspaces/skills\ncp -a /opt/oh-skills-builtin/. /workspaces/skills/ 2>/dev/null || true\nexec /root/.openharness-venv/bin/oh --permission-mode full_auto "$@"\n' > /root/.local/bin/oh \
+    && printf '#!/bin/bash\nrm -rf /root/.openharness/skills 2>/dev/null; mkdir -p /root/.openharness/skills\ncp -a /opt/oh-skills-builtin/. /root/.openharness/skills/ 2>/dev/null || true\nrm -rf /app/skills 2>/dev/null; mkdir -p /app/skills\ncp -a /opt/oh-skills-builtin/. /app/skills/ 2>/dev/null || true\nrm -rf /workspaces/skills 2>/dev/null; mkdir -p /workspaces/skills\ncp -a /opt/oh-skills-builtin/. /workspaces/skills/ 2>/dev/null || true\nexec /root/.openharness-venv/bin/ohmo --permission-mode full_auto "$@"\n' > /root/.local/bin/ohmo \
+    && printf '#!/bin/bash\nrm -rf /root/.openharness/skills 2>/dev/null; mkdir -p /root/.openharness/skills\ncp -a /opt/oh-skills-builtin/. /root/.openharness/skills/ 2>/dev/null || true\nrm -rf /app/skills 2>/dev/null; mkdir -p /app/skills\ncp -a /opt/oh-skills-builtin/. /app/skills/ 2>/dev/null || true\nrm -rf /workspaces/skills 2>/dev/null; mkdir -p /workspaces/skills\ncp -a /opt/oh-skills-builtin/. /workspaces/skills/ 2>/dev/null || true\nexec /root/.openharness-venv/bin/openharness --permission-mode full_auto "$@"\n' > /root/.local/bin/openharness \
     && printf '#!/bin/bash\nexec /usr/bin/supervisord -c /etc/supervisor/conf.d/oh-service.conf\n' > /usr/local/bin/oh-serve \
     && chmod +x /root/.local/bin/oh /root/.local/bin/ohmo /root/.local/bin/openharness /usr/local/bin/oh-serve
 EXPOSE 8000

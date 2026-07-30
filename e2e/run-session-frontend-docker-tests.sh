@@ -55,9 +55,17 @@ echo " [2/4] Runtime image"
 echo "=============================================="
 if [ -n "${SESSION_FRONTEND_IMAGE:-}" ]; then
   echo "==> Reusing existing runtime image: ${SESSION_FRONTEND_IMAGE}"
+  REUSED_IMAGE=1
 else
-  SESSION_FRONTEND_IMAGE="openharness_session_frontend:v0.1.0"
-  docker build --target runtime -t "${SESSION_FRONTEND_IMAGE}" "${FRONTEND_DIR}"
+  REUSED_IMAGE=""
+  # Tag 经 SESSION_FRONTEND_VERSION 参数化（与 docker-compose.yml / .env.example 对齐）。
+  SESSION_FRONTEND_IMAGE="openharness_session_frontend:${SESSION_FRONTEND_VERSION:-v0.1.0}"
+  # Version stamp for dist/version.json (P1-3): real git sha + UTC build time.
+  GIT_SHA="$(git -C "${REPO_ROOT}" rev-parse HEAD 2>/dev/null || echo unknown)"
+  BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  docker build --target runtime \
+    --build-arg "GIT_SHA=${GIT_SHA}" --build-arg "BUILD_TIME=${BUILD_TIME}" \
+    -t "${SESSION_FRONTEND_IMAGE}" "${FRONTEND_DIR}"
   echo "==> Built runtime image: ${SESSION_FRONTEND_IMAGE}"
 fi
 
@@ -97,6 +105,28 @@ echo "${CSP_LINE}" | grep -qE 'connect-src[^;]*(ws:|wss:)' \
 # SPA fallback: unknown path must still return the app shell (HTTP 200).
 curl -fsS "http://127.0.0.1:${SMOKE_PORT}/some/deep/route" | grep -q '<div id="root">' \
   || { echo "!! smoke: SPA fallback broken"; exit 1; }
+# Version probe (P1-3): /version.json must carry a complete stamp and be
+# served with Cache-Control: no-store (never cached by any layer). Reused
+# images may predate version.json -> WARN and skip instead of failing.
+VJ_BODY="$(curl -fsS "http://127.0.0.1:${SMOKE_PORT}/version.json" 2>/dev/null || true)"
+if [ -n "${VJ_BODY}" ]; then
+  for f in version git_sha build_time; do
+    echo "${VJ_BODY}" | grep -q "\"${f}\"" \
+      || { echo "!! smoke: version.json missing field ${f}"; exit 1; }
+  done
+  curl -fsSI "http://127.0.0.1:${SMOKE_PORT}/version.json" | grep -qi 'Cache-Control:.*no-store' \
+    || { echo "!! smoke: version.json is not Cache-Control: no-store"; exit 1; }
+  # Fresh local build: git_sha must match HEAD (skipped in reuse mode).
+  if [ -z "${REUSED_IMAGE:-}" ] && [ "${GIT_SHA:-unknown}" != "unknown" ]; then
+    echo "${VJ_BODY}" | grep -q "${GIT_SHA}" \
+      || { echo "!! smoke: version.json git_sha does not match HEAD (${GIT_SHA})"; exit 1; }
+  fi
+  echo "==> version.json OK: ${VJ_BODY}"
+elif [ -n "${REUSED_IMAGE:-}" ]; then
+  echo "WARN: reused image has no /version.json (predates P1-3) - skipping check"
+else
+  echo "!! smoke: /version.json missing on freshly built image"; exit 1
+fi
 cleanup_smoke
 trap - EXIT
 echo "==> Smoke test passed against ${SESSION_FRONTEND_IMAGE}"

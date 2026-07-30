@@ -189,6 +189,21 @@ describe('conversationStore', () => {
     expect(conv.messages[0]).toMatchObject({ kind: 'assistant', text: 'Hello', streaming: true });
   });
 
+  it('replaceAssistantText 整体覆盖流式消息文本（P0-1 最终覆盖语义）', () => {
+    const store = useConversationStore.getState();
+    store.appendAssistantText(sid, 0, 'Hel');
+    store.replaceAssistantText(sid, 0, 'Hello world');
+    const conv = useConversationStore.getState().conversations[sid];
+    expect(conv.messages).toHaveLength(1);
+    expect(conv.messages[0]).toMatchObject({ kind: 'assistant', text: 'Hello world', streaming: true });
+  });
+
+  it('replaceAssistantText 无在流消息时直接创建（全部 delta 丢失兜底）', () => {
+    useConversationStore.getState().replaceAssistantText(sid, 3, 'full only');
+    const conv = useConversationStore.getState().conversations[sid];
+    expect(conv.messages[0]).toMatchObject({ kind: 'assistant', text: 'full only', turnIndex: 3 });
+  });
+
   it('completeTurn 结束流式并清除待审批', () => {
     const store = useConversationStore.getState();
     store.appendAssistantText(sid, 0, 'done');

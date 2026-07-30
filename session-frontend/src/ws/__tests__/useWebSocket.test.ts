@@ -164,6 +164,59 @@ describe('useWebSocket 帧分发', () => {
     expect(useSessionStore.getState().sessions[SID].turn_count).toBe(1);
   });
 
+  // P0-1：assistant_complete 最终覆盖 envelope（final + full_text）
+  it('新后端 final envelope：full_text 整体替换，同文双发不重复', () => {
+    renderHook(() => useWebSocket(SID));
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.serverOpen();
+      ws.serverFrame({ type: 'delta', text: 'Stub reply to: hi', turn_index: 0 });
+      ws.serverFrame({
+        type: 'delta',
+        text: '',
+        turn_index: 0,
+        final: true,
+        full_text: 'Stub reply to: hi',
+      });
+      ws.serverFrame({ type: 'turn_complete', turn_index: 0 });
+    });
+    const msg = useConversationStore.getState().conversations[SID].messages[0];
+    expect(msg).toMatchObject({ kind: 'assistant', text: 'Stub reply to: hi', streaming: false });
+  });
+
+  it('丢帧后 final envelope 补齐全文（替换而非拼接）', () => {
+    renderHook(() => useWebSocket(SID));
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.serverOpen();
+      ws.serverFrame({ type: 'delta', text: 'Hello ', turn_index: 0 });
+      // 中间增量丢失，final 携带权威全文
+      ws.serverFrame({
+        type: 'delta',
+        text: '',
+        turn_index: 0,
+        final: true,
+        full_text: 'Hello brave new world',
+      });
+      ws.serverFrame({ type: 'turn_complete', turn_index: 0 });
+    });
+    const msg = useConversationStore.getState().conversations[SID].messages[0];
+    expect(msg).toMatchObject({ kind: 'assistant', text: 'Hello brave new world' });
+  });
+
+  it('旧后端 final 无 full_text：维持追加+flush 行为', () => {
+    renderHook(() => useWebSocket(SID));
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.serverOpen();
+      ws.serverFrame({ type: 'delta', text: 'Hel', turn_index: 0 });
+      ws.serverFrame({ type: 'delta', text: 'lo', turn_index: 0, final: true });
+    });
+    // final 触发同步 flush，无需等 50ms 定时
+    const msg = useConversationStore.getState().conversations[SID].messages[0];
+    expect(msg).toMatchObject({ kind: 'assistant', text: 'Hello', streaming: true });
+  });
+
   it('turn_complete 带 has_artifact=true 时标记助手消息产物', () => {
     renderHook(() => useWebSocket(SID));
     const ws = MockWebSocket.instances[0];

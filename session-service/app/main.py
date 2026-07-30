@@ -6,6 +6,7 @@ middleware) and wires the session/ws/health/metrics routers.
 
 from contextlib import asynccontextmanager
 import logging
+import os
 import re
 
 from fastapi import FastAPI, Request
@@ -22,10 +23,57 @@ from app.security import resolve_tenant
 logger = logging.getLogger(__name__)
 
 
+def _validate_oh_bin() -> None:
+    """OH_OH_BIN semantic validation (session-acceptance-hardening P1-2).
+
+    OH_OH_BIN is a *single executable path* — it becomes argv[0] of
+    ``create_subprocess_exec`` (see app/session/process.py::build_command), so
+    command strings with arguments are silently broken. Rules:
+
+    1. no whitespace (whitespace ≈ misconfigured command string → point the
+       operator at an executable wrapper script instead);
+    2. path exists and is a regular file;
+    3. executable bit set (``os.access(X_OK)``).
+
+    ``process`` runtime fails fast at startup (instead of erroring on the
+    first turn); ``container`` runtime only warns — the session image provides
+    the binary, local absence is expected.
+    """
+    value = settings.oh_bin
+    problem: str | None = None
+    if re.search(r"\s", value):
+        problem = (
+            "value contains whitespace — OH_OH_BIN accepts a single executable "
+            "path only, not a command string; wrap interpreter/arguments in an "
+            "executable wrapper script"
+        )
+    elif not os.path.isfile(value):
+        problem = "path does not exist or is not a regular file"
+    elif not os.access(value, os.X_OK):
+        problem = "file is not executable (missing +x bit)"
+    if problem is None:
+        return
+    message = (
+        f"OH_OH_BIN validation failed: {problem} (OH_OH_BIN={value!r}); "
+        "fix .env / compose env, or start stub mode via "
+        "`docker compose -f docker-compose.yml -f docker-compose.stub.yml`"
+    )
+    if settings.session_runtime == "process":
+        logger.error(message)
+        raise RuntimeError(message)
+    logger.warning(
+        "%s — continuing: container runtime spawns the backend inside the "
+        "session image, which provides its own binary",
+        message,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
     setup_tracing(app)
+    # Fail fast on a broken OH_OH_BIN before accepting any traffic (P1-2).
+    _validate_oh_bin()
     # Startup: reclaim orphaned workspaces from a previous crash/restart (spec 4.5).
     from app.session.supervisor import get_supervisor
 

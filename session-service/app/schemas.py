@@ -133,6 +133,11 @@ class HealthResponse(BaseModel):
     status: str
     db: str
     redis: str
+    # P1-3 可观测字段：服务版本（pyproject source of truth）、oh 后端二进制路径、
+    # 会话运行时（process/container）——实况验收/排障时可直接从 healthz 读取。
+    version: str
+    oh_bin: str
+    runtime: str
 
 
 class ReadyResponse(BaseModel):

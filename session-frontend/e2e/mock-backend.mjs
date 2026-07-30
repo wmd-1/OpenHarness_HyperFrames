@@ -376,10 +376,11 @@ server.on('upgrade', (req, socket, head) => {
               etag: null,
             });
           }
-          // 两段 delta 模拟流式输出
+          // 两段 delta 模拟流式输出；final 帧按新契约发 envelope（text 空 + full_text 全文，P0-1）
           send({ type: 'delta', text: reply.slice(0, 5), turn_index: turnIndex });
           setTimeout(() => {
-            send({ type: 'delta', text: reply.slice(5), turn_index: turnIndex, final: true });
+            send({ type: 'delta', text: reply.slice(5), turn_index: turnIndex });
+            send({ type: 'delta', text: '', turn_index: turnIndex, final: true, full_text: reply });
             send({
               type: 'turn_complete',
               turn_index: turnIndex,
