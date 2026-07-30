@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { TasksProvider, useTasks } from "../store";
 
 const hoisted = vi.hoisted(() => ({ createVideo: vi.fn() }));
@@ -14,8 +14,13 @@ vi.mock("../api", () => ({
 }));
 
 let captured: ReturnType<typeof useTasks> | null = null;
+// Distinct `tasks` references seen across renders == number of state commits.
+const tasksCommits: unknown[] = [];
 function Capture() {
   captured = useTasks();
+  if (tasksCommits[tasksCommits.length - 1] !== captured.tasks) {
+    tasksCommits.push(captured.tasks);
+  }
   return null;
 }
 
@@ -23,12 +28,7 @@ let utils: ReturnType<typeof render> | null = null;
 
 beforeEach(() => {
   hoisted.createVideo.mockResolvedValue({ task_id: "t1", status: "queued", links: {} });
-  // Make rAF batching flush synchronously for deterministic assertions.
-  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
-    cb(0);
-    return 1;
-  });
-  vi.stubGlobal("cancelAnimationFrame", () => {});
+  tasksCommits.length = 0;
 });
 
 afterEach(() => {
@@ -68,7 +68,10 @@ describe("createTask hardening", () => {
     expect(prompt).toBe("hello world");
     expect(key).toEqual(expect.any(String));
     expect(captured!.error).toBeNull();
-    expect(captured!.tasks.some((t) => t.id === "t1")).toBe(true);
+    // The batched flush commits ~32ms later (WF10); wait for it.
+    await waitFor(() =>
+      expect(captured!.tasks.some((t) => t.id === "t1")).toBe(true)
+    );
   });
 
   it("rejects a disallowed download filename before creating", async () => {
@@ -123,5 +126,79 @@ describe("downloadVideo hardening", () => {
       await captured!.downloadVideo("t1", "good.mp4");
     });
     expect(fetchMock).toHaveBeenCalledWith("/v1/videos/t1/file");
+  });
+});
+
+describe("batched flush scheduling (WF10)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("commits pending updates via a 32ms setTimeout (fires in hidden tabs too)", async () => {
+    utils = render(
+      <TasksProvider>
+        <Capture />
+      </TasksProvider>
+    );
+    await act(async () => {
+      await captured!.createTask("timer flush regression");
+    });
+    // Inside the merge window: nothing committed yet.
+    expect(captured!.tasks).toHaveLength(0);
+    act(() => {
+      vi.advanceTimersByTime(32);
+    });
+    expect(captured!.tasks.some((t) => t.id === "t1")).toBe(true);
+  });
+
+  it("coalesces multiple updates in one window into a single commit", async () => {
+    utils = render(
+      <TasksProvider>
+        <Capture />
+      </TasksProvider>
+    );
+    await act(async () => {
+      await captured!.createTask("coalesce test");
+    });
+    act(() => {
+      vi.advanceTimersByTime(32);
+    });
+    const commitsBefore = tasksCommits.length;
+    const refBefore = captured!.tasks;
+    // Two updates inside the same merge window (both call setTasks).
+    await act(async () => {
+      void captured!.cancelTask("t1");
+      void captured!.deleteTask("t1");
+    });
+    // Still uncommitted: same reference as before the window.
+    expect(captured!.tasks).toBe(refBefore);
+    act(() => {
+      vi.advanceTimersByTime(32);
+    });
+    // Exactly one commit, holding the merged final state (t1 removed).
+    expect(tasksCommits.length).toBe(commitsBefore + 1);
+    expect(captured!.tasks).toHaveLength(0);
+  });
+
+  it("does not setState after unmount when the window expires later", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    utils = render(
+      <TasksProvider>
+        <Capture />
+      </TasksProvider>
+    );
+    await act(async () => {
+      await captured!.createTask("unmount cleanup test");
+    });
+    utils.unmount();
+    utils = null;
+    act(() => {
+      vi.advanceTimersByTime(64);
+    });
+    expect(errSpy).not.toHaveBeenCalled();
+    errSpy.mockRestore();
   });
 });

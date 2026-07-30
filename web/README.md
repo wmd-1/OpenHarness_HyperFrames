@@ -1,3 +1,5 @@
+<!-- 最后更新：2026-07-30 -->
+
 # web — HyperFrames 视频工厂前端
 
 基于 **Vite + React + TypeScript** 的单页应用，对应后端的
@@ -80,12 +82,12 @@ docker build --target test -t openharness-web:test ./web
 # 2) 一键全量流水线：镜像内 lint+vitest -> 运行时镜像 -> 容器冒烟（安全头断言）
 bash e2e/run-web-docker-tests.sh
 
-# 3) 复用已有运行时镜像做冒烟（不重建）
-WEB_IMAGE=openharness_hyperframes_web:v0.1.9_v0.7.20_v1.3_v2.1 \
+# 3) 复用已有运行时镜像做冒烟（不重建；tag 以 .env 的 OH_VERSION_HYPERFRAMES_VERSION 为准）
+WEB_IMAGE=openharness_hyperframes_web:v0.1.9_v0.7.77_v1.4_v2.1 \
   bash e2e/run-web-docker-smoke.sh
 
 # 4) 全量测试并给通过验证的新镜像打标
-WEB_NEW_TAG=openharness_hyperframes_web:v0.1.9_v0.7.20_v1.3_v2.1 \
+WEB_NEW_TAG=openharness_hyperframes_web:v0.1.9_v0.7.77_v1.4_v2.1 \
   bash e2e/run-web-docker-tests.sh
 ```
 
@@ -102,7 +104,7 @@ lint/test 通过 `docker build --target test` 执行，冒烟测试跑在运行�
 
 ## API Key 鉴权（X-API-Key）
 
-当部署端在 `.env` 中设置了 `API_KEY`（启用后端 `X-API-Key` 鉴权，见 `service` 的 R15）时：
+当部署端在 `.env` 中设置了 `OH_API_KEY`（启用后端 `X-API-Key` 鉴权，环境变量前缀 `OH_`，见 `service` 的 R15）时：
 
 1. 打开前端页面，在侧栏的 **API Key** 卡片中填入该 Key 并点击「保存」（存于浏览器 `localStorage`，键名 `oh_api_key`）。
 2. 此后所有 `fetch` 请求（创建/查询/删除）会自动带上 `X-API-Key` 请求头。

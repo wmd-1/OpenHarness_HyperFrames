@@ -283,6 +283,7 @@ async def download_video(
     # end-start+1 bytes with correct Content-Range/Content-Length.
     start = 0
     end = size - 1 if size else 0
+    is_range = False
     range_header = request.headers.get("Range")
     if range_header and range_header.startswith("bytes="):
         spec = range_header[len("bytes="):].strip()
@@ -299,13 +300,25 @@ async def download_video(
                     end = min(int(end_str), size - 1)
                 else:
                     end = size - 1  # open-ended: bytes=start-
+            is_range = True
         except (ValueError, IndexError):
+            # Unparseable Range: lenient path -- ignore it, serve 200 full.
             start = 0
             end = size - 1 if size else 0
+    # RFC 7233 §4.4 (R18): a parsed first-byte-pos beyond EOF (incl. the
+    # empty suffix bytes=-0, which derives start == size) is unsatisfiable
+    # -- 416 + Content-Range: bytes */{size}, decided before clamping.
+    # Close the already-open fileobj so the handle does not leak.
+    if is_range and start >= size:
+        fileobj.close()
+        raise HTTPException(
+            status_code=416,
+            detail="Requested Range Not Satisfiable",
+            headers={"Content-Range": f"bytes */{size}"},
+        )
     start = max(0, min(start, end)) if size else 0
     content_length = end - start + 1 if size else 0
 
-    is_range = range_header is not None and range_header.startswith("bytes=")
     status_code = 206 if is_range else 200
     headers = {
         "Content-Type": "video/mp4",

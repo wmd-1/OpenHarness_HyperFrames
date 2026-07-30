@@ -5,6 +5,8 @@ Covers:
   ``_iterfile`` generator (event loop stays free), with correct bytes/headers.
 - #8: an ``Accept-Ranges: bytes`` advertisement that is honest -- a ``Range``
   request returns 206 with ``Content-Range`` and only the requested tail.
+- R18: unsatisfiable ranges (first-byte-pos >= size, incl. ``bytes=-0``)
+  return ``416 + Content-Range: bytes */{size}`` instead of a clamped 206.
 """
 
 import shutil
@@ -141,3 +143,62 @@ async def test_download_range_suffix_returns_last_n_bytes(stream_env, db_session
     assert resp.content == payload[-10:]
     assert resp.headers["content-range"] == f"bytes {len(payload) - 10}-{len(payload) - 1}/{len(payload)}"
     assert int(resp.headers["content-length"]) == 10
+
+
+async def test_download_range_out_of_bounds_returns_416(stream_env, db_session):
+    """Range: bytes={size}- (first-byte-pos >= size) MUST return 416 (R18)."""
+    client, key, payload = stream_env
+    task = VideoTask(prompt="x", status=TaskStatus.SUCCEEDED, output_path=key)
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    resp = await client.get(
+        f"/v1/videos/{task.id}/file",
+        headers={"Range": f"bytes={len(payload)}-"},
+    )
+
+    assert resp.status_code == 416
+    assert resp.headers["content-range"] == f"bytes */{len(payload)}"
+
+
+async def test_download_range_empty_suffix_returns_416(stream_env, db_session):
+    """Range: bytes=-0 (empty suffix, derived start == size) MUST return 416 (R18)."""
+    client, key, payload = stream_env
+    task = VideoTask(prompt="x", status=TaskStatus.SUCCEEDED, output_path=key)
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    resp = await client.get(
+        f"/v1/videos/{task.id}/file",
+        headers={"Range": "bytes=-0"},
+    )
+
+    assert resp.status_code == 416
+    assert resp.headers["content-range"] == f"bytes */{len(payload)}"
+
+
+async def test_download_valid_ranges_still_return_206(stream_env, db_session):
+    """Regression (R18): bytes=0-1023 and suffix bytes=-100 keep returning 206."""
+    client, key, payload = stream_env
+    task = VideoTask(prompt="x", status=TaskStatus.SUCCEEDED, output_path=key)
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    resp = await client.get(
+        f"/v1/videos/{task.id}/file",
+        headers={"Range": "bytes=0-1023"},
+    )
+    assert resp.status_code == 206
+    assert resp.content == payload[:1024]
+    assert resp.headers["content-range"] == f"bytes 0-1023/{len(payload)}"
+
+    resp = await client.get(
+        f"/v1/videos/{task.id}/file",
+        headers={"Range": "bytes=-100"},
+    )
+    assert resp.status_code == 206
+    assert resp.content == payload[-100:]
+    assert resp.headers["content-range"] == f"bytes {len(payload) - 100}-{len(payload) - 1}/{len(payload)}"

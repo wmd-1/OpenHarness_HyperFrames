@@ -1,3 +1,5 @@
+<!-- 最后更新：2026-07-30 -->
+
 # session-frontend
 
 OpenHarness 会话式前端（React 19 + TypeScript + Vite + Zustand + Tailwind），对接 `session-service` 的 REST + WebSocket 契约，提供多会话对话、终端双模式、审批、产物预览与工作区文件回看能力。
@@ -23,12 +25,55 @@ src/
 ├── components/   Chat / Terminal / Approval / Session / Layout …
 ├── theme/        CSS 变量主题
 ├── types/        与后端契约对齐的类型
+├── test/         vitest 单测与测试工具
 └── utils/        语义谓词（session.ts）/ sanitize / constants / format
 ```
 
-## 开发与测试
+## 后端契约要点
 
-按项目规范，所有测试在已有 Docker 镜像内执行，宿主机不直接跑 `npm test`：
+- REST：`/v1/sessions`（创建/列表/详情/关闭）、`.../turns`（提交/回显）、
+  `.../turns/{idx}/artifact`（产物下载）、`.../workspace/files`（文件列表/下载）。
+- WS：`/v1/sessions/{sid}/ws` 是建连的唯一语义入口；事件流含
+  `assistant_delta` / `tool_*` / `turn_complete` / `session_ready` / 审批帧。
+- 鉴权：默认 header `X-API-Key`；`<a>`/`<video>` 直链下载走 `?api_key=` 查询参数兜底。
+- 完整契约见 [session-service/API_DOCUMENTATION.md](../session-service/API_DOCUMENTATION.md)
+  与 `openspec/specs/session-*.md`。
+
+## 本地开发
+
+```bash
+npm install
+npm run dev        # Vite dev server（代理 REST/WS 到 session-service，见 vite.config.ts）
+npm run lint       # eslint（--max-warnings 0）
+npm run format     # prettier
+npm run build      # tsc -b && vite build，产物在 dist/
+```
+
+> 单测/E2E 不在宿主机跑（见下方「测试」）；`npm run dev` 仅用于本地联调 UI。
+
+## Docker 镜像
+
+多阶段 `Dockerfile`：`node:22-alpine` 构建（`build`）→ `test`（lint + vitest）→
+`e2e`（`E2E_BASE_IMAGE`，Playwright）→ `nginx:1.27-alpine` 运行时（`runtime`）。
+
+```bash
+# compose 方式（自动拉起 session 依赖），访问 http://localhost:5174
+docker compose up -d --build session-frontend
+
+# 独立运行，指向任意 session-service
+docker run -p 5174:80 -e SESSION_HOST=your-host -e SESSION_PORT=8001 \
+  openharness_session_frontend:v0.1.0
+```
+
+- 运行时 nginx 同源反代 REST + WebSocket 到 `SESSION_HOST:SESSION_PORT`
+  （默认 `session:8001`，`docker-entrypoint.sh` 用 envsubst 渲染 `nginx.conf.template`），
+  浏览器侧无 CORS 问题。
+- 镜像 tag 经 `SESSION_FRONTEND_VERSION` 参数化（`.env`），**与 `package.json` 的
+  `version` 同步 bump**；未设时 compose 回退 `v0.1.0`。
+
+## 测试
+
+按仓库规范，所有测试在已有 Docker 镜像内执行，宿主机不直接跑 `npm test`：
 
 ```bash
 # 单测 + lint（镜像 test 阶段）
@@ -39,9 +84,12 @@ SESSION_FRONTEND_IMAGE=openharness_session_frontend:v0.1.0 \
   bash e2e/run-session-frontend-docker-tests.sh
 ```
 
-E2E 使用 `e2e/mock-backend.mjs` 模拟后端（含 `POST /__mock/seed` 场景预置），用例见 `e2e/session-flow.spec.ts` 与 `e2e/history-switch.spec.ts`。
+- E2E 使用 `e2e/mock-backend.mjs` 模拟后端（含 `POST /__mock/seed` 场景预置），
+  用例见 `e2e/session-flow.spec.ts` 与 `e2e/history-switch.spec.ts`。
+- Playwright 的 npm 版本必须与 CI Docker 镜像版本严格对齐
+  （见 `.github/workflows/session-frontend.yml`）。
 
 ## 相关文档
 
-- 契约与设计：`openspec/specs/session-*.md`、`plans/Session_Frontend_History_Switch_Plan_2026-07-30.md`
+- 契约与设计：`openspec/specs/session-*.md`、`plans/archive/` 内历史计划
 - 审查与整改记录：[CODE_REVIEW_REPORT.md](./CODE_REVIEW_REPORT.md)

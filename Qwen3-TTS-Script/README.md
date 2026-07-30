@@ -1,3 +1,5 @@
+<!-- 最后更新：2026-07-30 -->
+
 # Qwen3-TTS-Script
 
 基于 vllm-omni 部署的 Qwen3-TTS（Base 模型）**声音克隆批量合成**脚本集。
@@ -117,5 +119,5 @@ curl -X DELETE http://localhost:8091/v1/audio/voices/<voice_name>
 
 ## 参考资料
 
-- vllm-omni TTS 在线服务文档：`/root/projects/OpenHarness_HyperFrames/vllm-omni/examples/online_serving/text_to_speech/README.md`（Qwen3-TTS 章节）
-- Qwen3-TTS 官方 README（本地包 `create_voice_clone_prompt` 提示复用的等价说明）：`/root/projects/OpenHarness_HyperFrames/Qwen3-TTS/README.md`
+- vllm-omni TTS 在线服务文档：vllm-omni 仓库 `examples/online_serving/text_to_speech/README.md`（Qwen3-TTS 章节；位于 TTS 服务部署机器的 vllm-omni 源码目录，本仓库不包含）
+- Qwen3-TTS 官方 README（`create_voice_clone_prompt` 提示复用的等价说明）：https://github.com/QwenLM/Qwen3-TTS

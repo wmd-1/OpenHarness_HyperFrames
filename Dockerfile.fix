@@ -89,6 +89,11 @@ RUN /root/.openharness-venv/bin/pip install --no-cache-dir \
 COPY service /opt/oh-service
 COPY session-service /opt/oh-session-service
 
+# ---- 同步 oh-serve 的 supervisord 配置（R13 部署契约）----
+# worker 必须订阅全部优先级队列（env-fallback）且含 [program:beat]；
+# 镜像内产物由 service/tests/test_deployment_contract.py 守护。
+COPY docker/supervisord.conf /etc/supervisor/conf.d/oh-service.conf
+
 ARG Model_Download=""
 RUN if [ -n "${Model_Download}" ]; then \
     # ---- 预下载 Whisper small 转录模型（~466 MB）到 ~/.cache/hyperframes/whisper/ ----

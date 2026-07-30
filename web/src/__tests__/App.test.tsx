@@ -4,6 +4,7 @@ import App from "../App";
 
 // Mock the api module so the store (imports ./api) uses fakes.
 vi.mock("../api", () => ({
+  API_KEY_STORAGE: "oh_api_key",
   getHealth: vi.fn().mockResolvedValue({ status: "ok" }),
   getVideo: vi.fn().mockResolvedValue({
     task_id: "task-uuid-1234",
@@ -42,6 +43,11 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("App", () => {
+  it("mounts the API Key input in the sidebar (WF9)", () => {
+    render(<App />);
+    expect(screen.getByText("API Key（X-API-Key）")).toBeInTheDocument();
+  });
+
   it("blocks empty-prompt submit and shows a hint", async () => {
     render(<App />);
     const btn = screen.getByRole("button", { name: /生成视频/ });

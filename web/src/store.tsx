@@ -110,19 +110,28 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   const [health, setHealth] = useState<"ok" | "degraded">("ok");
   const [error, setError] = useState<string | null>(null);
 
-  // --- rAF-batched task updates (avoids interleaved setState races) --------
+  // --- Timer-batched task updates (avoids interleaved setState races) ------
+  // WF10: a trailing setTimeout (32ms merge window) instead of rAF — rAF never
+  // fires in a hidden tab, which froze status commits indefinitely. Background
+  // timers are throttled (>=1s) but always fire eventually.
   const tasksRef = useRef<Task[]>(tasksState);
   const pendingRef = useRef<Task[] | null>(null);
-  const rafRef = useRef<number | null>(null);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flush = useCallback(() => {
-    rafRef.current = null;
+    flushTimerRef.current = null;
     if (pendingRef.current) {
       tasksRef.current = pendingRef.current;
       setTasksState(pendingRef.current);
       pendingRef.current = null;
     }
   }, []);
+
+  const scheduleFlush = useCallback(() => {
+    if (flushTimerRef.current == null) {
+      flushTimerRef.current = setTimeout(flush, 32);
+    }
+  }, [flush]);
 
   const setTasks = useCallback(
     (updater: Task[] | ((prev: Task[]) => Task[])) => {
@@ -132,11 +141,9 @@ export function TasksProvider({ children }: { children: ReactNode }) {
           : updater;
       tasksRef.current = next;
       pendingRef.current = next;
-      if (rafRef.current == null) {
-        rafRef.current = requestAnimationFrame(flush);
-      }
+      scheduleFlush();
     },
-    [flush]
+    [scheduleFlush]
   );
 
   // Active SSE streams, poll timers and retry counters, keyed by task id.
@@ -452,7 +459,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
       if (interval) clearInterval(interval);
       eventSources.current.forEach((es) => es.close());
       pollTimers.current.forEach((t) => clearInterval(t));
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      if (flushTimerRef.current != null) clearTimeout(flushTimerRef.current);
     };
   }, [refreshHealth]);
 

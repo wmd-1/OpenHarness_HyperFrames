@@ -239,6 +239,7 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 - **成功状态码**：`200 OK` / `206 Partial Content` / `302 Found`（S3 重定向）
 - **说明**：支持 HTTP Range 分段下载。默认 `mode=redirect` 时，若产物在 S3 **且部署配置了 `OH_S3_PUBLIC_ENDPOINT`**（浏览器可达的公网/外网 MinIO 地址），返回 302 重定向到基于该公网地址签发的预签名 URL；未配置 `OH_S3_PUBLIC_ENDPOINT` 时**不会**下发指向集群内网地址的 302，而是自动流式兜底直接返回字节。
 - **Range 生效范围**：Range 仅在本服务直接流式返回时由本服务处理（本地存储、`?mode=stream`、或 S3 预签名失败回退）。`mode=redirect` 且命中 S3 预签名 302 时，Range 由目标 S3 端点处理，本服务不再改写分段逻辑。
+- **不可满足的 Range（RFC 7233 §4.4）**：语法合法但起点越界的 Range（first-byte-pos ≥ 文件长度，含空后缀 `bytes=-0`）返回 `416 Range Not Satisfiable`，并携带 `Content-Range: bytes */{size}`；语法非法的 Range 头（如 `bytes=abc`）被宽容地忽略，返回 `200` 全量。
 
 #### 请求参数
 
@@ -264,6 +265,7 @@ Router 前缀：`/v1/videos`，tag：`videos`。
 | `401` | 鉴权失败（启用鉴权时） |
 | `404` | 任务不存在或属于其他租户 / 无 `output_path` / 存储上文件缺失 |
 | `409` | 任务未完成（非 `succeeded`），响应体 `{"status": <status>, "message": "Video not ready"}` |
+| `416` | Range 不可满足（first-byte-pos ≥ 文件长度，含 `bytes=-0`），响应头携带 `Content-Range: bytes */{size}` |
 | `422` | `task_id` 非合法 UUID |
 
 ---
@@ -427,7 +429,7 @@ Tag：`metrics`。
 | --- | --- | --- | --- | --- | --- |
 | 1 | POST | `/v1/videos` | 创建视频生成任务 | 是* | 201 |
 | 2 | GET | `/v1/videos/{task_id}` | 查询任务详情 | 是* | 200 |
-| 3 | GET | `/v1/videos/{task_id}/file` | 下载视频文件（支持 Range/S3 重定向） | 是*（支持 `?api_key=`） | 200/206/302 |
+| 3 | GET | `/v1/videos/{task_id}/file` | 下载视频文件（支持 Range/S3 重定向） | 是*（支持 `?api_key=`） | 200/206/302（越界 Range → 416） |
 | 4 | GET | `/v1/videos/{task_id}/events` | 任务进度 SSE 事件流 | 是*（支持 `?api_key=`） | 200 |
 | 5 | DELETE | `/v1/videos/{task_id}` | 取消/删除任务 | 是* | 200 |
 | 6 | GET | `/healthz` | 存活探针 | 否（豁免） | 200 |

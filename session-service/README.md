@@ -1,3 +1,5 @@
+<!-- 最后更新：2026-07-30 -->
+
 # OpenHarness Interactive Session Service
 
 A stateful, multi-turn interactive session service that bridges the native
@@ -14,6 +16,9 @@ nginx, routed by path.
 - Preserves multi-turn context (one long-lived process per session) and survives
   idle eviction / reconnect via `oh --resume` (LIVE ⇄ IDLE → COLD → resume → LIVE).
 - Registers per-turn artifacts (videos/files) and serves them with HTTP Range.
+- Archives the session workspace to MinIO incrementally (turn-complete / evict /
+  close), and exposes read-only workspace file listing + download endpoints
+  (`/v1/sessions/{sid}/workspace/files`, live or archive source).
 - Multi-node affinity: a Redis routing table + transparent reverse-proxy
   forwarding keep a session pinned to its owning node.
 
@@ -47,7 +52,7 @@ session-service/
 ├── scripts/
 │   ├── oh_backend_stub.py   # offline OHJSON stub (no LLM key needed)
 │   └── contract_smoke.py    # real oh --backend-only contract check
-├── tests/                   # 66 tests (protocol, lifecycle, WS, Range, security…)
+├── tests/                   # protocol, lifecycle, WS, Range, security, tenant-store, archive…
 └── pyproject.toml
 ```
 

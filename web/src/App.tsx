@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { TasksProvider, useTasks } from "./store";
+import { ApiKeyInput } from "./components/ApiKeyInput";
 import { Composer } from "./components/Composer";
 import { TaskList } from "./components/TaskList";
 import { TaskDetail } from "./components/TaskDetail";
@@ -34,6 +35,7 @@ function Shell() {
 
       <div className="layout">
         <div className="sidebar">
+          <ApiKeyInput />
           <Composer />
           <div className="card">
             <h3>任务列表</h3>
