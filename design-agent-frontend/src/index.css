@@ -1,0 +1,139 @@
+@import 'tailwindcss';
+/* demo 设计系统（唯一色值源，design D5）：:root 令牌 + 全量组件类 + 响应式断点 */
+@import './styles/demo.css';
+
+/*
+ * Theme system：每个主题是一组 CSS 变量（由 ThemeProvider 写入 <html> 的
+ * inline style，主题定义见 src/theme/themes.ts）。这里声明 default 主题
+ * 的兜底值（= demo 亮色令牌），并把变量映射为 Tailwind 颜色 token。
+ */
+:root {
+  --app-bg: #eef1f5;
+  --app-surface: #ffffff;
+  --app-surface-alt: #f5f7fa;
+  --app-border: #e2e6ec;
+  --app-text: #1f2937;
+  --app-text-muted: #6b7280;
+  --app-accent: #1a56db;
+  --app-accent-fg: #ffffff;
+  --app-success: #16a34a;
+  --app-warning: #d97706;
+  --app-error: #dc2626;
+  --app-user-bubble: #1a56db;
+  --app-user-bubble-fg: #ffffff;
+  --app-assistant-bubble: #ffffff;
+}
+
+@theme inline {
+  --color-base: var(--app-bg);
+  --color-surface: var(--app-surface);
+  --color-raised: var(--app-surface-alt);
+  --color-line: var(--app-border);
+  --color-fg: var(--app-text);
+  --color-muted: var(--app-text-muted);
+  --color-accent: var(--app-accent);
+  --color-accent-fg: var(--app-accent-fg);
+  --color-ok: var(--app-success);
+  --color-warn: var(--app-warning);
+  --color-err: var(--app-error);
+  --color-user-bubble: var(--app-user-bubble);
+  --color-user-bubble-fg: var(--app-user-bubble-fg);
+  --color-assistant-bubble: var(--app-assistant-bubble);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-base text-fg antialiased;
+  font-family: var(--font-stack, ui-sans-serif, system-ui, sans-serif);
+}
+
+/* 流式回复的打字光标动画 */
+@keyframes blink-cursor {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.typing-cursor::after {
+  content: '▋';
+  margin-left: 2px;
+  color: var(--app-accent);
+  animation: blink-cursor 1s step-end infinite;
+}
+
+/* markdown 正文基础排版（react-markdown 输出） */
+.markdown-body pre {
+  @apply bg-raised border-line overflow-x-auto rounded-md border p-3 text-sm;
+}
+
+.markdown-body code {
+  @apply bg-raised rounded px-1 py-0.5 text-[0.85em];
+}
+
+.markdown-body pre code {
+  @apply bg-transparent p-0;
+}
+
+.markdown-body p,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body pre,
+.markdown-body blockquote {
+  @apply my-2;
+}
+
+.markdown-body ul {
+  @apply list-disc pl-5;
+}
+
+.markdown-body ol {
+  @apply list-decimal pl-5;
+}
+
+.markdown-body a {
+  @apply text-accent underline;
+}
+
+.markdown-body blockquote {
+  @apply border-line text-muted border-l-2 pl-3;
+}
+
+/* 演示成熟度角标（spec: design-agent-platform §演示成熟度标识） */
+.module-card-icon {
+  position: relative;
+}
+
+.demo-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.demo-badge-inline {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  font-size: 11px;
+  border-radius: 999px;
+  background: var(--accent-light, #e8f0fe);
+  color: var(--accent, #1a56db);
+  border: 1px solid var(--border-light, #e2e6ec);
+}

@@ -118,7 +118,8 @@ docker compose up
   转发到所属节点。节点间流量必须保持在可信/加密的内部网络中（compose
   网络、VPC、WireGuard/mTLS mesh）——绝不能跨公网传输。
 - **端口绑定**：compose 仅将网关发布为 `127.0.0.1:8001`；外部客户端经由
-  nginx 前端（`web/`）访问，nginx 同时负责 TLS 终结和 WS 握手升级。
+  nginx 前端（`web/`、`session-frontend/`、`design-agent-frontend/`）访问，
+  nginx 同时负责 TLS 终结和 WS 握手升级。
 
 ## 多租户鉴权与数据隔离（WS-A / WS-B）
 

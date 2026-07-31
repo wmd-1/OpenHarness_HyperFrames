@@ -72,7 +72,7 @@ interface AgentDescriptor {
 
 interface AgentCapabilities {
   realtimeStream: boolean;      // 是否有真实流式通道（video=true，demo=false 走模拟）
-  modelSelection: 'per-session' | 'runtime' | 'none';  // 当前 video=per-session（见 §3.4 缺口）
+  modelSelection: 'initial' | 'runtime' | 'none';  // 切换对象为 OpenHarness 主 agent 模型；video=runtime（见 §3.4 G2）
   fileUpload: boolean;          // 当前全部 false（后端无 API，§3.4）
   approvalFlow: boolean;        // 审批流（video=true）
   terminalMode: boolean;        // 终端模式（video=true）
@@ -178,7 +178,7 @@ interface WorkspaceProvider {
 
 | # | 方法/路径 | 前端用途 | 关键请求/响应字段 | 前端依赖的语义 |
 | --- | --- | --- | --- | --- |
-| R1 | `POST /v1/sessions` | 新建会话 | req: `permission_policy`(full_auto/interactive), `extra_oh_args`(白名单，含 `--model`) | 201 返回 `session_id`+`ws_url`；429/503 就地提示不弹全局横幅 |
+| R1 | `POST /v1/sessions` | 新建会话 | req: `permission_policy`(full_auto/interactive), `extra_oh_args`(白名单，含 `--model` —— OpenHarness 主 agent 初始模型) | 201 返回 `session_id`+`ws_url`；429/503 就地提示不弹全局横幅 |
 | R2 | `GET /v1/sessions` | 会话列表 | `limit/offset` 分页；resp: `SessionSummary[]`+`total` | created_at 倒序；`resumable/read_only` 为决策唯一依据 |
 | R3 | `GET /v1/sessions/{sid}` | 会话详情 | resp 含 `ws_url` | 跨租户返回 404（等同不存在） |
 | R4 | `DELETE /v1/sessions/{sid}` | 关闭会话 | —— | 关闭后 R6 仍可读（历史保留） |
@@ -232,8 +232,8 @@ interface WorkspaceProvider {
 
 | # | 缺口 | 当前前端处置 | 未来契约预留（演进触发点） |
 | --- | --- | --- | --- |
-| G1 | 无模型列表 API | 模型候选前端常量维护；下拉选择存本地 | `GET /v1/models` → 下拉数据源切换，接口形态：`{ models: [{id, label, default?}] }` |
-| G2 | 无运行时切模，仅建会话 `--model` | 模型选择对新会话生效并明确提示 | 后端新增 `set_model` 客户端帧或会话 PATCH → capabilities.modelSelection 升级为 `runtime` |
+| G1 | 无模型列表 API（OpenHarness 主 agent 合法模型集无查询入口） | 模型候选前端常量维护（OH 主 agent 模型 alias/ID）；下拉选择存本地 | `GET /v1/models` → 下拉数据源切换，接口形态：`{ models: [{id, label, default?}] }` |
+| G2 | 运行时切模无**结构化**契约：现有能力为文本命令通道——WS `submit` 发 `/model <name>`，经 backend_host `handle_line` → OpenHarness `/model` 命令 handler 完成主 agent 运行时切模，回执为非结构化系统消息 | 双通道：建会话 `--model` 设初始模型 + 会话中 `/model` 运行时切换；前端乐观更新下拉显示态并校验回执；busy 期间禁用 | 后端新增结构化 `set_model` 客户端帧或会话 PATCH + `model_changed` 回执帧 → 前端丢弃文案校验逻辑，改订阅结构化事件 |
 | G3 | 无产物元数据列表 API（ArtifactResponse schema 未暴露路由） | ArtifactProvider 前端聚合（R2+R6 派生，限并发+缓存） | 后端暴露 `GET /v1/artifacts?limit&offset` → 替换 provider 数据源，聚合视图接口不变 |
 | G4 | 无文件上传 API | 上传交互保留但明示「暂不支持」，stub 预留 | 后端新增 `POST /v1/sessions/{sid}/workspace/files` → capabilities.fileUpload=true |
 | G5 | 无会话重命名/删除历史 API | 不提供该入口 | 后端就绪后在会话列表补充操作 |
@@ -320,7 +320,7 @@ interface WorkspaceProvider {
 1. GIVEN 有效 API Key，WHEN 新建会话并提交文本，THEN 经 WS 收到流式 delta 并以 `turn_complete` 结束；期间断连可自动重连且凭 `last_turn_index` 不重复渲染。
 2. GIVEN `turn_complete.has_artifact=true`，WHEN 轮次结束，THEN 预览面板自动展开并可经 stream 直链播放（支持 Range seek）、经下载直链落盘。
 3. GIVEN 列表中 `resumable=true` 的历史会话，WHEN 切换选中，THEN 历史轮次回显且可继续对话；GIVEN `read_only=true`，THEN 仅可查阅，输入区禁用且有只读标识。
-4. GIVEN 模型下拉选择了非默认模型，WHEN 新建会话，THEN 创建请求包含 `--model` 白名单参数；WHEN 在会话中途切换，THEN 出现「新会话生效」提示且当前会话行为不变。
+4. GIVEN 模型下拉选择了非默认模型（OpenHarness 主 agent 模型），WHEN 新建会话，THEN 创建请求包含 `--model` 白名单参数；WHEN 在会话空闲态切换模型，THEN 经 WS 提交 `/model <name>` 并在消息区展示切换回执，下拉显示态同步更新；WHEN 轮次进行中（busy），THEN 模型切换入口禁用。
 5. GIVEN 401/403/429/503/4430/4503 各错误场景（mock 后端注入），WHEN 触发，THEN 前端行为与 §3.1/§3.2 契约表逐项一致。
 6. session-frontend 核心功能保留清单（v1 §3.2 全部 17 项）逐项可用。
 

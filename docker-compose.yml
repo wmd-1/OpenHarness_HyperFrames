@@ -343,6 +343,29 @@ services:
       - "5174:80"
     restart: unless-stopped
 
+  # 设计智能体多能力域前端（文本生成视频=GA 真实对接 session-service；
+  # 原型页面设计 / Drawio = 演示域，纯客户端 DemoAdapter，无需后端）。
+  # 启动：docker compose up -d --build design-frontend（会一并拉起 session 依赖）
+  # 访问：http://localhost:5175（nginx 同源反代 REST + WebSocket 到 session:8001）
+  design-frontend:
+    build:
+      context: ./design-agent-frontend
+      dockerfile: Dockerfile
+    # 镜像 tag 经 DESIGN_FRONTEND_VERSION 参数化（与 design-agent-frontend/package.json
+    # 的 version 同步 bump，见 .env.example）；未设时回退 v0.1.0。
+    image: openharness_design_frontend:${DESIGN_FRONTEND_VERSION:-v0.1.0}
+    container_name: openharness-design-frontend
+    environment:
+      # Session-service coordinates for the standalone nginx reverse-proxy
+      # (video capability domain only; demo domains run fully client-side).
+      SESSION_HOST: session
+      SESSION_PORT: "8001"
+    depends_on:
+      - session
+    ports:
+      - "5175:80"
+    restart: unless-stopped
+
 volumes:
   openharness-config:
     name: openharness-config

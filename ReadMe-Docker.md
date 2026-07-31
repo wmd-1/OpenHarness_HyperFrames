@@ -17,7 +17,7 @@
 | `Dockerfile.test` | `oh-e2e:latest` | 产出 `oh-e2e-test:latest`：加 pytest / pytest-asyncio / httpx / aiosqlite / fakeredis 测试依赖 |
 | `Dockerfile.session-test` | `oh-e2e-test:latest` | 产出 `oh-session-test:latest`：session-service 运行时 + 测试依赖、oh-backend-stub（离线协议测试），ENTRYPOINT 即 pytest |
 | `Dockerfile.oh-test` | `oh-e2e-test:latest` | 产出 `oh-e2e-oh-test:latest`：OpenHarness 框架单测，本地 `OpenHarness/src` 经 PYTHONPATH 前置覆盖 venv 安装版 |
-| `web/Dockerfile`、`session-frontend/Dockerfile` | `node:22-alpine`（build/test 阶段）→ nginx（runtime） | 前端多阶段构建：`--target test` 跑单测/lint，runtime 阶段产出 78MB 级 nginx 镜像 |
+| `web/Dockerfile`、`session-frontend/Dockerfile`、`design-agent-frontend/Dockerfile` | `node:22-alpine`（build/test 阶段）→ nginx（runtime） | 前端多阶段构建：`--target test` 跑单测/lint，`--target e2e` 跑 Playwright，runtime 阶段产出 78MB 级 nginx 镜像 |
 
 关键约定：
 
@@ -38,6 +38,7 @@ Build context 为仓库根；仅 `hyperframes_github_skills/` 与 `docker/` 烧�
 | `session` | 同上 | 127.0.0.1:8001 + 3000-3003 | 交互会话服务；8001 仅绑本机回环，容器间走 docker 网络、前端经 nginx 同源反代；挂 docker.sock 供 container 运行时 |
 | `web` | `openharness_hyperframes_web:<tag>` | 5173 | 视频服务前端（nginx 反代 api + session） |
 | `session-frontend` | `openharness_session_frontend:<tag>` | 5174 | 会话前端（nginx 反代 session），tag 由 `SESSION_FRONTEND_VERSION` 控制 |
+| `design-frontend` | `openharness_design_frontend:<tag>` | 5175 | 设计智能体平台前端（nginx 反代 session），tag 由 `DESIGN_FRONTEND_VERSION` 控制 |
 | `postgres` / `redis` / `minio` | 官方镜像 | — | 数据库 / 缓存与 celery broker（api 用 db=0、session 用 db=1）/ 租户与产物对象存储 |
 
 关键约定：
@@ -71,6 +72,7 @@ docker compose -f docker-compose.yml -f docker-compose.stub.yml up -d session
 | `openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1` | 11.1GB | **主镜像**。compose 的 `openharness` 与 `session` 服务；同时是所有测试镜像的根。tag 由 `.env` 的 `OH_VERSION_HYPERFRAMES_VERSION` 控制（默认 `v0.1.9_v0.7.77_v1.5_v2.1`）。tag 第三段 `v1.5` = Qwen 语音补丁集（TTS 克隆 + ASR 首选，见 `docs/hyperframes-skill-openharness-patches.md` §15） |
 | `openharness_hyperframes_web:v0.1.9_v0.7.77_v1.5_v2.1` | 78MB | web 前端 runtime（nginx）。tag 同样由 `OH_VERSION_HYPERFRAMES_VERSION` 控制，须与主镜像 tag 一致（前端代码与 QwenASR 补丁无关，v1.5 由 v1.4 retag 而来，未重建） |
 | `openharness_session_frontend:v0.1.0` | 79MB | session-frontend runtime，tag 由 `SESSION_FRONTEND_VERSION` 控制 |
+| `openharness_design_frontend:v0.1.0` | 79MB | design-agent-frontend runtime，tag 由 `DESIGN_FRONTEND_VERSION` 控制 |
 | `postgres:16-alpine` | 420MB | 数据库 |
 | `redis:7-alpine` | 58MB | 缓存 / celery broker |
 | `minio/minio:latest` | 241MB | workspace / 产物对象存储 |
@@ -86,14 +88,18 @@ openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1  (主镜像)
      └─ oh-e2e-test:latest (11.1GB)   <- Dockerfile.test（加 pytest 等测试依赖）
          └─ openharness-session-frontend:e2e (12.3GB)
                                       <- session-frontend Playwright E2E 用
+         └─ openharness-design-frontend:e2e (12.3GB)
+                                      <- design-agent-frontend Playwright E2E 用
 ```
 
 | 镜像 | 大小 | 用途 / 入口脚本 |
 |---|---|---|
-| `oh-e2e:latest` | 11GB | E2E 基础镜像。`docker-compose.e2e.yml`、`e2e/run_e2e.sh` |
+| `oh-e2e:latest` | 11GB | E2E 基座镜像。`docker-compose.e2e.yml`、`e2e/run_e2e.sh` |
 | `oh-e2e-test:latest` | 11.1GB | 带 pytest 的测试基座。`Dockerfile.session-test` / `Dockerfile.oh-test` 的 FROM 源 |
 | `openharness-session-frontend:e2e` | 12.3GB | session-frontend Playwright E2E（`e2e/run-session-frontend-docker-tests.sh`） |
 | `openharness-session-frontend:test` | 709MB | session-frontend 单测/lint 阶段 |
+| `openharness-design-frontend:e2e` | 12.3GB | design-agent-frontend Playwright E2E（`e2e/run-design-frontend-docker-tests.sh`） |
+| `openharness-design-frontend:test` | 709MB | design-agent-frontend 单测/lint 阶段 |
 | `openharness-web:test` | 504MB | web 单测/lint 阶段（`e2e/run-web-docker-tests.sh`） |
 | `openharness-web:smoke` | 78MB | web 冒烟 runtime（`e2e/run-web-docker-smoke.sh`，可用 `WEB_IMAGE=<runtime镜像>` 复用） |
 | `oh-session-test:latest` | 12.2GB | session-service MinIO 测试（`e2e/run-session-minio-tests.sh`）。**注意**：基于旧版主镜像构建，已与 v0.7.77 链路脱节，后续建议基于 `oh-e2e-test` 重建替代 |
@@ -165,6 +171,7 @@ docker compose run --rm --entrypoint bash openharness -c \
 # E2E / 前端测试入口:
 e2e/run_e2e.sh                              # 基于 oh-e2e
 e2e/run-session-frontend-docker-tests.sh    # session-frontend 全流水线
+e2e/run-design-frontend-docker-tests.sh     # design-agent-frontend 全流水线
 e2e/run-web-docker-tests.sh                 # web 单测 + 冒烟
 e2e/run-session-minio-tests.sh              # session-service MinIO 套件
 ```

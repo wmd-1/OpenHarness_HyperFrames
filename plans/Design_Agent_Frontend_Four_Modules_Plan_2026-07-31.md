@@ -176,7 +176,7 @@ design-agent-frontend/
 
 | demo 功能 | 真实化方案 |
 | --- | --- |
-| **模型切换**（输入区 `GLM-5.1▾` 下拉） | session-service 无运行时切模 API，模型仅能在**建会话时**经 `extra_oh_args: ["--model", "<name>"]` 传入。方案：输入区保留 demo 模型下拉；选中值存 `uiStore.selectedModel`（localStorage 持久化）；**新建会话时**自动注入 `--model`。当前会话存续期间切换模型时，下拉旁提示「将在新会话生效」，并提供「立即新建会话」快捷入口。模型候选列表以前端常量维护（`utils/constants.ts`，含默认候选，可后续接后端）。 |
+| **模型切换**（输入区模型下拉） | 切换对象为 **OpenHarness 主 agent 的模型**（`oh --model` 的 alias 或完整模型 ID），双通道实现：① **建会话时**经 `extra_oh_args: ["--model", "<name>"]` 设定初始模型（session-service 白名单已放行）；② **会话中途**经现有 WS `submit` 通道发送 `/model <name>`——OpenHarness `handle_line` 内置命令分发会执行运行时切模（`commands/registry.py` 的 `/model` handler，`refresh_runtime` 后 `engine.set_model` 生效），命令回执以系统消息展示。前端约束：轮次进行中（busy）禁用切换；选中值存 `uiStore.selectedModel`（localStorage 持久化）并在新建会话时注入；模型候选列表以前端常量维护（值必须是 OH 主 agent 合法模型标识，可后续接后端列表）。 |
 | **上传文档**按钮 | session-service 无上传 API。保留 demo 交互（选择文件 → 文件名标签 + 清除），但发送时仅在输入文本前拼接提示性说明并在 UI 提示「当前版本暂不支持附件上传至后端」；组件内预留 `uploadFile()` stub，后端具备能力后接入。 |
 | **视频预览**（占位态 → 播放器） | 占位态 = demo `video-placeholder`（脉冲图标/文案）；有产物时加载 `<video src=artifactStreamUrl>`；控制条 = demo 全套（进度条含缓冲显示、点击 seek、播放/暂停、静音/音量滑杆、0.5x–2x 倍速、时间显示、3s 自动隐藏、hover 保持）。React 化实现为受控组件 `CustomVideoPlayer`。 |
 | **全屏/下载**按钮 | 全屏 = `requestFullscreen()`（demo 同款）；下载 = `downloadArtifact()`（`<a download>` 直链，跟随 S3 302）。 |
@@ -312,7 +312,7 @@ CI：新增 `.github/workflows/design-frontend.yml`（参照 `session-frontend.y
 
 | # | 风险/决策 | 方案 |
 | --- | --- | --- |
-| 1 | 模型切换：后端仅支持建会话时传 `--model` | 模型选择对**新会话**生效并明确提示（§3.3）；不伪造运行时切换 |
+| 1 | 模型切换（OpenHarness 主 agent）：`/model` 为文本命令通道，回执是非结构化系统消息；且 COLD 会话 resume 后模型是否沿用切换值取决于 OH snapshot 恢复行为 | 双通道方案（§3.3）：建会话 `--model` + 会话中 WS 提交 `/model`；前端以「乐观更新 + 回执文案校验」维护下拉显示态；resume 后模型状态在 M3 联调时实测验证，若不沿用则重连后自动补发一次 `/model` |
 | 2 | 上传文档：后端无上传 API | 保留 demo 交互 + 明确「暂不支持」提示 + stub 预留；不做假上传 |
 | 3 | 个人空间无产物列表 API，前端聚合有 N+1 请求 | 并发限制 + 缓存 + 按会话分页渐进加载（§4.2）；后续后端补 `ArtifactResponse` 路由时可无缝替换 `useVideoAssets` 数据源 |
 | 4 | localStorage 与 session-frontend 同源部署时的键冲突 | 新前端统一 `da.*` 前缀（apiKey/theme/currentSessionId/model 等） |

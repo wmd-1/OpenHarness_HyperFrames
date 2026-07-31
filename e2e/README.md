@@ -1,4 +1,4 @@
-<!-- 最后更新：2026-07-30 -->
+<!-- 最后更新：2026-07-31 -->
 
 # e2e — 端到端 / 冒烟 / 验收测试
 
@@ -29,6 +29,7 @@
 | `run-web-docker-tests.sh` | web 前端全量流水线：镜像内 lint+vitest → 构建 runtime 镜像 → 容器冒烟；`WEB_NEW_TAG=<tag>` 可给通过验证的镜像打标 |
 | `run-web-docker-smoke.sh` | web 冒烟（安全响应头断言）；`WEB_IMAGE=<已有镜像>` 复用已有 runtime 镜像不重建 |
 | `run-session-frontend-docker-tests.sh` | session-frontend 全量流水线：单测 → runtime 冒烟 → Playwright E2E（`mock-backend.mjs` 模拟后端） |
+| `run-design-frontend-docker-tests.sh` | design-agent-frontend 全量流水线：单测 → runtime 冒烟 → Playwright E2E（主页/视频/历史/空间/demo/错误场景） |
 
 ### 辅助
 
@@ -46,6 +47,7 @@ bash e2e/run_e2e.sh                                # 视频服务多实例验收
 bash e2e/run-session-live-acceptance.sh            # session 实况验收
 bash e2e/run-web-docker-tests.sh                   # web 前端全量流水线
 bash e2e/run-session-frontend-docker-tests.sh      # session 前端全量流水线
+bash e2e/run-design-frontend-docker-tests.sh       # 设计智能体平台前端全量流水线
 ```
 
 stub 模式（无 LLM key 离线验收）用 override 固化，避免配置漂移：
@@ -57,5 +59,5 @@ docker compose -f docker-compose.yml -f docker-compose.stub.yml up -d session
 ## 新增脚本约定
 
 - `FROM` 已有镜像叠加测试层，或直接 `docker compose run` 进已有镜像；
-- 镜像 tag 通过环境变量传入（`WEB_IMAGE`、`WEB_NEW_TAG`、`OH_VERSION_HYPERFRAMES_VERSION` 等），不要多处硬编码；
+- 镜像 tag 通过环境变量传入（`WEB_IMAGE`、`WEB_NEW_TAG`、`OH_VERSION_HYPERFRAMES_VERSION`、`DESIGN_FRONTEND_IMAGE` 等），不要多处硬编码；
 - 执行报告以 `*_report_<date>.txt` 存档在本目录。
