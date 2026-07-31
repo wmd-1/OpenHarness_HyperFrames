@@ -1,0 +1,2370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计智能体</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg-page: #eef1f5;
+  --bg-module: #ffffff;
+  --bg-input: #f5f7fa;
+  --bg-hover: #f0f2f6;
+  --border-light: #e2e6ec;
+  --border-focus: #1a56db;
+  --shadow-card: 0 2px 8px rgba(0,0,0,0.06), 0 0 1px rgba(0,0,0,0.04);
+  --shadow-elevated: 0 4px 16px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
+  --shadow-header: 0 1px 4px rgba(0,0,0,0.04);
+  --accent: #1a56db;
+  --accent-light: #e8f0fe;
+  --accent-hover: #1d4ed8;
+  --text-primary: #1f2937;
+  --text-secondary: #6b7280;
+  --text-tertiary: #9ca3af;
+  --text-on-accent: #ffffff;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-card: 14px;
+  --font-stack: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --transition-base: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-panel: 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+html { font-size: 14px; }
+body { font-family: var(--font-stack); background: var(--bg-page); color: var(--text-primary); line-height: 1.6; min-height: 100vh; overflow-x: hidden; }
+
+/* ========== 顶栏 ========== */
+.app-header {
+  background: var(--bg-module);
+  border-bottom: 1px solid var(--border-light);
+  box-shadow: var(--shadow-header);
+  padding: 0 24px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.header-left { display: flex; align-items: center; gap: 16px; }
+.header-back {
+  width: 32px; height: 32px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-module);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: none; align-items: center; justify-content: center;
+  transition: all var(--transition-base);
+  font-size: 16px;
+}
+.header-back:hover { background: var(--bg-hover); color: var(--text-primary); }
+.header-back.visible { display: flex; }
+.header-logo {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 16px; font-weight: 600; color: var(--text-primary);
+}
+.header-logo-icon {
+  width: 28px; height: 28px;
+  background: linear-gradient(135deg, #1a56db, #3b82f6);
+  border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+}
+.header-logo-icon svg { width: 18px; height: 18px; color: #fff; }
+.header-title-current {
+  font-size: 15px; color: var(--text-secondary);
+  display: none; align-items: center; gap: 6px;
+}
+.header-title-current.visible { display: flex; }
+.header-title-current span { color: var(--text-tertiary); }
+.header-right { display: flex; align-items: center; gap: 12px; }
+.header-user {
+  width: 32px; height: 32px;
+  background: var(--accent-light);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+
+/* ========== 主页模块卡片 ========== */
+.page-home {
+  padding: 0 10%;
+  margin: 0 auto;
+  max-width: none;
+  min-height: calc(100vh - 56px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.home-title {
+  font-size: 30px; font-weight: 700; color: var(--text-primary);
+  margin-bottom: 10px;
+  text-align: center;
+  letter-spacing: -0.5px;
+}
+.home-subtitle {
+  font-size: 15px; color: var(--text-secondary);
+  margin-bottom: 44px;
+  text-align: center;
+}
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 24px;
+  flex: 1;
+  max-height: 68vh;
+}
+.module-card {
+  background: var(--bg-module);
+  border-radius: 16px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.06), 0 0 1px rgba(0,0,0,0.04);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.module-card:hover {
+  box-shadow: 0 4px 24px rgba(0,0,0,0.1), 0 0 1px rgba(0,0,0,0.04);
+  transform: translateY(-4px);
+}
+.module-card-icon {
+  padding: 44px 32px 28px;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.module-card-icon::after {
+  content: "";
+  position: absolute;
+  right: -20px; top: -20px;
+  width: 80px; height: 80px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 50%;
+}
+.module-card-icon svg {
+  width: 38px; height: 38px;
+  color: #ffffff;
+  margin-bottom: 14px;
+}
+.module-card-icon-title {
+  font-size: 20px; font-weight: 600;
+  color: #ffffff;
+}
+.module-card-icon-desc {
+  font-size: 13px; color: rgba(255,255,255,0.78);
+  margin-top: 6px;
+}
+.module-card-body {
+  padding: 24px 32px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.module-card-desc {
+  font-size: 14px; color: var(--text-secondary);
+  line-height: 1.7;
+  margin-bottom: 20px;
+  flex: 1;
+}
+.module-card-enter {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 14px; color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  padding: 10px 20px;
+  background: var(--accent-light);
+  border-radius: 10px;
+  align-self: flex-start;
+}
+.module-card-enter svg { width: 15px; height: 15px; }
+.module-card:hover .module-card-enter { gap: 12px; }
+
+/* 各模块主题色 */
+.icon-ui { background: linear-gradient(135deg, #1a56db 0%, #3b82f6 100%); }
+.icon-drawio { background: linear-gradient(135deg, #059669 0%, #10b981 100%); }
+.icon-video { background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%); }
+.icon-space { background: linear-gradient(135deg, #475569 0%, #64748b 100%); }
+
+/* ========== 原型页面设计详情页 ========== */
+.page-detail { display: none; height: calc(100vh - 56px); }
+.page-detail.visible { display: flex; }
+
+/* Drawio设计详情页布局：历史会话(左) | 界面预览(中,始终可见) | 对话区(右) */
+.page-detail.drawio-layout .panel-history { order: 0; }
+.page-detail.drawio-layout .panel-preview {
+  order: 1;
+  width: auto;
+  min-width: 300px;
+  flex: 1 1 0%;
+  border-left: none;
+  border-right: 1px solid var(--border-light);
+  transition: none;
+}
+.page-detail.drawio-layout .panel-chat {
+  order: 2;
+  flex: 1 1 0%;
+}
+.page-detail.drawio-layout .btn-preview-toggle { display: none; }
+.page-detail.drawio-layout .preview-header { display: none; }
+.page-detail.drawio-layout .preview-body { display: none; }
+.page-detail.drawio-layout .drawio-preview { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+
+/* 左侧：历史会话 */
+.panel-history {
+  width: 240px; min-width: 240px;
+  background: var(--bg-module);
+  border-right: 1px solid var(--border-light);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+}
+.panel-history-header {
+  padding: 16px 16px 14px;
+  border-bottom: 1px solid var(--border-light);
+}
+.panel-history-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.panel-history-title svg {
+  width: 14px; height: 14px;
+  color: var(--accent);
+  opacity: 0.7;
+}
+.btn-new-session {
+  width: 100%; height: 36px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--accent-light);
+  color: var(--accent);
+  font-size: 13px; font-weight: 500;
+  font-family: var(--font-stack);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  transition: all var(--transition-base);
+}
+.btn-new-session:hover { background: var(--accent); color: var(--text-on-accent); }
+.btn-new-session svg { width: 14px; height: 14px; }
+.panel-history-list {
+  flex: 1; overflow-y: auto;
+  padding: 8px 0;
+  scrollbar-width: thin; scrollbar-color: #d0d5dd transparent;
+  scroll-behavior: smooth;
+}
+.panel-history-list::-webkit-scrollbar { width: 4px; }
+.panel-history-list::-webkit-scrollbar-track { background: transparent; }
+.panel-history-list::-webkit-scrollbar-thumb { background: #d0d5dd; border-radius: 4px; }
+.panel-history-list::-webkit-scrollbar-thumb:hover { background: #b0b8c4; }
+.history-item {
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: background var(--transition-base);
+  border-left: 3px solid transparent;
+}
+.history-item:hover { background: var(--bg-hover); }
+.history-item.active { background: var(--accent-light); border-left-color: var(--accent); }
+.history-item-title {
+  font-size: 13px; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-weight: 500;
+}
+.history-item.active .history-item-title { color: var(--accent); }
+.history-item-time {
+  font-size: 11px; color: var(--text-tertiary);
+  margin-top: 3px;
+}
+.panel-history-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-light);
+  font-size: 11px; color: var(--text-tertiary);
+}
+
+/* 中间：对话区 */
+.panel-chat {
+  flex: 1; min-width: 0;
+  background: var(--bg-page);
+  display: flex; flex-direction: column;
+}
+
+/* 原型页面设计 & 文本生成视频：历史面板加宽 */
+.page-detail:not(.drawio-layout) .panel-history {
+  width: 295px; min-width: 295px;
+}
+
+/* 原型页面设计 & 文本生成视频：对话区内容占比 80%，左右各留 10% 间隙，比例恒定 */
+.page-detail:not(.drawio-layout) .panel-chat {
+  background: var(--bg-page);
+  border-left: 1px solid var(--border-light);
+  border-right: 1px solid var(--border-light);
+  box-shadow: 0 0 20px rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.04);
+}
+.page-detail:not(.drawio-layout) .chat-header,
+.page-detail:not(.drawio-layout) .chat-messages,
+.page-detail:not(.drawio-layout) .chat-input-area {
+  margin-left: 10%;
+  margin-right: 10%;
+}
+.page-detail:not(.drawio-layout) .chat-messages {
+  background: var(--bg-module);
+}
+
+/* 预览展开时：三栏无留白，margin 归零 */
+.page-detail.preview-open .chat-header,
+.page-detail.preview-open .chat-messages,
+.page-detail.preview-open .chat-input-area {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.chat-header {
+  background: var(--bg-module);
+  border-bottom: 1px solid var(--border-light);
+  padding: 12px 20px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.chat-header-title {
+  font-size: 15px; font-weight: 500; color: var(--text-primary);
+}
+.chat-header-right { display: flex; align-items: center; gap: 10px; }
+.btn-preview-toggle {
+  height: 34px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-module);
+  color: var(--text-secondary);
+  font-size: 13px; font-family: var(--font-stack);
+  padding: 0 14px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 6px;
+  transition: all var(--transition-base);
+}
+.btn-preview-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-preview-toggle.active {
+  background: var(--accent-light); color: var(--accent); border-color: var(--accent);
+}
+.btn-preview-toggle svg { width: 16px; height: 16px; }
+
+.chat-messages {
+  flex: 1; overflow-y: auto;
+  padding: 24px 20px;
+  display: flex; flex-direction: column; gap: 16px;
+  scrollbar-width: thin; scrollbar-color: var(--border-light) transparent;
+}
+.chat-messages::-webkit-scrollbar { width: 4px; }
+.chat-messages::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 2px; }
+
+.msg-system {
+  max-width: 80%;
+  background: var(--accent-light);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  font-size: 14px; color: var(--text-primary);
+  line-height: 1.6;
+  align-self: flex-start;
+}
+.msg-system-label {
+  font-size: 11px; color: var(--accent);
+  font-weight: 500; margin-bottom: 6px;
+}
+.msg-user {
+  max-width: 80%;
+  background: var(--bg-input);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  font-size: 14px; color: var(--text-primary);
+  line-height: 1.6;
+  align-self: flex-end;
+  border: 1px solid var(--border-light);
+}
+.msg-user-label {
+  font-size: 11px; color: var(--text-tertiary);
+  font-weight: 400; margin-bottom: 6px;
+  text-align: right;
+}
+.msg-ai {
+  max-width: 80%;
+  background: var(--bg-module);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  font-size: 14px; color: var(--text-primary);
+  line-height: 1.6;
+  align-self: flex-start;
+  box-shadow: var(--shadow-card);
+}
+.msg-ai-label {
+  font-size: 11px; color: #059669;
+  font-weight: 500; margin-bottom: 6px;
+  display: flex; align-items: center; gap: 4px;
+}
+.msg-ai-label-dot {
+  width: 6px; height: 6px;
+  background: #059669;
+  border-radius: 50%;
+}
+
+.chat-input-area {
+  background: var(--bg-module);
+  border-top: 1px solid var(--border-light);
+  padding: 16px 20px;
+}
+.chat-input-box {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg-input);
+  display: flex; flex-direction: column;
+  min-height: 120px;
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+}
+.chat-input-box:focus-within {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--accent-light);
+}
+.chat-input-text {
+  flex: 1;
+  min-height: 64px;
+  padding: 14px 16px 8px;
+  font-size: 14px; color: var(--text-primary);
+  font-family: var(--font-stack);
+  line-height: 1.6;
+  background: transparent;
+  border: none; outline: none;
+  resize: none;
+}
+.chat-input-text::placeholder { color: var(--text-tertiary); }
+.chat-input-bottom {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px 10px 14px;
+}
+.chat-input-tools {
+  display: flex; align-items: center; gap: 6px;
+}
+.btn-toolbar {
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 13px; font-family: var(--font-stack);
+  padding: 0 10px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+.btn-toolbar:hover { background: var(--bg-hover); color: var(--text-secondary); }
+.btn-toolbar.active { background: var(--accent-light); color: var(--accent); }
+.btn-toolbar svg { width: 14px; height: 14px; }
+.btn-model {
+  position: relative;
+  background: var(--accent-light);
+  color: var(--accent);
+  border: 1px solid rgba(26,86,219,0.15);
+  border-radius: 14px;
+  font-weight: 500;
+  font-size: 12px;
+  padding: 0 10px;
+}
+.btn-model:hover { background: rgba(26,86,219,0.12); color: var(--accent-hover); border-color: rgba(26,86,219,0.25); }
+.btn-model.active { background: rgba(26,86,219,0.18); color: var(--accent-hover); border-color: rgba(26,86,219,0.3); }
+.btn-model .model-dropdown {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  background: var(--bg-module);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  padding: 6px;
+  min-width: 160px;
+  z-index: 50;
+}
+.btn-model .model-dropdown.show { display: block; }
+.model-option {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-base);
+  display: flex; align-items: center; gap: 8px;
+}
+.model-option:hover { background: var(--bg-hover); color: var(--text-primary); }
+.model-option.active { background: var(--accent-light); color: var(--accent); font-weight: 500; }
+.model-option-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--border-light);
+}
+.model-option.active .model-option-dot { background: var(--accent); }
+.btn-upload {
+  position: relative;
+  background: rgba(5,150,105,0.08);
+  color: #059669;
+  border: 1px solid rgba(5,150,105,0.15);
+  border-radius: 14px;
+  font-weight: 500;
+  font-size: 12px;
+  padding: 0 10px;
+}
+.btn-upload:hover { background: rgba(5,150,105,0.14); color: #047857; border-color: rgba(5,150,105,0.25); }
+.btn-upload.active { background: rgba(5,150,105,0.18); color: #047857; border-color: rgba(5,150,105,0.3); }
+.btn-upload input[type="file"] {
+  display: none;
+}
+.upload-tag {
+  display: none;
+  font-size: 11px;
+  color: #059669;
+  background: rgba(5,150,105,0.08);
+  border: 1px solid rgba(5,150,105,0.15);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-family: var(--font-stack);
+}
+.upload-tag.show { display: inline-flex; align-items: center; gap: 4px; }
+.upload-tag .upload-tag-close {
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  color: #059669;
+  opacity: 0.6;
+}
+.upload-tag .upload-tag-close:hover { opacity: 1; }
+.btn-send {
+  width: 36px; height: 36px;
+  border: none; border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background var(--transition-base);
+}
+.btn-send:hover { background: var(--accent-hover); }
+.btn-send svg { width: 16px; height: 16px; }
+
+/* 右侧：预览面板 */
+.panel-preview {
+  width: 0; min-width: 0;
+  background: var(--bg-module);
+  border-left: 1px solid var(--border-light);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  transition: width var(--transition-panel), min-width var(--transition-panel);
+}
+.panel-preview.expanded {
+  width: 50%;
+  min-width: 360px;
+}
+.preview-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.preview-title {
+  font-size: 14px; font-weight: 500; color: var(--text-primary);
+}
+.preview-devices {
+  display: flex; align-items: center; gap: 8px;
+}
+.btn-device {
+  height: 30px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-module);
+  color: var(--text-secondary);
+  font-size: 12px; font-family: var(--font-stack);
+  padding: 0 10px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+  transition: all var(--transition-base);
+}
+.btn-device:hover { background: var(--bg-hover); }
+.btn-device.active { background: var(--accent-light); color: var(--accent); border-color: var(--accent); }
+.btn-device svg { width: 12px; height: 12px; }
+.preview-body {
+  flex: 1;
+  background: var(--bg-page);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  overflow: hidden;
+}
+.preview-frame {
+  background: var(--bg-module);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  overflow: hidden;
+  transition: all var(--transition-panel);
+}
+.preview-frame.device-web { width: 100%; max-width: 960px; height: 100%; max-height: 540px; border-radius: var(--radius-md); }
+.preview-frame.device-phone { width: 375px; height: 667px; border-radius: 24px; }
+.preview-frame.device-tablet { width: 768px; height: 500px; border-radius: 18px; }
+.preview-frame-bar {
+  height: 32px;
+  background: #f8f9fb;
+  border-bottom: 1px solid var(--border-light);
+  display: flex; align-items: center; padding: 0 12px; gap: 6px;
+}
+.preview-frame-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--border-light);
+}
+.preview-frame-url {
+  flex: 1; margin-left: 8px;
+  height: 20px;
+  background: var(--bg-input);
+  border-radius: 4px;
+  font-size: 11px; color: var(--text-tertiary);
+  padding: 0 8px;
+  display: flex; align-items: center;
+}
+.preview-frame-content {
+  padding: 24px;
+  min-height: 200px;
+}
+.preview-placeholder-title {
+  font-size: 18px; font-weight: 600; color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.preview-placeholder-text {
+  font-size: 13px; color: var(--text-secondary);
+  line-height: 1.6;
+}
+.preview-frame-phone-bar {
+  height: 44px;
+  background: #f8f9fb;
+  border-bottom: 1px solid var(--border-light);
+  display: flex; align-items: center; justify-content: center;
+}
+.preview-frame-phone-notch {
+  width: 120px; height: 20px;
+  background: var(--bg-module);
+  border-radius: 0 0 12px 12px;
+}
+.preview-code {
+  display: none;
+  width: 100%; height: 100%;
+  background: #1e1e2e;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  overflow: hidden;
+  flex-direction: column;
+}
+.preview-code.visible { display: flex; }
+.preview-code-bar {
+  height: 32px;
+  background: #2d2d3f;
+  display: flex; align-items: center;
+  padding: 0 12px; gap: 8px;
+}
+.preview-code-tab {
+  font-size: 12px; font-family: var(--font-stack);
+  color: #a0a0b8; background: transparent;
+  border: none; cursor: pointer;
+  padding: 4px 8px; border-radius: 4px;
+  transition: all var(--transition-base);
+}
+.preview-code-tab.active { color: #e0e0f0; background: rgba(255,255,255,0.08); }
+.preview-code-tab:hover { color: #c0c0d0; }
+.preview-code-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #cdd6f4;
+  scrollbar-width: thin; scrollbar-color: #45475a transparent;
+}
+.preview-code-body::-webkit-scrollbar { width: 6px; }
+.preview-code-body::-webkit-scrollbar-thumb { background: #45475a; border-radius: 3px; }
+.preview-code-body::-webkit-scrollbar-track { background: transparent; }
+.code-tag { color: #89b4fa; }
+.code-attr { color: #f9e2af; }
+.code-val { color: #a6e3a1; }
+.code-comment { color: #6c7086; font-style: italic; }
+.code-key { color: #cba6f7; }
+.code-str { color: #a6e3a1; }
+.code-num { color: #fab387; }
+.code-line-num {
+  display: inline-block;
+  width: 32px;
+  color: #45475a;
+  text-align: right;
+  margin-right: 16px;
+  font-size: 11px;
+  user-select: none;
+}
+
+/* Drawio图表预览 */
+.drawio-preview { display: none; }
+.drawio-preview-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--bg-module);
+}
+.drawio-preview-title {
+  font-size: 14px; font-weight: 600; color: var(--text-primary);
+  display: flex; align-items: center; gap: 8px;
+}
+.drawio-preview-title svg { width: 18px; height: 18px; color: #059669; }
+.drawio-preview-toolbar {
+  display: flex; align-items: center; gap: 8px;
+}
+.drawio-toolbar-group {
+  display: flex; align-items: center;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+  gap: 0;
+}
+.btn-zoom {
+  width: 28px; height: 28px;
+  border: none; border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--transition-base);
+  font-size: 15px; font-weight: 600; font-family: var(--font-stack);
+}
+.btn-zoom:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-zoom svg { width: 14px; height: 14px; }
+.zoom-level {
+  font-size: 12px; color: var(--text-secondary);
+  padding: 0 6px; min-width: 42px; text-align: center;
+  font-weight: 500; font-family: var(--font-stack);
+  user-select: none;
+}
+.btn-drawio-action {
+  height: 28px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-module);
+  color: var(--text-secondary);
+  font-size: 12px; font-family: var(--font-stack);
+  padding: 0 10px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 5px;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+.btn-drawio-action:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-drawio-action svg { width: 14px; height: 14px; }
+.drawio-preview-body {
+  flex: 1;
+  background: var(--bg-page);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  overflow: hidden;
+}
+.drawio-canvas-wrapper {
+  width: 100%; height: 100%;
+  background: var(--bg-module);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  overflow: hidden;
+  position: relative;
+  display: flex; flex-direction: column;
+}
+.drawio-canvas-grid {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-image: radial-gradient(circle, #d4d8de 0.8px, transparent 0.8px);
+  background-size: 20px 20px;
+  opacity: 0.4;
+  pointer-events: none;
+  z-index: 0;
+}
+.drawio-canvas-content {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  overflow: auto;
+  position: relative;
+  z-index: 1;
+}
+.drawio-canvas-content svg {
+  transition: transform var(--transition-base);
+}
+.drawio-status-bar {
+  height: 26px;
+  background: #f8f9fb;
+  border-top: 1px solid var(--border-light);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px;
+  font-size: 11px; color: var(--text-tertiary);
+  font-family: var(--font-stack);
+}
+
+/* 视频预览 */
+.video-preview { display: none; }
+.video-preview-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--bg-module);
+}
+.video-preview-title {
+  font-size: 14px; font-weight: 600; color: var(--text-primary);
+  display: flex; align-items: center; gap: 8px;
+}
+.video-preview-title svg { width: 18px; height: 18px; color: #d97706; }
+.video-preview-toolbar {
+  display: flex; align-items: center; gap: 8px;
+}
+.btn-video-action {
+  height: 28px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-module);
+  color: var(--text-secondary);
+  font-size: 12px; font-family: var(--font-stack);
+  padding: 0 10px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 5px;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+.btn-video-action:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-video-action svg { width: 14px; height: 14px; }
+
+.video-preview-body {
+  flex: 1;
+  background: #0d0d12;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.video-player-wrapper {
+  width: 100%; height: 100%;
+  background: #000;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  position: relative;
+  display: flex; flex-direction: column;
+}
+
+.video-placeholder {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  color: #fff;
+  gap: 16px;
+  border-radius: var(--radius-md);
+}
+.video-placeholder-icon {
+  width: 72px; height: 72px;
+  background: rgba(217, 119, 6, 0.12);
+  border: 2px dashed rgba(217, 119, 6, 0.35);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  animation: videoPulse 2.5s ease-in-out infinite;
+}
+@keyframes videoPulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.06); opacity: 1; }
+}
+.video-placeholder-icon svg { width: 32px; height: 32px; color: #f59e0b; }
+.video-placeholder-title {
+  font-size: 18px; font-weight: 600; color: rgba(255,255,255,0.92);
+}
+.video-placeholder-text {
+  font-size: 13px; color: rgba(255,255,255,0.45);
+  line-height: 1.6; text-align: center; max-width: 380px;
+}
+.video-placeholder-hint {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: rgba(255,255,255,0.3);
+  margin-top: 8px;
+}
+.video-placeholder-hint svg { width: 14px; height: 14px; }
+
+.video-player-el {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  display: none;
+  background: #000;
+}
+.video-player-el.visible { display: block; }
+
+.video-controls-bar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: linear-gradient(transparent, rgba(0,0,0,0.82));
+  padding: 14px 16px 10px;
+  display: flex; flex-direction: column; gap: 8px;
+  transition: opacity 0.3s;
+  z-index: 10;
+}
+.video-controls-bar.auto-hide { opacity: 0; pointer-events: none; }
+
+.video-progress-wrap {
+  width: 100%; height: 4px;
+  background: rgba(255,255,255,0.18);
+  border-radius: 2px;
+  cursor: pointer;
+  position: relative;
+  transition: height 0.15s;
+}
+.video-progress-wrap:hover { height: 6px; }
+.video-progress-bar {
+  height: 100%;
+  background: #f59e0b;
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.1s linear;
+  position: relative;
+}
+.video-progress-bar::after {
+  content: '';
+  position: absolute;
+  right: -6px; top: 50%;
+  transform: translateY(-50%);
+  width: 12px; height: 12px;
+  background: #f59e0b;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.video-progress-wrap:hover .video-progress-bar::after { opacity: 1; }
+.video-progress-buffer {
+  position: absolute; top: 0; left: 0;
+  height: 100%;
+  background: rgba(255,255,255,0.25);
+  border-radius: 2px;
+  width: 0%;
+}
+
+.video-controls-row {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.video-controls-left { display: flex; align-items: center; gap: 12px; }
+.video-controls-right { display: flex; align-items: center; gap: 10px; }
+
+.btn-vc {
+  width: 32px; height: 32px;
+  border: none; border-radius: 4px;
+  background: transparent;
+  color: rgba(255,255,255,0.85);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-vc:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.btn-vc svg { width: 18px; height: 18px; }
+
+.video-time-display {
+  font-size: 12px; color: rgba(255,255,255,0.65);
+  font-family: var(--font-stack);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  min-width: 90px;
+}
+
+.video-volume-wrap {
+  display: flex; align-items: center; gap: 6px;
+}
+.video-volume-slider {
+  width: 60px; height: 4px;
+  background: rgba(255,255,255,0.18);
+  border-radius: 2px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  outline: none;
+  vertical-align: middle;
+}
+.video-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 10px; height: 10px;
+  background: #f59e0b;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.video-volume-slider::-moz-range-thumb {
+  width: 10px; height: 10px;
+  background: #f59e0b;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+.video-volume-slider::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 2px;
+}
+.video-volume-slider::-moz-range-track {
+  height: 4px; border-radius: 2px; background: rgba(255,255,255,0.18);
+}
+
+.video-speed-selector {
+  height: 24px;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255,255,255,0.7);
+  font-size: 11px; font-family: var(--font-stack);
+  padding: 0 4px;
+  cursor: pointer;
+  outline: none;
+  -webkit-appearance: none; appearance: none;
+}
+.video-speed-selector option { background: #1e1e2e; color: #fff; }
+
+/* 视频预览布局切换 */
+.page-detail.video-layout .preview-header { display: none; }
+.page-detail.video-layout .preview-body { display: none; }
+.page-detail.video-layout .drawio-preview { display: none; }
+.page-detail.video-layout .video-preview { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+
+/* ========== 响应式 ========== */
+@media (max-width: 1100px) {
+  .page-home { padding: 0 6%; }
+  .module-grid { gap: 18px; max-height: 64vh; }
+  .module-card-icon { padding: 32px 24px 20px; }
+  .module-card-icon svg { width: 32px; height: 32px; margin-bottom: 10px; }
+  .module-card-icon-title { font-size: 17px; }
+  .module-card-body { padding: 18px 24px; }
+  .module-card-desc { font-size: 13px; margin-bottom: 14px; }
+  .module-card-enter { font-size: 13px; padding: 8px 16px; }
+  .home-title { font-size: 26px; }
+  .panel-preview.expanded { width: 40%; min-width: 280px; }
+  .page-detail.drawio-layout .panel-preview { min-width: 280px; }
+  .drawio-preview-header { padding: 10px 12px; }
+  .video-preview-header { padding: 10px 12px; }
+}
+@media (max-width: 900px) {
+  .page-home { padding: 24px 5%; justify-content: flex-start; }
+  .module-grid { gap: 14px; max-height: none; flex: none; }
+  .module-card-icon { padding: 24px 20px 16px; }
+  .module-card-icon svg { width: 28px; height: 28px; margin-bottom: 8px; }
+  .module-card-icon-title { font-size: 16px; }
+  .module-card-icon-desc { font-size: 12px; }
+  .module-card-body { padding: 16px 20px; }
+  .module-card-desc { font-size: 12px; margin-bottom: 12px; }
+  .module-card-enter { font-size: 12px; padding: 7px 14px; border-radius: 8px; }
+  .home-title { font-size: 22px; }
+  .home-subtitle { font-size: 13px; margin-bottom: 28px; }
+  .panel-history { width: 200px; min-width: 200px; }
+  .page-detail.drawio-layout .panel-history { width: 180px; min-width: 180px; }
+  .page-detail:not(.drawio-layout) .panel-history { width: 235px; min-width: 235px; }
+  .drawio-preview-header { padding: 10px 12px; }
+  .drawio-preview-body { padding: 10px; }
+  .video-preview-header { padding: 10px 12px; }
+  .video-preview-body { padding: 10px; }
+}
+@media (max-width: 640px) {
+  .module-grid { grid-template-columns: 1fr; grid-template-rows: auto; gap: 14px; }
+  .page-home { padding: 20px 16px; }
+  .home-title { font-size: 20px; }
+  .home-subtitle { font-size: 13px; margin-bottom: 24px; }
+  .module-card-icon { padding: 24px 20px 16px; }
+  .module-card-icon svg { width: 28px; height: 28px; }
+  .module-card-body { padding: 16px 20px; }
+  .panel-history { display: none; }
+  .panel-preview.expanded { width: 100%; min-width: 0; position: absolute; right: 0; top: 0; bottom: 0; z-index: 10; }
+  .page-detail:not(.drawio-layout) .chat-header,
+  .page-detail:not(.drawio-layout) .chat-messages,
+  .page-detail:not(.drawio-layout) .chat-input-area {
+    margin-left: 16px; margin-right: 16px;
+  }
+  .page-detail.drawio-layout { flex-direction: column; }
+  .page-detail.drawio-layout .panel-history { display: none; }
+  .page-detail.drawio-layout .panel-preview { min-width: 0; flex: 1 1 0%; order: 0; border-right: none; border-bottom: 1px solid var(--border-light); }
+  .page-detail.drawio-layout .panel-chat { flex: 1 1 0%; order: 1; }
+  .drawio-preview-header { padding: 8px 10px; }
+  .drawio-preview-body { padding: 8px; }
+  .drawio-canvas-content { padding: 12px; }
+  .btn-drawio-action .action-text { display: none; }
+  .btn-drawio-action { padding: 0 6px; }
+  .video-preview-header { padding: 8px 10px; }
+  .video-preview-body { padding: 8px; }
+  .btn-video-action .action-text { display: none; }
+  .btn-video-action { padding: 0 6px; }
+  .video-volume-slider { width: 40px; }
+}
+
+/* ========== 个人空间页面 ========== */
+.page-space {
+  display: none;
+  padding: 40px 32px;
+  max-width: 1200px;
+  margin: 0 auto;
+  min-height: calc(100vh - 56px);
+}
+.page-space.visible { display: block; }
+.space-header { margin-bottom: 28px; }
+.space-title { font-size: 24px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; }
+.space-subtitle { font-size: 14px; color: var(--text-secondary); }
+
+.space-tabs {
+  display: flex; gap: 4px;
+  margin-bottom: 32px;
+  border-bottom: 1px solid var(--border-light);
+}
+.space-tab {
+  height: 42px; padding: 0 20px;
+  border: none; border-bottom: 3px solid transparent;
+  background: transparent; color: var(--text-secondary);
+  font-size: 14px; font-weight: 500; font-family: var(--font-stack);
+  cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  transition: all var(--transition-base);
+  margin-bottom: -1px;
+}
+.space-tab:hover { color: var(--text-primary); }
+.space-tab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
+.space-tab svg { width: 16px; height: 16px; }
+.space-tab .tab-count {
+  font-size: 12px; color: var(--text-tertiary);
+  background: var(--bg-input); border-radius: 10px;
+  padding: 1px 8px; font-weight: 400;
+}
+.space-tab.active .tab-count { background: var(--accent-light); color: var(--accent); }
+
+.space-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px; min-height: 300px;
+}
+.space-card {
+  background: var(--bg-module); border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card); overflow: hidden;
+  transition: all var(--transition-base);
+  display: flex; flex-direction: column;
+}
+.space-card:hover { box-shadow: var(--shadow-elevated); transform: translateY(-3px); }
+
+.space-card-thumb {
+  height: 150px; position: relative; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.space-card-thumb::before {
+  content: ""; position: absolute; inset: 0;
+  background-image: radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+.space-card-thumb svg {
+  width: 44px; height: 44px; color: rgba(255,255,255,0.85);
+  position: relative; z-index: 1;
+}
+.space-card-thumb .thumb-deco {
+  position: absolute; right: -16px; top: -16px;
+  width: 64px; height: 64px;
+  background: rgba(255,255,255,0.12); border-radius: 50%;
+}
+.space-card-thumb .thumb-deco2 {
+  position: absolute; right: 20px; bottom: -24px;
+  width: 48px; height: 48px;
+  background: rgba(255,255,255,0.08); border-radius: 50%;
+}
+.space-card-thumb .thumb-type {
+  position: absolute; bottom: 10px; left: 14px;
+  font-size: 10px; color: rgba(255,255,255,0.8);
+  background: rgba(0,0,0,0.25); padding: 2px 8px;
+  border-radius: 4px; font-weight: 500; z-index: 2;
+}
+.thumb-ui { background: linear-gradient(135deg, #1a56db 0%, #3b82f6 100%); }
+.thumb-drawio { background: linear-gradient(135deg, #059669 0%, #10b981 100%); }
+.thumb-video { background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%); }
+
+.space-card-body {
+  padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 8px; flex: 1;
+}
+.space-card-name {
+  font-size: 14px; font-weight: 600; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.space-card-meta {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-tertiary);
+}
+.space-card-meta svg { width: 12px; height: 12px; }
+.space-card-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: auto; padding-top: 8px;
+}
+.space-card-type {
+  font-size: 11px; color: var(--text-tertiary);
+  background: var(--bg-input); padding: 3px 8px; border-radius: 4px;
+}
+.space-card-download {
+  height: 30px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-module); color: var(--text-secondary);
+  font-size: 12px; font-family: var(--font-stack);
+  padding: 0 12px; cursor: pointer;
+  display: flex; align-items: center; gap: 5px;
+  transition: all var(--transition-base); white-space: nowrap;
+}
+.space-card-download:hover { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
+.space-card-download svg { width: 14px; height: 14px; }
+
+.space-empty {
+  grid-column: 1 / -1;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 80px 0; color: var(--text-tertiary); gap: 12px;
+}
+.space-empty svg { width: 48px; height: 48px; opacity: 0.4; }
+.space-empty-text { font-size: 14px; }
+
+.space-pagination {
+  display: flex; align-items: center; justify-content: center;
+  gap: 6px; margin-top: 32px; padding-bottom: 20px;
+}
+.space-page-btn {
+  height: 34px; min-width: 34px;
+  border: 1px solid var(--border-light); border-radius: var(--radius-sm);
+  background: var(--bg-module); color: var(--text-secondary);
+  font-size: 13px; font-family: var(--font-stack);
+  padding: 0 10px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--transition-base);
+}
+.space-page-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+.space-page-btn.active { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
+.space-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.space-page-btn svg { width: 14px; height: 14px; }
+.space-page-info { font-size: 12px; color: var(--text-tertiary); margin: 0 12px; }
+
+@media (max-width: 900px) {
+  .page-space { padding: 24px 16px; }
+  .space-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+  .space-tab { padding: 0 14px; font-size: 13px; }
+}
+@media (max-width: 640px) {
+  .page-space { padding: 20px 12px; }
+  .space-grid { grid-template-columns: 1fr; }
+  .space-tabs { overflow-x: auto; gap: 2px; }
+  .space-tab { padding: 0 12px; }
+  .space-card-download .dl-text { display: none; }
+  .space-card-download { padding: 0 8px; }
+}
+
+/* ========== 过渡动画 ========== */
+.view-fade-in { animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+<!-- ========== 顶栏 ========== -->
+<header class="app-header">
+  <div class="header-left">
+    <button class="header-back" id="btnBack" onclick="goHome()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </button>
+    <div class="header-logo" id="headerLogo">
+      <div class="header-logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      </div>
+      设计智能体
+    </div>
+    <div class="header-title-current" id="headerCurrent">
+      <span>/</span>
+      <span id="headerModuleName">原型页面设计</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="header-user">U</div>
+  </div>
+</header>
+
+<!-- ========== 主页 ========== -->
+<section class="page-home view-fade-in" id="pageHome">
+  <h1 class="home-title">设计智能体工作台</h1>
+  <p class="home-subtitle">选择一个设计模块，开始您的创作之旅</p>
+
+  <div class="module-grid">
+
+    <!-- 原型页面设计 -->
+    <div class="module-card" onclick="enterModule('ui')">
+      <div class="module-card-icon icon-ui">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+        <div class="module-card-icon-title">原型页面设计</div>
+        <div class="module-card-icon-desc">交互式网页界面生成</div>
+      </div>
+      <div class="module-card-body">
+        <p class="module-card-desc">通过对话描述您的需求，AI智能生成网页UI界面，支持实时预览和多端适配。</p>
+        <div class="module-card-enter">
+          进入模块
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Drawio设计 -->
+    <div class="module-card" onclick="enterModule('drawio')">
+      <div class="module-card-icon icon-drawio">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><line x1="10" y1="6.5" x2="14" y2="6.5"/><line x1="6.5" y1="10" x2="6.5" y2="14"/><line x1="17.5" y1="10" x2="17.5" y2="14"/><line x1="10" y1="17.5" x2="14" y2="17.5"/></svg>
+        <div class="module-card-icon-title">Drawio设计</div>
+        <div class="module-card-icon-desc">流程图与架构图生成</div>
+      </div>
+      <div class="module-card-body">
+        <p class="module-card-desc">AI辅助绘制流程图、架构图、思维导图等可视化图表，提升文档表达力。</p>
+        <div class="module-card-enter">
+          进入模块
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- 文本生成视频 -->
+    <div class="module-card" onclick="enterModule('video')">
+      <div class="module-card-icon icon-video">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        <div class="module-card-icon-title">文本生成视频</div>
+        <div class="module-card-icon-desc">AI视频内容创作</div>
+      </div>
+      <div class="module-card-body">
+        <p class="module-card-desc">输入文本描述即可生成视频内容，支持多种风格与场景，快速产出创意视频。</p>
+        <div class="module-card-enter">
+          进入模块
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- 个人空间 -->
+    <div class="module-card" onclick="enterModule('space')">
+      <div class="module-card-icon icon-space">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <div class="module-card-icon-title">个人空间</div>
+        <div class="module-card-icon-desc">作品管理与收藏</div>
+      </div>
+      <div class="module-card-body">
+        <p class="module-card-desc">管理您的所有设计作品、历史会话与收藏资源，随时回溯创作历程。</p>
+        <div class="module-card-enter">
+          进入模块
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ========== 原型页面设计详情页 ========== -->
+<section class="page-detail" id="pageDetail">
+
+  <!-- 左侧：历史会话 -->
+  <div class="panel-history">
+    <div class="panel-history-header">
+      <button class="btn-new-session" onclick="newSession()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        新建会话
+      </button>
+      <div class="panel-history-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        历史会话
+      </div>
+    </div>
+    <div class="panel-history-list" id="historyList">
+      <div class="history-item active" onclick="selectHistory(this, 0)">
+        <div class="history-item-title">银行内部管理系统首页</div>
+        <div class="history-item-time">今天 14:32</div>
+      </div>
+      <div class="history-item" onclick="selectHistory(this, 1)">
+        <div class="history-item-title">企业创新积分名单页</div>
+        <div class="history-item-time">昨天 16:45</div>
+      </div>
+      <div class="history-item" onclick="selectHistory(this, 2)">
+        <div class="history-item-title">数据报表Dashboard</div>
+        <div class="history-item-time">7月25日 10:18</div>
+      </div>
+      <div class="history-item" onclick="selectHistory(this, 3)">
+        <div class="history-item-title">客户风险评估面板</div>
+        <div class="history-item-time">7月22日 09:30</div>
+      </div>
+      <div class="history-item" onclick="selectHistory(this, 4)">
+        <div class="history-item-title">信贷审批流程界面</div>
+        <div class="history-item-time">7月20日 15:22</div>
+      </div>
+      <div class="history-item" onclick="selectHistory(this, 5)">
+        <div class="history-item-title">资产配置建议页</div>
+        <div class="history-item-time">7月18日 11:05</div>
+      </div>
+      <div class="history-item" onclick="selectHistory(this, 6)">
+        <div class="history-item-title">合规检查报告生成器</div>
+        <div class="history-item-time">7月15日 14:50</div>
+      </div>
+      <div class="history-item" onclick="selectHistory(this, 7)">
+        <div class="history-item-title">在线开户流程设计</div>
+        <div class="history-item-time">7月12日 09:40</div>
+      </div>
+      <div class="history-item" onclick="selectHistory(this, 8)">
+        <div class="history-item-title">员工绩效考核系统</div>
+        <div class="history-item-time">7月10日 16:15</div>
+      </div>
+      <div class="history-item" onclick="selectHistory(this, 9)">
+        <div class="history-item-title">反洗钱监测预警界面</div>
+        <div class="history-item-time">7月8日 13:28</div>
+      </div>
+      <div class="history-item" onclick="selectHistory(this, 10)">
+        <div class="history-item-title">数字人民币钱包页面</div>
+        <div class="history-item-time">7月5日 10:55</div>
+      </div>
+      <div class="history-item" onclick="selectHistory(this, 11)">
+        <div class="history-item-title">智能客服对话界面</div>
+        <div class="history-item-time">7月3日 08:20</div>
+      </div>
+    </div>
+    <div class="panel-history-footer">共 12 个历史会话</div>
+  </div>
+
+  <!-- 中间：对话区 -->
+  <div class="panel-chat">
+    <div class="chat-header">
+      <div class="chat-header-title" id="chatTitle">原型页面设计对话页面</div>
+      <div class="chat-header-right">
+        <button class="btn-preview-toggle" id="btnPreview" onclick="togglePreview()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          预览
+        </button>
+      </div>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+      <div class="msg-system">
+        <div class="msg-system-label">系统提示</div>
+        您已进入原型页面设计模块，请描述您需要设计的页面需求，AI将为您生成界面代码和预览效果。
+      </div>
+      <div class="msg-user">
+        <div class="msg-user-label">我</div>
+        请帮我设计一个银行内部管理系统的首页，要求灰白背景，模块卡片式布局，左侧导航栏，右侧数据展示区。
+      </div>
+      <div class="msg-ai">
+        <div class="msg-ai-label"><div class="msg-ai-label-dot"></div>设计智能体</div>
+        好的，我已为您生成银行内部管理系统首页的原型页面设计方案。主要特点：<br><br>
+        1. 灰白色背景 (#eef1f5) 配白色模块盒子，层次感突出<br>
+        2. 左侧 240px 固定导航栏<br>
+        3. 右侧数据卡片区域，支持网格自适应<br>
+        4. 深蓝主色调 (#1a56db)，符合银行风格<br><br>
+        您可以在右侧预览面板中查看实际效果，点击"预览"按钮展开。
+      </div>
+    </div>
+
+    <div class="chat-input-area">
+      <div class="chat-input-box">
+        <textarea class="chat-input-text" id="chatInput" placeholder="输入您的设计需求，按 Enter 发送..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
+        <div class="chat-input-bottom">
+          <div class="chat-input-tools">
+            <button class="btn-toolbar btn-model" id="btnModel" onclick="toggleModelDropdown()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+              <span id="modelLabel">GLM-5.1</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:10px;height:10px"><polyline points="6 9 12 15 18 9"/></svg>
+              <div class="model-dropdown" id="modelDropdown">
+                <div class="model-option active" onclick="selectModel(this,'GLM-5.1')"><div class="model-option-dot"></div>GLM-5.1</div>
+                <div class="model-option" onclick="selectModel(this,'Qwen3-72B')"><div class="model-option-dot"></div>Qwen3-72B</div>
+                <div class="model-option" onclick="selectModel(this,'DeepSeek-V3')"><div class="model-option-dot"></div>DeepSeek-V3</div>
+                <div class="model-option" onclick="selectModel(this,'Claude-4')"><div class="model-option-dot"></div>Claude-4</div>
+              </div>
+            </button>
+            <button class="btn-toolbar btn-upload" id="btnUpload" onclick="triggerUpload()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+              上传文档
+              <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt,.md,.png,.jpg" onchange="handleUpload(this)">
+            </button>
+            <span class="upload-tag" id="uploadTag"><span id="uploadFileName"></span><span class="upload-tag-close" onclick="clearUpload()">×</span></span>
+          </div>
+          <button class="btn-send" onclick="sendMessage()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右侧：预览面板 -->
+  <div class="panel-preview" id="panelPreview">
+    <div class="preview-header">
+      <div class="preview-title">界面预览</div>
+      <div class="preview-devices">
+        <button class="btn-device active" id="btnWeb" onclick="switchDevice('web')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          网页
+        </button>
+        <button class="btn-device" id="btnPhone" onclick="switchDevice('phone')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+          手机
+        </button>
+        <button class="btn-device" id="btnTablet" onclick="switchDevice('tablet')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+          平板
+        </button>
+        <button class="btn-device" id="btnCode" onclick="switchDevice('code')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          源码
+        </button>
+      </div>
+    </div>
+    <div class="preview-body" id="previewBody">
+      <div class="preview-frame device-web" id="previewFrame">
+        <div class="preview-frame-bar">
+          <div class="preview-frame-dot"></div>
+          <div class="preview-frame-dot"></div>
+          <div class="preview-frame-dot"></div>
+          <div class="preview-frame-url">https://design-agent.local/bank-home</div>
+        </div>
+        <div class="preview-frame-content">
+          <div class="preview-placeholder-title">银行内部管理系统</div>
+          <div class="preview-placeholder-text">此处将展示AI生成的网页界面预览效果。当设计智能体完成界面代码生成后，预览面板将实时渲染对应的HTML页面，支持网页、手机、平板三种设备视图切换。</div>
+        </div>
+      </div>
+      <div class="preview-code" id="previewCode">
+        <div class="preview-code-bar">
+          <button class="preview-code-tab active" id="tabHtml" onclick="switchCodeTab('html')">HTML</button>
+          <button class="preview-code-tab" id="tabCss" onclick="switchCodeTab('css')">CSS</button>
+        </div>
+        <div class="preview-code-body" id="codeBody"></div>
+      </div>
+    </div>
+    <!-- Drawio图表预览（仅Drawio模式可见） -->
+    <div class="drawio-preview" id="drawioPreview">
+      <div class="drawio-preview-header">
+        <div class="drawio-preview-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><line x1="10" y1="6.5" x2="14" y2="6.5"/><line x1="6.5" y1="10" x2="6.5" y2="14"/><line x1="17.5" y1="10" x2="17.5" y2="14"/><line x1="10" y1="17.5" x2="14" y2="17.5"/></svg>
+          图表预览
+        </div>
+        <div class="drawio-preview-toolbar">
+          <div class="drawio-toolbar-group">
+            <button class="btn-zoom" onclick="drawioZoom(-1)" title="缩小">−</button>
+            <span class="zoom-level" id="drawioZoomLevel">100%</span>
+            <button class="btn-zoom" onclick="drawioZoom(1)" title="放大">+</button>
+            <button class="btn-zoom" onclick="drawioFit()" title="适应屏幕">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+            </button>
+          </div>
+          <button class="btn-drawio-action" onclick="drawioDownload()" title="下载SVG文件">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span class="action-text">下载</span>
+          </button>
+          <button class="btn-drawio-action" onclick="drawioFullscreen()" title="全屏查看">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+            <span class="action-text">全屏</span>
+          </button>
+        </div>
+      </div>
+      <div class="drawio-preview-body" id="drawioPreviewBody">
+        <div class="drawio-canvas-wrapper">
+          <div class="drawio-canvas-grid"></div>
+          <div class="drawio-canvas-content" id="drawioCanvasContent">
+            <!-- 示例流程图SVG：信贷审批流程 -->
+            <svg id="drawioSvg" viewBox="0 0 700 420" xmlns="http://www.w3.org/2000/svg" font-family="PingFang SC, Microsoft YaHei, Helvetica Neue, sans-serif" style="max-width:100%;max-height:100%;">
+              <defs>
+                <filter id="ds"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-opacity="0.08"/></filter>
+                <marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#9ca3af"/></marker>
+                <marker id="ahg" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#059669"/></marker>
+                <marker id="ahr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#dc2626"/></marker>
+              </defs>
+              <!-- 开始 -->
+              <ellipse cx="340" cy="30" rx="50" ry="20" fill="#059669" filter="url(#ds)"/>
+              <text x="340" y="36" text-anchor="middle" fill="#fff" font-size="14" font-weight="600">开始</text>
+              <!-- 箭头 开始→提交申请 -->
+              <line x1="340" y1="50" x2="340" y2="78" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#ah)"/>
+              <!-- 提交贷款申请 -->
+              <rect x="260" y="78" width="160" height="46" rx="8" fill="#fff" stroke="#d1d5db" stroke-width="1" filter="url(#ds)"/>
+              <text x="340" y="106" text-anchor="middle" fill="#1f2937" font-size="13">提交贷款申请</text>
+              <!-- 箭头 提交申请→信用评估 -->
+              <line x1="340" y1="124" x2="340" y2="156" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#ah)"/>
+              <!-- 信用评估审核 -->
+              <rect x="260" y="156" width="160" height="46" rx="8" fill="#fff" stroke="#d1d5db" stroke-width="1" filter="url(#ds)"/>
+              <text x="340" y="184" text-anchor="middle" fill="#1f2937" font-size="13">信用评估审核</text>
+              <!-- 箭头 信用评估→决策 -->
+              <line x1="340" y1="202" x2="340" y2="232" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#ah)"/>
+              <!-- 评估合格? 菱形 -->
+              <polygon points="340,232 400,270 340,308 280,270" fill="#fff" stroke="#1a56db" stroke-width="1.5" filter="url(#ds)"/>
+              <text x="340" y="274" text-anchor="middle" fill="#1a56db" font-size="12" font-weight="500">评估合格?</text>
+              <!-- 是 箭头→签约放款 -->
+              <line x1="340" y1="308" x2="340" y2="340" stroke="#059669" stroke-width="1.5" marker-end="url(#ahg)"/>
+              <text x="355" y="330" fill="#059669" font-size="11" font-weight="500">是</text>
+              <!-- 签约放款 -->
+              <rect x="260" y="340" width="160" height="46" rx="8" fill="#e8f0fe" stroke="#1a56db" stroke-width="1" filter="url(#ds)"/>
+              <text x="340" y="368" text-anchor="middle" fill="#1a56db" font-size="13" font-weight="500">签约放款</text>
+              <!-- 否 箭头→拒绝通知 -->
+              <line x1="400" y1="270" x2="480" y2="270" stroke="#dc2626" stroke-width="1.5" marker-end="url(#ahr)"/>
+              <text x="435" y="262" fill="#dc2626" font-size="11" font-weight="500">否</text>
+              <!-- 拒绝通知 -->
+              <rect x="480" y="247" width="130" height="46" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1" filter="url(#ds)"/>
+              <text x="545" y="275" text-anchor="middle" fill="#dc2626" font-size="13">拒绝通知</text>
+              <!-- 循环箭头 拒绝→提交申请 -->
+              <path d="M545,247 L545,101 L420,101" stroke="#dc2626" stroke-width="1.5" fill="none" stroke-dasharray="5,3" marker-end="url(#ahr)"/>
+              <text x="560" y="174" fill="#dc2626" font-size="10">重新申请</text>
+            </svg>
+          </div>
+          <div class="drawio-status-bar">
+            <span>信贷审批流程.drawio</span>
+            <span id="drawioDiagramInfo">700 × 420</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- 视频预览（仅Video模式可见） -->
+    <div class="video-preview" id="videoPreview">
+      <div class="video-preview-header">
+        <div class="video-preview-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+          视频预览
+        </div>
+        <div class="video-preview-toolbar">
+          <button class="btn-video-action" onclick="videoFullscreen()" title="全屏播放">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+            <span class="action-text">全屏</span>
+          </button>
+          <button class="btn-video-action" onclick="videoDownload()" title="下载视频">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span class="action-text">下载</span>
+          </button>
+        </div>
+      </div>
+      <div class="video-preview-body" id="videoPreviewBody">
+        <div class="video-player-wrapper" id="videoPlayerWrapper">
+          <!-- 占位状态：等待视频生成 -->
+          <div class="video-placeholder" id="videoPlaceholder">
+            <div class="video-placeholder-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+            </div>
+            <div class="video-placeholder-title">等待视频生成</div>
+            <div class="video-placeholder-text">在对话区描述您的视频需求，AI将为您创作创意视频内容。生成完成后将在此处自动播放预览。</div>
+            <div class="video-placeholder-hint">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              支持 MP4 格式视频预览
+            </div>
+          </div>
+          <!-- HTML5视频播放器 -->
+          <video id="videoPlayerEl" class="video-player-el" preload="metadata"></video>
+          <!-- 自定义控制条 -->
+          <div class="video-controls-bar" id="videoControlsBar" style="display:none">
+            <div class="video-progress-wrap" id="videoProgressWrap" onclick="videoSeek(event)">
+              <div class="video-progress-buffer" id="videoProgressBuffer"></div>
+              <div class="video-progress-bar" id="videoProgressBar"></div>
+            </div>
+            <div class="video-controls-row">
+              <div class="video-controls-left">
+                <button class="btn-vc" id="btnVideoPlayPause" onclick="videoTogglePlay()">
+                  <svg id="vcIconPlay" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  <svg id="vcIconPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                </button>
+                <span class="video-time-display" id="videoTimeDisplay">00:00 / 00:00</span>
+              </div>
+              <div class="video-controls-right">
+                <div class="video-volume-wrap">
+                  <button class="btn-vc" onclick="videoToggleMute()">
+                    <svg id="vcIconVolume" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 0 0 14.14"/><path d="M15.54 8.46a5 5 0 0 0 0 7.07"/></svg>
+                    <svg id="vcIconMute" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                  </button>
+                  <input type="range" class="video-volume-slider" id="videoVolumeSlider" min="0" max="100" value="80" oninput="videoSetVolume(this.value)">
+                </div>
+                <select class="video-speed-selector" id="videoSpeedSelector" onchange="videoSetSpeed(this.value)">
+                  <option value="0.5">0.5x</option>
+                  <option value="0.75">0.75x</option>
+                  <option value="1" selected>1x</option>
+                  <option value="1.25">1.25x</option>
+                  <option value="1.5">1.5x</option>
+                  <option value="2">2x</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ========== 个人空间页面 ========== -->
+<section class="page-space" id="pageSpace">
+  <div class="space-header">
+    <h1 class="space-title">个人空间</h1>
+    <p class="space-subtitle">管理您的所有设计作品与创作历程</p>
+  </div>
+
+  <div class="space-tabs" id="spaceTabs">
+    <button class="space-tab active" data-cat="ui" onclick="switchSpaceTab('ui')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+      原型页面设计
+      <span class="tab-count" id="count-ui">12</span>
+    </button>
+    <button class="space-tab" data-cat="drawio" onclick="switchSpaceTab('drawio')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><line x1="10" y1="6.5" x2="14" y2="6.5"/><line x1="6.5" y1="10" x2="6.5" y2="14"/><line x1="17.5" y1="10" x2="17.5" y2="14"/><line x1="10" y1="17.5" x2="14" y2="17.5"/></svg>
+      Drawio设计
+      <span class="tab-count" id="count-drawio">12</span>
+    </button>
+    <button class="space-tab" data-cat="video" onclick="switchSpaceTab('video')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+      文本生成视频
+      <span class="tab-count" id="count-video">12</span>
+    </button>
+  </div>
+
+  <div class="space-grid" id="spaceGrid"></div>
+  <div class="space-pagination" id="spacePagination"></div>
+</section>
+
+<script>
+var currentView = "home";
+var previewExpanded = false;
+var currentDevice = "web";
+
+function enterModule(mod) {
+  var names = { ui: "原型页面设计", drawio: "Drawio设计", video: "文本生成视频", space: "个人空间" };
+  document.getElementById("pageHome").style.display = "none";
+  document.getElementById("btnBack").classList.add("visible");
+  document.getElementById("headerCurrent").classList.add("visible");
+  document.getElementById("headerModuleName").textContent = names[mod];
+
+  // 个人空间：独立页面
+  if (mod === "space") {
+    currentView = "space";
+    document.getElementById("pageDetail").classList.remove("visible");
+    document.getElementById("pageSpace").classList.add("visible");
+    document.getElementById("pageSpace").classList.add("view-fade-in");
+    spaceCurrentCat = "ui";
+    spaceCurrentPage = 1;
+    updateSpaceTabs();
+    renderSpaceContent();
+    return;
+  }
+
+  // 其他模块：详情页
+  currentView = "detail";
+  document.getElementById("pageSpace").classList.remove("visible");
+  document.getElementById("pageDetail").classList.add("visible");
+
+  // 根据模块切换布局
+  var detail = document.getElementById("pageDetail");
+  detail.classList.remove("drawio-layout");
+  detail.classList.remove("video-layout");
+
+  if (mod === "drawio") {
+    detail.classList.add("drawio-layout");
+  } else if (mod === "video") {
+    detail.classList.add("video-layout");
+    videoLoadSrc("f3839c3a119747cf98d914af952c599d.mp4");
+  }
+
+  if (mod === "ui") {
+    document.getElementById("chatTitle").textContent = "原型页面设计对话页面";
+  } else if (mod === "drawio") {
+    document.getElementById("chatTitle").textContent = "Drawio设计对话页面";
+  } else if (mod === "video") {
+    document.getElementById("chatTitle").textContent = "文本生成视频对话页面";
+  }
+}
+
+function goHome() {
+  currentView = "home";
+  document.getElementById("pageDetail").classList.remove("visible");
+  document.getElementById("pageDetail").classList.remove("drawio-layout");
+  document.getElementById("pageDetail").classList.remove("video-layout");
+  document.getElementById("pageSpace").classList.remove("visible");
+  document.getElementById("pageHome").style.display = "";
+  document.getElementById("pageHome").classList.add("view-fade-in");
+  document.getElementById("btnBack").classList.remove("visible");
+  document.getElementById("headerCurrent").classList.remove("visible");
+  // 关闭预览面板
+  if (previewExpanded) togglePreview();
+}
+
+function togglePreview() {
+  previewExpanded = !previewExpanded;
+  var panel = document.getElementById("panelPreview");
+  var btn = document.getElementById("btnPreview");
+  var page = panel.closest(".page-detail");
+  if (previewExpanded) {
+    panel.classList.add("expanded");
+    btn.classList.add("active");
+    page.classList.add("preview-open");
+  } else {
+    panel.classList.remove("expanded");
+    btn.classList.remove("active");
+    page.classList.remove("preview-open");
+  }
+}
+
+function switchDevice(dev) {
+  currentDevice = dev;
+  document.getElementById("btnWeb").classList.toggle("active", dev === "web");
+  document.getElementById("btnPhone").classList.toggle("active", dev === "phone");
+  document.getElementById("btnTablet").classList.toggle("active", dev === "tablet");
+  document.getElementById("btnCode").classList.toggle("active", dev === "code");
+
+  var frame = document.getElementById("previewFrame");
+  var codePanel = document.getElementById("previewCode");
+
+  if (dev === "code") {
+    // 显示源码，隐藏预览帧
+    frame.style.display = "none";
+    codePanel.classList.add("visible");
+    if (!document.getElementById("codeBody").innerHTML) {
+      loadCodeContent("html");
+    }
+  } else {
+    // 显示预览帧，隐藏源码
+    frame.style.display = "";
+    codePanel.classList.remove("visible");
+    frame.className = "preview-frame device-" + dev;
+    var content = frame.querySelector(".preview-frame-content");
+    var bar = frame.querySelector(".preview-frame-bar");
+    // 清除手机刘海
+    var phoneBar = frame.querySelector(".preview-frame-phone-bar");
+    if (phoneBar) phoneBar.remove();
+    bar.style.display = "";
+    if (dev === "phone") {
+      bar.style.display = "none";
+      var ph = document.createElement("div");
+      ph.className = "preview-frame-phone-bar";
+      ph.innerHTML = '<div class="preview-frame-phone-notch"></div>';
+      frame.insertBefore(ph, content);
+    }
+  }
+}
+
+var htmlCode = '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n  <meta charset="UTF-8">\n  <title>银行内部管理系统</title>\n  <style>\n    /* 内部样式 */\n    body { background: #eef1f5; }\n    .header { background: #fff; padding: 16px 24px; }\n    .nav { width: 240px; background: #fff; }\n    .card { background: #fff; border-radius: 10px; }\n  </style>\n</head>\n<body>\n  <div class="header">\n    <h1>银行内部管理系统</h1>\n  </div>\n  <div class="layout">\n    <nav class="nav">\n      <a href="#" class="nav-link active">首页</a>\n      <a href="#" class="nav-link">数据报表</a>\n      <a href="#" class="nav-link">审批流程</a>\n    </nav>\n    <main class="content">\n      <div class="card">\n        <h2>欢迎登录</h2>\n        <p>系统概览与待办事项</p>\n      </div>\n    </main>\n  </div>\n</body>\n</html>';
+
+var cssCode = '/* ========== 全局变量 ========== */\n:root {\n  --bg-page: #eef1f5;\n  --bg-module: #ffffff;\n  --accent: #1a56db;\n  --text-primary: #1f2937;\n  --shadow-card: 0 2px 8px rgba(0,0,0,0.06);\n}\n\n/* ========== 头部导航 ========== */\n.header {\n  background: var(--bg-module);\n  box-shadow: 0 1px 4px rgba(0,0,0,0.04);\n  padding: 16px 24px;\n  height: 56px;\n}\n\n/* ========== 侧边栏 ========== */\n.nav {\n  width: 240px;\n  background: var(--bg-module);\n  border-right: 1px solid #e2e6ec;\n}\n.nav-link {\n  color: #6b7280;\n  padding: 12px 20px;\n  transition: all 0.2s;\n}\n.nav-link.active {\n  color: var(--accent);\n  background: rgba(26,86,219,0.06);\n}\n\n/* ========== 内容卡片 ========== */\n.card {\n  background: var(--bg-module);\n  border-radius: 14px;\n  box-shadow: var(--shadow-card);\n  padding: 24px;\n}\n.card:hover {\n  transform: translateY(-2px);\n  box-shadow: 0 4px 16px rgba(0,0,0,0.08);\n}';
+
+function loadCodeContent(tab) {
+  var body = document.getElementById("codeBody");
+  var code = tab === "html" ? htmlCode : cssCode;
+  var lines = code.split("\n");
+  var html = "";
+  for (var i = 0; i < lines.length; i++) {
+    var ln = i + 1;
+    var line = lines[i];
+    // 简单语法高亮
+    if (line.trim().startsWith("<!--") || line.trim().startsWith("/*") || line.trim().startsWith("//")) {
+      line = '<span class="code-comment">' + line + '</span>';
+    } else if (tab === "html") {
+      line = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      line = line.replace(/(&lt;\/?)([\w-]+)/g, '<span class="code-tag">$1$2</span>');
+      line = line.replace(/([\w-]+)(=)/g, '<span class="code-attr">$1</span>$2');
+      line = line.replace(/(&quot;|")(.*?)(&quot;|")/g, '<span class="code-val">"$2"</span>');
+    } else {
+      line = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      line = line.replace(/(--[\w-]+)/g, '<span class="code-key">$1</span>');
+      line = line.replace(/(#[\w]+)/g, '<span class="code-str">$1</span>');
+      line = line.replace(/(\d+px)/g, '<span class="code-num">$1</span>');
+    }
+    html += '<span class="code-line-num">' + ln + '</span>' + line + "\n";
+  }
+  body.innerHTML = html;
+}
+
+function switchCodeTab(tab) {
+  document.getElementById("tabHtml").classList.toggle("active", tab === "html");
+  document.getElementById("tabCss").classList.toggle("active", tab === "css");
+  loadCodeContent(tab);
+}
+
+function newSession() {
+  var list = document.getElementById("historyList");
+  var item = document.createElement("div");
+  item.className = "history-item active";
+  item.onclick = function() { selectHistory(this, -1); };
+  var now = new Date();
+  var h = now.getHours();
+  var m = now.getMinutes();
+  item.innerHTML = '<div class="history-item-title">新会话</div><div class="history-item-time">今天 ' + h + ':' + (m < 10 ? '0' + m : m) + '</div>';
+  // 移除其他active
+  list.querySelectorAll(".history-item.active").forEach(function(el) { el.classList.remove("active"); });
+  list.insertBefore(item, list.firstChild);
+  document.getElementById("chatTitle").textContent = "新会话";
+  // 清空对话区
+  var msgs = document.getElementById("chatMessages");
+  msgs.innerHTML = '<div class="msg-system"><div class="msg-system-label">系统提示</div>您已创建新会话，请描述您的设计需求。</div>';
+}
+
+function selectHistory(el, idx) {
+  var list = document.getElementById("historyList");
+  list.querySelectorAll(".history-item.active").forEach(function(e) { e.classList.remove("active"); });
+  el.classList.add("active");
+  var title = el.querySelector(".history-item-title").textContent;
+  document.getElementById("chatTitle").textContent = title;
+}
+
+function sendMessage() {
+  var input = document.getElementById("chatInput");
+  var text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  var msgs = document.getElementById("chatMessages");
+  // 用户消息
+  var userMsg = document.createElement("div");
+  userMsg.className = "msg-user view-fade-in";
+  userMsg.innerHTML = '<div class="msg-user-label">我</div>' + text;
+  msgs.appendChild(userMsg);
+  msgs.scrollTop = msgs.scrollHeight;
+  // AI回复（模拟）
+  setTimeout(function() {
+    var aiMsg = document.createElement("div");
+    aiMsg.className = "msg-ai view-fade-in";
+    aiMsg.innerHTML = '<div class="msg-ai-label"><div class="msg-ai-label-dot"></div>设计智能体</div>我已收到您的设计需求，正在分析并生成方案。请稍候，完成后将在预览面板中展示效果。您可以点击右上角"预览"按钮查看实时渲染结果。';
+    msgs.appendChild(aiMsg);
+    msgs.scrollTop = msgs.scrollHeight;
+  }, 800);
+}
+
+function toggleModelDropdown() {
+  var dd = document.getElementById("modelDropdown");
+  dd.classList.toggle("show");
+}
+
+function selectModel(el, name) {
+  var dd = document.getElementById("modelDropdown");
+  dd.querySelectorAll(".model-option").forEach(function(o) { o.classList.remove("active"); });
+  el.classList.add("active");
+  document.getElementById("modelLabel").textContent = name;
+  dd.classList.remove("show");
+}
+
+// 点击其他区域关闭下拉
+document.addEventListener("click", function(e) {
+  var btnModel = document.getElementById("btnModel");
+  var dd = document.getElementById("modelDropdown");
+  if (!btnModel.contains(e.target)) {
+    dd.classList.remove("show");
+  }
+});
+
+function triggerUpload() {
+  document.getElementById("fileInput").click();
+}
+
+function handleUpload(input) {
+  if (input.files && input.files[0]) {
+    var name = input.files[0].name;
+    if (name.length > 16) name = name.substring(0, 14) + "…";
+    document.getElementById("uploadFileName").textContent = name;
+    document.getElementById("uploadTag").classList.add("show");
+    document.getElementById("btnUpload").classList.add("active");
+  }
+}
+
+function clearUpload() {
+  document.getElementById("fileInput").value = "";
+  document.getElementById("uploadTag").classList.remove("show");
+  document.getElementById("btnUpload").classList.remove("active");
+}
+
+/* ========== Drawio图表预览交互 ========== */
+var drawioZoomPercent = 100;
+var drawioMinZoom = 30;
+var drawioMaxZoom = 300;
+var drawioZoomStep = 15;
+
+function drawioZoom(dir) {
+  drawioZoomPercent += dir * drawioZoomStep;
+  drawioZoomPercent = Math.max(drawioMinZoom, Math.min(drawioMaxZoom, drawioZoomPercent));
+  applyDrawioZoom();
+}
+
+function applyDrawioZoom() {
+  var svg = document.getElementById("drawioSvg");
+  if (!svg) return;
+  svg.style.transform = "scale(" + (drawioZoomPercent / 100) + ")";
+  svg.style.transformOrigin = "center center";
+  document.getElementById("drawioZoomLevel").textContent = drawioZoomPercent + "%";
+}
+
+function drawioFit() {
+  var svg = document.getElementById("drawioSvg");
+  var container = document.getElementById("drawioCanvasContent");
+  if (!svg || !container) return;
+  var cRect = container.getBoundingClientRect();
+  var vb = svg.viewBox.baseVal;
+  if (!vb || vb.width === 0) return;
+  var scaleX = (cRect.width - 48) / vb.width;
+  var scaleY = (cRect.height - 48) / vb.height;
+  var fitScale = Math.min(scaleX, scaleY);
+  drawioZoomPercent = Math.round(Math.max(drawioMinZoom, Math.min(drawioMaxZoom, fitScale * 100)));
+  applyDrawioZoom();
+}
+
+function drawioDownload() {
+  var svg = document.getElementById("drawioSvg");
+  if (!svg) return;
+  var svgData = new XMLSerializer().serializeToString(svg);
+  var blob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "diagram.svg";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function drawioFullscreen() {
+  var wrapper = document.querySelector(".drawio-canvas-wrapper");
+  if (!wrapper) return;
+  if (!document.fullscreenElement) {
+    wrapper.requestFullscreen().catch(function() {});
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+/* ========== 视频预览交互 ========== */
+var videoPlayerEl = document.getElementById('videoPlayerEl');
+var videoControlsBar = document.getElementById('videoControlsBar');
+var videoProgressBar = document.getElementById('videoProgressBar');
+var videoProgressBuffer = document.getElementById('videoProgressBuffer');
+var videoProgressWrap = document.getElementById('videoProgressWrap');
+var videoTimeDisplay = document.getElementById('videoTimeDisplay');
+var videoPlaceholder = document.getElementById('videoPlaceholder');
+var videoVolumeSlider = document.getElementById('videoVolumeSlider');
+var vcIconPlay = document.getElementById('vcIconPlay');
+var vcIconPause = document.getElementById('vcIconPause');
+var vcIconVolume = document.getElementById('vcIconVolume');
+var vcIconMute = document.getElementById('vcIconMute');
+var videoPlayerWrapper = document.getElementById('videoPlayerWrapper');
+
+// 加载视频源
+function videoLoadSrc(src) {
+  if (!videoPlayerEl) return;
+  videoPlayerEl.src = src;
+  videoPlayerEl.load();
+}
+
+// 视频元数据加载后：显示播放器和控制条
+if (videoPlayerEl) {
+  videoPlayerEl.addEventListener('loadedmetadata', function() {
+    videoPlaceholder.style.display = 'none';
+    videoPlayerEl.classList.add('visible');
+    videoControlsBar.style.display = '';
+    videoControlsBar.classList.remove('auto-hide');
+    videoTimeDisplay.textContent = formatVideoTime(0) + ' / ' + formatVideoTime(videoPlayerEl.duration);
+  });
+
+  videoPlayerEl.addEventListener('timeupdate', function() {
+    if (!videoPlayerEl.duration) return;
+    var pct = (videoPlayerEl.currentTime / videoPlayerEl.duration) * 100;
+    videoProgressBar.style.width = pct + '%';
+    videoTimeDisplay.textContent = formatVideoTime(videoPlayerEl.currentTime) + ' / ' + formatVideoTime(videoPlayerEl.duration);
+  });
+
+  videoPlayerEl.addEventListener('progress', function() {
+    if (!videoPlayerEl.duration) return;
+    var buf = videoPlayerEl.buffered;
+    if (buf && buf.length > 0) {
+      var bufEnd = buf.end(buf.length - 1);
+      videoProgressBuffer.style.width = (bufEnd / videoPlayerEl.duration * 100) + '%';
+    }
+  });
+
+  videoPlayerEl.addEventListener('play', function() {
+    vcIconPlay.style.display = 'none';
+    vcIconPause.style.display = '';
+  });
+
+  videoPlayerEl.addEventListener('pause', function() {
+    vcIconPlay.style.display = '';
+    vcIconPause.style.display = 'none';
+    videoControlsBar.classList.remove('auto-hide');
+  });
+
+  videoPlayerEl.addEventListener('ended', function() {
+    vcIconPlay.style.display = '';
+    vcIconPause.style.display = 'none';
+    videoControlsBar.classList.remove('auto-hide');
+  });
+
+  // 点击视频区域切换播放/暂停
+  videoPlayerEl.addEventListener('click', function() {
+    videoTogglePlay();
+  });
+}
+
+function videoTogglePlay() {
+  if (!videoPlayerEl || !videoPlayerEl.src || videoPlayerEl.src === location.href) return;
+  if (videoPlayerEl.paused) {
+    videoPlayerEl.play();
+  } else {
+    videoPlayerEl.pause();
+  }
+}
+
+function videoSeek(e) {
+  if (!videoPlayerEl || !videoPlayerEl.duration) return;
+  var rect = videoProgressWrap.getBoundingClientRect();
+  var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  videoPlayerEl.currentTime = pct * videoPlayerEl.duration;
+}
+
+function videoToggleMute() {
+  if (!videoPlayerEl) return;
+  videoPlayerEl.muted = !videoPlayerEl.muted;
+  if (videoPlayerEl.muted) {
+    vcIconVolume.style.display = 'none';
+    vcIconMute.style.display = '';
+    videoVolumeSlider.value = 0;
+  } else {
+    vcIconVolume.style.display = '';
+    vcIconMute.style.display = 'none';
+    videoVolumeSlider.value = Math.round(videoPlayerEl.volume * 100);
+  }
+}
+
+function videoSetVolume(val) {
+  if (!videoPlayerEl) return;
+  var v = parseInt(val, 10);
+  videoPlayerEl.volume = v / 100;
+  videoPlayerEl.muted = (v === 0);
+  if (v === 0) {
+    vcIconVolume.style.display = 'none';
+    vcIconMute.style.display = '';
+  } else {
+    vcIconVolume.style.display = '';
+    vcIconMute.style.display = 'none';
+  }
+}
+
+function videoSetSpeed(val) {
+  if (!videoPlayerEl) return;
+  videoPlayerEl.playbackRate = parseFloat(val);
+}
+
+function videoFullscreen() {
+  if (!videoPlayerWrapper) return;
+  if (!document.fullscreenElement) {
+    videoPlayerWrapper.requestFullscreen().catch(function() {});
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+function videoDownload() {
+  if (!videoPlayerEl || !videoPlayerEl.src || videoPlayerEl.src === location.href) {
+    // 无视频时提示
+    return;
+  }
+  var a = document.createElement('a');
+  a.href = videoPlayerEl.src;
+  a.download = 'generated-video.mp4';
+  a.target = '_blank';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function formatVideoTime(sec) {
+  if (!sec || sec < 0) sec = 0;
+  var h = Math.floor(sec / 3600);
+  var m = Math.floor((sec % 3600) / 60);
+  var s = Math.floor(sec % 60);
+  if (h > 0) {
+    return (h < 10 ? '0' + h : h) + ':' + (m < 10 ? '0' + m : m) + ':' + (s < 10 ? '0' + s : s);
+  }
+  return (m < 10 ? '0' + m : m) + ':' + (s < 10 ? '0' + s : s);
+}
+
+// 播放中自动隐藏控制条（3秒后）
+var videoAutoHideTimer = null;
+if (videoPlayerWrapper) {
+  videoPlayerWrapper.addEventListener('mousemove', function() {
+    if (videoPlayerEl && !videoPlayerEl.paused) {
+      videoControlsBar.classList.remove('auto-hide');
+      clearTimeout(videoAutoHideTimer);
+      videoAutoHideTimer = setTimeout(function() {
+        videoControlsBar.classList.add('auto-hide');
+      }, 3000);
+    }
+  });
+  videoPlayerWrapper.addEventListener('mouseleave', function() {
+    if (videoPlayerEl && !videoPlayerEl.paused) {
+      clearTimeout(videoAutoHideTimer);
+      videoAutoHideTimer = setTimeout(function() {
+        videoControlsBar.classList.add('auto-hide');
+      }, 1000);
+    }
+  });
+  // 鼠标进入控制条区域时保持显示
+  if (videoControlsBar) {
+    videoControlsBar.addEventListener('mouseenter', function() {
+      clearTimeout(videoAutoHideTimer);
+      videoControlsBar.classList.remove('auto-hide');
+    });
+    videoControlsBar.addEventListener('mouseleave', function() {
+      if (videoPlayerEl && !videoPlayerEl.paused) {
+        videoAutoHideTimer = setTimeout(function() {
+          videoControlsBar.classList.add('auto-hide');
+        }, 2000);
+      }
+    });
+  }
+}
+
+/* ========== 个人空间页面交互 ========== */
+var spaceCurrentCat = "ui";
+var spaceCurrentPage = 1;
+var spacePageSize = 6;
+
+var spaceRecords = {
+  ui: [
+    { name: "银行内部管理系统首页.html", time: "2026-07-30 14:32", type: "HTML" },
+    { name: "企业创新积分名单页.html", time: "2026-07-29 16:45", type: "HTML" },
+    { name: "数据报表Dashboard.html", time: "2026-07-25 10:18", type: "HTML" },
+    { name: "客户风险评估面板.html", time: "2026-07-22 09:30", type: "HTML" },
+    { name: "信贷审批流程界面.html", time: "2026-07-20 15:22", type: "HTML" },
+    { name: "资产配置建议页.html", time: "2026-07-18 11:05", type: "HTML" },
+    { name: "合规检查报告生成器.html", time: "2026-07-15 14:50", type: "HTML" },
+    { name: "在线开户流程设计.html", time: "2026-07-12 09:40", type: "HTML" },
+    { name: "员工绩效考核系统.html", time: "2026-07-10 16:15", type: "HTML" },
+    { name: "反洗钱监测预警界面.html", time: "2026-07-08 13:28", type: "HTML" },
+    { name: "数字人民币钱包页面.html", time: "2026-07-05 10:55", type: "HTML" },
+    { name: "智能客服对话界面.html", time: "2026-07-03 08:20", type: "HTML" }
+  ],
+  drawio: [
+    { name: "信贷审批流程图.drawio", time: "2026-07-28 10:18", type: "SVG" },
+    { name: "微服务架构设计图.drawio", time: "2026-07-26 14:30", type: "SVG" },
+    { name: "用户行为流程图.drawio", time: "2026-07-24 16:15", type: "SVG" },
+    { name: "系统集成拓扑图.drawio", time: "2026-07-21 11:42", type: "SVG" },
+    { name: "数据库ER模型图.drawio", time: "2026-07-19 09:28", type: "SVG" },
+    { name: "业务流程优化图.drawio", time: "2026-07-17 13:55", type: "SVG" },
+    { name: "API调用时序图.drawio", time: "2026-07-14 15:20", type: "SVG" },
+    { name: "部署架构拓扑图.drawio", time: "2026-07-11 10:35", type: "SVG" },
+    { name: "权限模型关系图.drawio", time: "2026-07-09 14:18", type: "SVG" },
+    { name: "数据流转处理图.drawio", time: "2026-07-06 11:45", type: "SVG" },
+    { name: "风控决策流程图.drawio", time: "2026-07-04 09:30", type: "SVG" },
+    { name: "容灾恢复流程图.drawio", time: "2026-07-01 15:12", type: "SVG" }
+  ],
+  video: [
+    { name: "数字人民币宣传片.mp4", time: "2026-07-30 11:25", type: "MP4" },
+    { name: "智能投顾产品演示.mp4", time: "2026-07-27 15:40", type: "MP4" },
+    { name: "反洗钱科普视频.mp4", time: "2026-07-24 10:12", type: "MP4" },
+    { name: "手机银行功能介绍.mp4", time: "2026-07-21 14:50", type: "MP4" },
+    { name: "企业网银操作指南.mp4", time: "2026-07-18 09:35", type: "MP4" },
+    { name: "金融科技品牌宣传.mp4", time: "2026-07-16 16:20", type: "MP4" },
+    { name: "理财产品推广视频.mp4", time: "2026-07-13 11:08", type: "MP4" },
+    { name: "客户服务流程演示.mp4", time: "2026-07-10 13:42", type: "MP4" },
+    { name: "信贷业务培训视频.mp4", time: "2026-07-07 10:25", type: "MP4" },
+    { name: "银行数字化转型宣传.mp4", time: "2026-07-04 14:38", type: "MP4" },
+    { name: "支付安全科普动画.mp4", time: "2026-07-02 09:15", type: "MP4" },
+    { name: "年度业绩汇报视频.mp4", time: "2026-06-28 15:50", type: "MP4" }
+  ]
+};
+
+var spaceIcons = {
+  ui: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>',
+  drawio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><line x1="10" y1="6.5" x2="14" y2="6.5"/><line x1="6.5" y1="10" x2="6.5" y2="14"/><line x1="17.5" y1="10" x2="17.5" y2="14"/><line x1="10" y1="17.5" x2="14" y2="17.5"/></svg>',
+  video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>'
+};
+
+var spaceCatNames = { ui: "原型页面设计", drawio: "Drawio设计", video: "文本生成视频" };
+
+function switchSpaceTab(cat) {
+  spaceCurrentCat = cat;
+  spaceCurrentPage = 1;
+  updateSpaceTabs();
+  renderSpaceContent();
+}
+
+function updateSpaceTabs() {
+  document.querySelectorAll(".space-tab").forEach(function(tab) {
+    tab.classList.toggle("active", tab.getAttribute("data-cat") === spaceCurrentCat);
+  });
+  for (var cat in spaceRecords) {
+    var countEl = document.getElementById("count-" + cat);
+    if (countEl) countEl.textContent = spaceRecords[cat].length;
+  }
+}
+
+function renderSpaceContent() {
+  var grid = document.getElementById("spaceGrid");
+  var pagination = document.getElementById("spacePagination");
+  var records = spaceRecords[spaceCurrentCat] || [];
+  var totalPages = Math.ceil(records.length / spacePageSize);
+  if (spaceCurrentPage > totalPages) spaceCurrentPage = 1;
+  var start = (spaceCurrentPage - 1) * spacePageSize;
+  var end = Math.min(start + spacePageSize, records.length);
+  var pageRecords = records.slice(start, end);
+
+  if (pageRecords.length === 0) {
+    grid.innerHTML = '<div class="space-empty">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>' +
+      '<div class="space-empty-text">暂无' + spaceCatNames[spaceCurrentCat] + '历史记录</div></div>';
+    pagination.innerHTML = "";
+    return;
+  }
+
+  var html = "";
+  for (var i = 0; i < pageRecords.length; i++) {
+    var r = pageRecords[i];
+    html += '<div class="space-card view-fade-in" style="animation-delay:' + (i * 0.05) + 's">' +
+      '<div class="space-card-thumb thumb-' + spaceCurrentCat + '">' +
+        '<div class="thumb-deco"></div>' +
+        '<div class="thumb-deco2"></div>' +
+        spaceIcons[spaceCurrentCat] +
+        '<span class="thumb-type">' + r.type + '</span>' +
+      '</div>' +
+      '<div class="space-card-body">' +
+        '<div class="space-card-name" title="' + r.name + '">' + r.name + '</div>' +
+        '<div class="space-card-meta">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+          r.time +
+        '</div>' +
+        '<div class="space-card-footer">' +
+          '<span class="space-card-type">' + spaceCatNames[spaceCurrentCat] + '</span>' +
+          '<button class="space-card-download" onclick="spaceDownload(\'' + r.name + '\')">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
+            '<span class="dl-text">下载</span>' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+  grid.innerHTML = html;
+
+  if (totalPages <= 1) { pagination.innerHTML = ""; return; }
+
+  var pagHtml = "";
+  pagHtml += '<button class="space-page-btn" onclick="spaceGoPage(' + (spaceCurrentPage - 1) + ')"' + (spaceCurrentPage <= 1 ? ' disabled' : '') + '><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>';
+  for (var p = 1; p <= totalPages; p++) {
+    pagHtml += '<button class="space-page-btn' + (p === spaceCurrentPage ? ' active' : '') + '" onclick="spaceGoPage(' + p + ')">' + p + '</button>';
+  }
+  pagHtml += '<button class="space-page-btn" onclick="spaceGoPage(' + (spaceCurrentPage + 1) + ')"' + (spaceCurrentPage >= totalPages ? ' disabled' : '') + '><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>';
+  pagHtml += '<span class="space-page-info">共 ' + records.length + ' 条记录，第 ' + spaceCurrentPage + '/' + totalPages + ' 页</span>';
+  pagination.innerHTML = pagHtml;
+}
+
+function spaceGoPage(page) {
+  spaceCurrentPage = page;
+  renderSpaceContent();
+  var grid = document.getElementById("spaceGrid");
+  if (grid) grid.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function spaceDownload(fileName) {
+  var a = document.createElement("a");
+  a.href = "data:text/plain;charset=utf-8," + encodeURIComponent("Download: " + fileName);
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+</script>
+
+</body>
+</html>

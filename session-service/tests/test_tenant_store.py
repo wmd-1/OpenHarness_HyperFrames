@@ -128,8 +128,9 @@ async def test_destroy_session_data_local_cleanup(monkeypatch):
 
 
 def test_settings_seed_is_credential_free():
-    """The seeded settings.json is an empty object — never credentials."""
-    assert json.loads(tenant_store._SETTINGS_SEED) == {}
+    """With no global settings file the derived seed degrades to `{}`;
+    the full derivation contract lives in test_credential_isolation.py."""
+    assert json.loads(tenant_store.settings_seed()) == {}
 
 
 @pytest.mark.asyncio

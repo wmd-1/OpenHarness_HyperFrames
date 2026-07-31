@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     # OpenHarness upstream API key forwarded to the spawned ``oh`` subprocess
     # via ``--api-key`` (server-fixed injection, never caller-controlled).
     oh_api_key: SecretStr | None = None
+    # Node-global OpenHarness settings.json (env OH_GLOBAL_SETTINGS_PATH):
+    # source of the credential-free tenant seed (tenant_store.settings_seed)
+    # and the file-level fallback of the credential priority chain
+    # (session-credential-gateway spec). Read fresh at every spawn — never
+    # cached — so rotation takes effect without a restart.
+    global_settings_path: Path = Path.home() / ".openharness" / "settings.json"
 
     # --- Session lifecycle ---
     # Max live ``oh --backend-only`` subprocesses on this node.

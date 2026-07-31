@@ -321,3 +321,140 @@ def test_build_command_resume_flag():
         cwd=Path("/tmp"), permission_mode="full_auto", oh_session_id=None
     ).build_command()
     assert "--resume" not in fresh
+
+
+# --- session-credential-gateway-hardening: spawn hard-fail + CREATING sweep ----
+
+
+def _write_stub(tmp_path: Path, body: str) -> Path:
+    """Drop an executable fake ``oh`` binary next to the test."""
+    stub = tmp_path / "oh-stub.py"
+    stub.write_text("#!/usr/bin/env python3\n" + body)
+    stub.chmod(0o755)
+    return stub
+
+
+@pytest.fixture()
+def _hermetic_spawn(tmp_path, monkeypatch):
+    """Local-only staging + per-test workspace root for real create_session."""
+    from app.session import tenant_store
+
+    monkeypatch.setattr(settings, "minio_endpoint", None)
+    monkeypatch.setattr(settings, "tenants_root", tmp_path / "tenants")
+    ws_root = tmp_path / "workspaces"
+    ws_root.mkdir()
+    monkeypatch.setattr(settings, "workspace_root", ws_root)
+    tenant_store._tenant_locks.clear()
+    yield ws_root
+    tenant_store._tenant_locks.clear()
+
+
+async def _assert_create_failed_cleanly(sup, db_session):
+    """Shared post-failure contract (spec D5/D6): no live trace anywhere."""
+    from sqlalchemy import select
+
+    assert sup._sessions == {}  # not reachable as live
+    assert sup.pool.live_count() == 0  # slot released (idempotent)
+    db_session.expire_all()
+    rows = (await db_session.execute(select(Conversation))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].status == SessionStatus.FAILED  # never left CREATING
+
+
+@pytest.mark.asyncio
+async def test_create_session_backend_exit_converges_failed(
+    db_session, tmp_path, monkeypatch, _hermetic_spawn
+):
+    """Backend exiting before ``ready`` (e.g. no credential) is a hard error:
+    BackendProcessError with the exit code, DB row FAILED, registry/pool/gauge
+    all restored — the old silent pass to a fake LIVE is gone (spec D5)."""
+    from app.observability.metrics import SESSIONS_LIVE
+    from app.session.process import BackendProcessError
+
+    stub = _write_stub(
+        tmp_path, "import sys\nprint('OpenHarness: No API key configured')\nsys.exit(1)\n"
+    )
+    monkeypatch.setattr(settings, "oh_bin", str(stub))
+    sup = SessionSupervisor()
+    baseline = SESSIONS_LIVE._value.get()
+
+    with pytest.raises(BackendProcessError, match=r"exited during startup \(exit=1\)"):
+        await sup.create_session(db=db_session, tenant_id="default")
+
+    assert SESSIONS_LIVE._value.get() == baseline
+    await _assert_create_failed_cleanly(sup, db_session)
+
+
+@pytest.mark.asyncio
+async def test_create_session_ready_timeout_kills_group_and_fails(
+    db_session, tmp_path, monkeypatch, _hermetic_spawn
+):
+    """No ``ready`` within the startup timeout: the process group is killed and
+    the create fails with the same full cleanup (spec D5)."""
+    import os
+
+    from app.observability.metrics import SESSIONS_LIVE
+    from app.session.process import BackendProcessError
+
+    # Never emits ready; records its pid in the session cwd so the test can
+    # verify the group kill actually reaped it.
+    stub = _write_stub(
+        tmp_path,
+        "import os, time, pathlib\n"
+        "pathlib.Path('stub.pid').write_text(str(os.getpid()))\n"
+        "time.sleep(60)\n",
+    )
+    monkeypatch.setattr(settings, "oh_bin", str(stub))
+
+    orig = SessionSupervisor._await_ready
+
+    async def fast(self, live, timeout=15.0):
+        return await orig(self, live, timeout=1.0)
+
+    monkeypatch.setattr(SessionSupervisor, "_await_ready", fast)
+    sup = SessionSupervisor()
+    baseline = SESSIONS_LIVE._value.get()
+
+    with pytest.raises(BackendProcessError, match="no ready event"):
+        await sup.create_session(db=db_session, tenant_id="default")
+
+    assert SESSIONS_LIVE._value.get() == baseline
+    await _assert_create_failed_cleanly(sup, db_session)
+
+    # The stub's process group must be gone (kill_group on timeout).
+    pidfiles = list(_hermetic_spawn.glob("*/stub.pid"))
+    assert len(pidfiles) == 1
+    pid = int(pidfiles[0].read_text())
+    for _ in range(40):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        await asyncio.sleep(0.05)
+    else:
+        pytest.fail(f"backend stub pid {pid} survived kill_group")
+
+
+@pytest.mark.asyncio
+async def test_sweep_stale_creating_marks_failed(db_session):
+    """Startup sweep (spec D6): CREATING leftovers converge to FAILED; every
+    other status is untouched (single-node semantics)."""
+    from app.main import sweep_stale_creating
+
+    stale_id, live_id = uuid.uuid4(), uuid.uuid4()
+    stale = Conversation(
+        id=stale_id, tenant_id="default",
+        status=SessionStatus.CREATING, extra_oh_args="[]",
+    )
+    live_row = Conversation(
+        id=live_id, tenant_id="default",
+        status=SessionStatus.LIVE, extra_oh_args="[]",
+    )
+    db_session.add_all([stale, live_row])
+    await db_session.commit()
+
+    assert await sweep_stale_creating() == 1
+
+    db_session.expire_all()
+    assert (await db_session.get(Conversation, stale_id)).status == SessionStatus.FAILED
+    assert (await db_session.get(Conversation, live_id)).status == SessionStatus.LIVE

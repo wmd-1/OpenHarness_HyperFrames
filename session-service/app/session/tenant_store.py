@@ -15,8 +15,11 @@ Design (openspec session-container-pool-multitenancy, D2 rev2):
   ``oh_tenant_sync_failures_total`` counter is bumped and ``False`` returned
   (hooks must never crash the session lifecycle).
 - First-seen tenant: empty prefix -> idempotently seed a credential-free
-  ``openharness/settings.json`` under the tenant lock. Credentials NEVER
-  enter the bucket or staging — the gateway injects them via process env.
+  ``openharness/settings.json`` under the tenant lock. The seed is the
+  recursively scrubbed derivation of the node's global settings.json
+  (:func:`settings_seed`): non-sensitive provider configuration only.
+  Credentials NEVER enter the bucket or staging (node-level credential
+  gateway) — the gateway injects them via process env at every spawn.
 - All same-tenant stage-in/stage-out are serialized by a per-tenant
   ``asyncio.Lock`` (D8: covers the old-session/new-session handover window).
 - The blocking ``minio`` SDK is only imported lazily and always driven from a
@@ -44,10 +47,71 @@ logger = structlog.get_logger(__name__)
 # Retry schedule (seconds) for stage-out mirroring.
 _STAGE_OUT_BACKOFF = (0.5, 1.0, 2.0)
 
-# Content of the seeded per-tenant OpenHarness settings file. Deliberately an
-# empty object: provider keys and any other credentials are injected by the
-# gateway through the backend process env, never through files.
-_SETTINGS_SEED = json.dumps({}, indent=2) + "\n"
+# Secret-key denylist for the seed derivation (session-credential-gateway
+# spec): a key (case-insensitive) equal to or ending with any of these is
+# dropped entirely at every nesting depth. Covers the explicit names
+# (api_key, token, access_token, refresh_token, auth_token, secret,
+# client_secret, password) and the *_key/*_token/*_secret patterns.
+_SECRET_KEY_SUFFIXES = ("api_key", "token", "secret", "password", "_key")
+
+
+def _is_secret_key(key: str) -> bool:
+    return key.lower().endswith(_SECRET_KEY_SUFFIXES)
+
+
+def _scrub_secrets(node: object) -> object:
+    """Recursively drop denylisted keys; force ``credential_slot`` to null."""
+    if isinstance(node, dict):
+        out: dict[str, object] = {}
+        for key, value in node.items():
+            if isinstance(key, str) and _is_secret_key(key):
+                continue
+            if isinstance(key, str) and key.lower() == "credential_slot":
+                out[key] = None
+                continue
+            out[key] = _scrub_secrets(value)
+        return out
+    if isinstance(node, list):
+        return [_scrub_secrets(item) for item in node]
+    return node
+
+
+def _assert_credential_free(node: object) -> None:
+    """Post-scrub double check: no denylisted key at any nesting depth."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(key, str) and _is_secret_key(key):
+                raise AssertionError(f"secret key {key!r} survived seed scrub")
+            _assert_credential_free(value)
+    elif isinstance(node, list):
+        for item in node:
+            _assert_credential_free(item)
+
+
+def settings_seed() -> str:
+    """Credential-free tenant settings seed derived from the global settings.
+
+    Reads ``settings.global_settings_path`` fresh on every call, strips every
+    denylisted secret key recursively (keeping model / base_url / api_format /
+    provider / active_profile / profiles …) and re-asserts the serialized
+    result carries no credential material. A missing or unparseable global
+    file degrades to ``"{}"`` with a warning (equivalent to the old static
+    seed — no new failure surface).
+    """
+    path = settings.global_settings_path
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("global settings root is not a JSON object")
+    except Exception as exc:  # noqa: BLE001 — degrade to the empty seed
+        logger.warning(
+            "settings_seed_fallback_empty", path=str(path), error=str(exc)
+        )
+        return json.dumps({}, indent=2) + "\n"
+    scrubbed = _scrub_secrets(raw)
+    text = json.dumps(scrubbed, indent=2) + "\n"
+    _assert_credential_free(json.loads(text))
+    return text
 
 
 class TenantStoreError(RuntimeError):
@@ -210,10 +274,11 @@ def _stage_in_sync(tenant_id: str) -> None:
 
     if not remote:
         # First-seen tenant: idempotently seed a credential-free settings.json
-        # in the bucket, then fall through to mirror it down.
+        # (scrubbed derivation of the global config) in the bucket, then fall
+        # through to mirror it down.
         import io
 
-        seed = _SETTINGS_SEED.encode("utf-8")
+        seed = settings_seed().encode("utf-8")
         client.put_object(
             settings.minio_bucket,
             prefix + "openharness/settings.json",

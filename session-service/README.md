@@ -141,6 +141,48 @@ docker compose up
   同步锁可消除租户前缀上的并发写者；调大该值则意味着接受租户数据上的
   last-writer-wins。
 
+## Provider credential 模型（node-level credential gateway）
+
+上游 LLM 的 provider credential（API key）是**节点级资产**，不是租户数据：
+
+- **secret 红线**：credential 永不进入租户 bucket、本地 staging 树或任何
+  租户 `settings.json`。首见租户的 seed 是节点全局 `settings.json` 的
+  **递归剥离副本**（denylist：`api_key`/`*_key`/`*_token`/`*_secret`/
+  `token`/`secret`/`password` 整键删除，`credential_slot` 置 null），保留
+  model/base_url/api_format/profiles 等非敏感 provider 配置；全局文件
+  缺失/坏 JSON 时退化为 `{}` 并告警。
+- **spawn 时 env 注入**：每次派生 `oh --backend-only` 前，网关实时解析
+  credential 并以环境变量注入子进程（目标变量名由全局配置的
+  `profiles[active_profile].auth_source` 判定：`openai_api_key`→
+  `OPENAI_API_KEY`，`anthropic_api_key`→`ANTHROPIC_API_KEY`；回退顶层
+  `api_format`）。四级优先级链（逐级 fallback）：
+
+  ```
+  OH_PROVIDER_API_KEY（网关级显式覆盖，最高）
+    > OPENAI_API_KEY / ANTHROPIC_API_KEY（service 进程 env 同名变量）
+    > 全局 settings.json 顶层 api_key（OH_GLOBAL_SETTINGS_PATH）
+    > none（不注入 + warning，依赖 oh 自身 env 继承/文件回退）
+  ```
+
+- **rotation 免重启**：resolver **无任何缓存**，每次 spawn 都重新读
+  `os.environ` 与全局文件；轮换 key 后下一个新会话即生效。注入的
+  credential 不可被租户 settings.json 覆盖（seed 物理上不含 credential
+  键；`_build_env` 的 overrides 覆盖继承 env）。
+- **启动硬失败**：backend 在 `ready` 前退出或超时 ⇒ 会话显式 FAILED
+  （可恢复，非砖化）并完整清理，绝不假 LIVE；启动时一次性把残留
+  CREATING 行扫为 FAILED（单节点语义）。
+- **新增 env**（均可缺省）：`OH_GLOBAL_SETTINGS_PATH`（默认
+  `~/.openharness/settings.json`）、`OH_PROVIDER_API_KEY`（默认未设）。
+- **存量修复**：历史空 `{}` seed 用一次性脚本修复（默认 dry-run，
+  三分类 empty_seed/invalid/ok，仅 empty_seed 会被覆盖）：
+
+  ```bash
+  docker compose exec session python \
+      /opt/oh-session-service/scripts/repair_tenant_settings_seed.py          # dry-run
+  docker compose exec session python \
+      /opt/oh-session-service/scripts/repair_tenant_settings_seed.py --apply  # 落盘
+  ```
+
 ## 池化准入（WS-D）
 
 每次 create/rehydrate 都要向 `ContainerPool` 申请一个槽位（所有

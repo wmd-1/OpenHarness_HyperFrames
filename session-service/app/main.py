@@ -68,12 +68,54 @@ def _validate_oh_bin() -> None:
     )
 
 
+async def sweep_stale_creating() -> int:
+    """One-shot CREATING sweep (spec session-credential-gateway-hardening D6).
+
+    A live session is bound to this gateway process, so no legitimate
+    CREATING row can survive a restart — converge leftovers to FAILED
+    (recoverable via the COLD-style rehydrate path). Single-node semantics:
+    a multi-node deployment must first filter rows by node ownership
+    (Redis routing table) before sweeping — evolution point, not done here.
+    """
+    from sqlalchemy import update
+
+    from app import db as app_db
+    from app.models import Conversation, SessionStatus
+
+    async with app_db.async_session() as db_session:
+        result = await db_session.execute(
+            update(Conversation)
+            .where(Conversation.status == SessionStatus.CREATING)
+            .values(status=SessionStatus.FAILED)
+        )
+        await db_session.commit()
+    return result.rowcount or 0
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
     setup_tracing(app)
     # Fail fast on a broken OH_OH_BIN before accepting any traffic (P1-2).
     _validate_oh_bin()
+    # Node-level credential gateway (spec session-credential-gateway): warn
+    # (never block — stub/e2e runs legitimately have no credential) when no
+    # provider credential is resolvable at startup. Spawns re-resolve fresh.
+    from app.session.credentials import resolve_provider_credential
+
+    if resolve_provider_credential() is None:
+        logger.warning(
+            "no provider credential resolvable at startup — spawned backends "
+            "will rely on inherited env or their own config fallback"
+        )
+    try:
+        swept = await sweep_stale_creating()
+        if swept:
+            logger.warning(
+                "startup sweep: marked %d stale CREATING session(s) FAILED", swept
+            )
+    except Exception as exc:
+        logger.warning("CREATING startup sweep failed: %s", exc)
     # Startup: reclaim orphaned workspaces from a previous crash/restart (spec 4.5).
     from app.session.supervisor import get_supervisor
 

@@ -22,13 +22,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.models import Conversation, ConversationTurn, SessionStatus, TurnArtifact, TurnStatus
 from app.observability.metrics import SESSIONS_LIVE, track_turn
+from app.session import credentials
 from app.session import logs as log_stream
 from app.session import registry as route_registry
 from app.session import tenant_store, workspace_store
@@ -40,7 +41,7 @@ from app.session.pool import (  # noqa: F401  (CapacityFullError re-exported)
     ContainerPool,
     PoolAdmissionError,
 )
-from app.session.process import derive_oh_session_id
+from app.session.process import BackendProcessError, derive_oh_session_id
 from app.session.protocol import BackendEvent
 from app.session.runtime import BackendRuntime
 from app.storage.s3 import storage_for_kind
@@ -236,6 +237,7 @@ class SessionSupervisor:
         policy = permission_policy or settings.permission_policy
         sid = uuid.uuid4()
         cwd = Path(settings.workspace_root) / str(sid)
+        row_committed = False
         # Admission FIRST (WS-D): tenant quota / capacity / eviction / queue
         # all resolve before any side effect, so a 429/503 rejection leaves no
         # DB row, workspace dir, or staged tenant data behind.
@@ -273,6 +275,7 @@ class SessionSupervisor:
             db.add(conv)
             await db.commit()
             await db.refresh(conv)
+            row_committed = True
 
             epoch = await route_registry.next_epoch(str(sid))
             live = LiveSession(
@@ -291,6 +294,28 @@ class SessionSupervisor:
             # Release is idempotent — _spawn already released on its own
             # failures; this covers stage-in/DB/registry errors before it.
             await self.pool.release(sid)
+            # Drop the failed placeholder from the registry: the session must
+            # not be reachable as live after a failed create.
+            self._sessions.pop(sid, None)
+            # CREATING must not outlive the create attempt (spec
+            # session-credential-gateway-hardening D6): best-effort converge
+            # the committed row to FAILED — log but never mask the original
+            # error. FAILED is recoverable (COLD-style rehydrate), no bricking.
+            if row_committed:
+                try:
+                    await db.rollback()
+                    await db.execute(
+                        update(Conversation)
+                        .where(Conversation.id == sid)
+                        .values(status=SessionStatus.FAILED)
+                    )
+                    await db.commit()
+                except Exception as db_exc:  # noqa: BLE001 — best-effort only
+                    log.warning(
+                        "session %s: could not mark FAILED after create failure: %s",
+                        sid,
+                        db_exc,
+                    )
             raise
         # Reflect the now-live state in the DB row.
         conv.status = SessionStatus.LIVE
@@ -385,18 +410,36 @@ class SessionSupervisor:
         # Drain diagnostic logs to the bounded Redis stream.
         live._log_task = asyncio.create_task(self._drain_logs(live))
         # Consume startup events (ready/state_snapshot/tasks_snapshot) so they
-        # do not leak into the first turn's event stream.
-        await self._await_ready(live)
+        # do not leak into the first turn's event stream. Hard-fail contract
+        # (spec D5): no ready -> FAILED + full cleanup, never LIVE — shared by
+        # all three spawn paths (create / rehydrate / re-arm).
+        try:
+            await self._await_ready(live)
+        except BaseException:
+            live.state = SessionState.FAILED
+            SESSIONS_LIVE.dec()
+            await self._cancel_helpers(live)
+            await proc.kill_group()  # idempotent; on EOF the process is gone
+            await self.pool.release(live.sid)  # idempotent slot release (WS-D)
+            raise
 
     async def _await_ready(self, live: LiveSession, timeout: float = 15.0) -> None:
-        """Drain startup events until ``ready`` is seen (or timeout).
+        """Drain startup events until ``ready`` is seen; hard-fail otherwise.
 
         The native backend emits ``ready`` + ``state_snapshot`` +
         ``tasks_snapshot`` at startup; if left in the queue the first turn
         would re-emit them as frames. We consume them here so the first turn
         only sees its own events.
+
+        Failure semantics (spec session-credential-gateway-hardening D5) — the
+        old silent pass is REMOVED:
+
+        - stdout EOF before ``ready`` (backend exited, e.g. no credential)
+          -> :class:`BackendProcessError` carrying the exit code;
+        - no ``ready`` within ``timeout`` -> kill the process group, then
+          raise :class:`BackendProcessError`.
         """
-        assert live.adapter is not None
+        assert live.adapter is not None and live.process is not None
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         startup_types = {"ready", "state_snapshot", "tasks_snapshot", "compact_progress"}
@@ -406,9 +449,17 @@ class SessionSupervisor:
                 event = await asyncio.wait_for(live.adapter.events.get(), timeout=remaining)
             except asyncio.TimeoutError:
                 log.warning("session %s: no ready event within timeout", live.sid)
-                return
+                await live.process.kill_group()
+                raise BackendProcessError(
+                    "backend produced no ready event within startup timeout"
+                )
             if event is None:
-                return  # process gone
+                # Process gone before ready — surface the exit code (covers
+                # credential absence causing an immediate non-zero exit).
+                code = await live.process.wait(timeout=1.0)
+                raise BackendProcessError(
+                    f"backend exited during startup (exit={code})"
+                )
             if event.type == "ready":
                 # Drain the startup burst that follows ``ready`` (state_snapshot,
                 # tasks_snapshot…). A short *timed* wait per event (not a pure
@@ -436,11 +487,17 @@ class SessionSupervisor:
     def _tenant_env(self, tenant_id: str) -> dict[str, str]:
         """WS-B: redirect the backend's config/data trees to the tenant's
         staging dirs so user-scope memory stays tenant-continuous and
-        tenant-private. Credentials still flow via env/--api-key only."""
-        return {
+        tenant-private. The provider credential rides along as an env var
+        (node-level credential gateway), resolved fresh at every spawn —
+        never through tenant files, never cached."""
+        env = {
             "OPENHARNESS_CONFIG_DIR": str(tenant_store.local_config_dir(tenant_id)),
             "OPENHARNESS_DATA_DIR": str(tenant_store.local_data_dir(tenant_id)),
         }
+        cred = credentials.resolve_provider_credential()
+        if cred is not None:
+            env[cred[0]] = cred[1]
+        return env
 
     # --- workspace archive sync (spec session-workspace-archive) -------------
 

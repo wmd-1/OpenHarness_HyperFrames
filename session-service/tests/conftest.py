@@ -47,6 +47,10 @@ def _configure_settings(tmp_path_factory):
     cfg.storage_kind = "local"
     cfg.oh_bin = str(STUB)
     cfg.oh_api_key = None
+    # Hermetic credential gateway: never read the host's real
+    # ~/.openharness/settings.json in the offline suite (seed derivation and
+    # the resolver fall back deterministically to "missing file").
+    cfg.global_settings_path = tmp / "global-settings-absent.json"
     cfg.max_live_sessions = 4
     cfg.idle_grace_seconds = 2
     cfg.turn_timeout_seconds = 60
