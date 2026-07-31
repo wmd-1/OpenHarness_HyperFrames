@@ -5,6 +5,8 @@
 > 对应提交：
 >
 > - `de72011` — v1.3：升级到 HyperFrames v0.7.2 技能集 + 将 QwenTTS 接入共享音频引擎
+> - `0b8097b` — v1.4：重新同步 HyperFrames skill 至 v0.7.77，逐字重放 QwenTTS 全部补丁（OpenSpec `resync-hyperframes-latest-patches`）
+> - `09da8fb` — v1.5：集成 QwenASR 远端转写服务补丁（`$QWENASR_URL` 设置时为首选转写引擎），镜像 tag 第三段升至 v1.5（OpenSpec `add-qwen3-asr-preferred-support`）
 
 ---
 
