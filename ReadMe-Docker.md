@@ -4,7 +4,67 @@
 
 本项目所有测试遵循「已有镜像 + 挂载源码/叠加测试层」原则（见 `.qoder/rules/test-on-existing-images.md`），禁止从零重建基础镜像。
 
-## 一、运行链（docker-compose.yml 正式启动必需）
+## 一、Dockerfile 说明
+
+仓库根及前端目录的各 Dockerfile 按「全量构建 → 补丁层 → 测试派生」分层，与第四节的派生树对应：
+
+| 文件 | FROM 基座 | 产出 / 用途 |
+|---|---|---|
+| `Dockerfile` | `python:3.11-slim` | **主镜像全量构建**：UV + openharness-ai + hyperframes（锁版本、预装 bundled chrome）+ Chrome Headless Shell + Kokoro TTS / whisper.cpp 模型预下载 + `service` / `session-service` 烧录 + oh/ohmo wrapper（full_auto + skills 先删后拷同步）。**日常禁止从零重建**，只作为镜像谱系源头保留 |
+| `Dockerfile.fix` | `ARG BASE_IMAGE`（默认主镜像） | **标准补丁层**（分钟级）：更新内置 skills、可选升级 hyperframes 版本、依赖并集锚点块、重写 wrapper（含 React TUI node_modules 兜底）、hf-preview（socat 端口转发）、烧录最新后端代码与 supervisord 配置 |
+| `Dockerfile.deps-patch` | `ARG BASE_IMAGE` | **极小补丁层**（秒级）：仅向 openharness venv 追加 Python 依赖（如 minio / aiodocker），同 tag 覆盖 |
+| `Dockerfile.e2e` | 主镜像 | 产出 `oh-e2e:latest`：叠加多实例 e2e 依赖 + oh stub（免 API key 渲染）+ `OH_ROLE` 入口（api / worker / beat / migrate / serve） |
+| `Dockerfile.test` | `oh-e2e:latest` | 产出 `oh-e2e-test:latest`：加 pytest / pytest-asyncio / httpx / aiosqlite / fakeredis 测试依赖 |
+| `Dockerfile.session-test` | `oh-e2e-test:latest` | 产出 `oh-session-test:latest`：session-service 运行时 + 测试依赖、oh-backend-stub（离线协议测试），ENTRYPOINT 即 pytest |
+| `Dockerfile.oh-test` | `oh-e2e-test:latest` | 产出 `oh-e2e-oh-test:latest`：OpenHarness 框架单测，本地 `OpenHarness/src` 经 PYTHONPATH 前置覆盖 venv 安装版 |
+| `web/Dockerfile`、`session-frontend/Dockerfile` | `node:22-alpine`（build/test 阶段）→ nginx（runtime） | 前端多阶段构建：`--target test` 跑单测/lint，runtime 阶段产出 78MB 级 nginx 镜像 |
+
+关键约定：
+
+- **依赖三处同步**：改动后端 Python 依赖时须同步 `service/pyproject.toml`、`session-service/pyproject.toml` 与 `Dockerfile` / `Dockerfile.fix` 的依赖并集锚点块。
+- **补丁优先**：镜像内容变更一律走 `Dockerfile.fix` / `Dockerfile.deps-patch` 叠层，不重建主镜像。
+
+## 二、docker compose 文件说明
+
+### docker-compose.yml（主编排）
+
+Build context 为仓库根；仅 `hyperframes_github_skills/` 与 `docker/` 烧进镜像，框架源码（`OpenHarness/src`、`ohmo`、`frontend`）与后端（`service/`、`session-service/`）均为运行时挂载——**改代码免重建镜像**。
+
+| 服务 | 镜像 | 端口 | 说明 |
+|---|---|---|---|
+| `openharness` | 主镜像 | 3000-3003 | oh CLI / 交互终端基座，其余应用服务 extends 它 |
+| `shell` | 同上 | （按需 `--service-ports`） | bash 终端，与 session 抢 3000-3003 时二选一 |
+| `api` | 同上 | 8000 | FastAPI 视频服务（uvicorn + celery worker/beat，启动先 alembic 迁移）；`!override` 丢弃继承的 3000-3003 |
+| `session` | 同上 | 127.0.0.1:8001 + 3000-3003 | 交互会话服务；8001 仅绑本机回环，容器间走 docker 网络、前端经 nginx 同源反代；挂 docker.sock 供 container 运行时 |
+| `web` | `openharness_hyperframes_web:<tag>` | 5173 | 视频服务前端（nginx 反代 api + session） |
+| `session-frontend` | `openharness_session_frontend:<tag>` | 5174 | 会话前端（nginx 反代 session），tag 由 `SESSION_FRONTEND_VERSION` 控制 |
+| `postgres` / `redis` / `minio` | 官方镜像 | — | 数据库 / 缓存与 celery broker（api 用 db=0、session 用 db=1）/ 租户与产物对象存储 |
+
+关键约定：
+
+- 主镜像与 web 镜像 tag 统一由 `.env` 的 `OH_VERSION_HYPERFRAMES_VERSION` 控制，勿多处硬编码。
+- 宿主机端口 3000-3003（hyperframes preview）优先归 `session`；`openharness`/`shell` 以 `--service-ports` 启动时与其互斥。
+- 命名卷：`openharness-config`、`openharness-pg`、`openharness-redis`、`openharness-videos`、`openharness-workspaces`、`openharness-minio-data`、`openharness-tenants`。
+
+### docker-compose.e2e.yml（多实例验收拓扑）
+
+基于 `oh-e2e:latest`（自带 oh stub，免 API key）的角色分离拓扑：api × N / worker × M + postgres / redis / minio。启动：
+
+```bash
+docker compose -p e2e -f docker-compose.e2e.yml up -d --scale api=2 --scale worker=2
+```
+
+### docker-compose.stub.yml（session stub 模式 override）
+
+将 session 的 oh 后端固定替换为确定性 stub（`OH_OH_BIN` 指向 `oh_backend_stub.py`，并缩短 IDLE 宽限期），供 e2e / 实况验收：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.stub.yml up -d session
+```
+
+**注意**：后续所有 up 操作（含 depends_on 连带 recreate）必须携带同一 `-f` 组合，否则会静默回退到默认真 oh（配置漂移，禁止用裸 shell 环境变量覆盖替代本文件）。
+
+## 三、运行链镜像（docker-compose.yml 正式启动必需）
 
 | 镜像 | 大小 | 用途 |
 |---|---|---|
@@ -16,7 +76,7 @@
 | `minio/minio:latest` | 241MB | workspace / 产物对象存储 |
 | `minio/mc:latest` | 117MB | MinIO 初始化客户端 |
 
-## 二、测试链（派生关系）
+## 四、测试链镜像（派生关系）
 
 派生树（FROM 关系）：
 
@@ -42,7 +102,7 @@ openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1  (主镜像)
 
 三条链的 11GB 级镜像大量共享 layer，实际磁盘占用远小于表面加和。
 
-## 三、备份 / 历史镜像
+## 五、备份 / 历史镜像
 
 | 镜像 | 大小 | 说明 |
 |---|---|---|
@@ -53,13 +113,23 @@ openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1  (主镜像)
 | `openharness_hyperframes_web:v0.1.9_v0.7.42_v1.4_v2.1` | 78MB | 旧版 web tag（占用极小，暂留） |
 | `openharness_hyperframes_web:v1.1` | 78MB | 旧版 web tag（占用极小，暂留） |
 
-## 四、与本项目相关的其他镜像
+## 六、与本项目相关的其他镜像
 
 - `vllm/vllm-omni:v0.24.0`（30.9GB）：Qwen3-TTS / Qwen3-ASR 服务框架，本地挂载模型部署（部署在远端 GPU 机），**保留**。QwenASR wrapper 参考脚本见仓库根 `Qwen3-ASR-Script/`（不进镜像）。
 
 > 宿主机上另有 longcat-video、video-claw-backend、weknora 等其他项目的镜像与数据卷，与本项目无关，勿动。
 
-## 五、清理记录（2026-07-30）
+## 七、构建 / 清理记录
+
+> 按时间倒序，新记录在上方追加子节。
+
+### 7.1 v1.5 构建记录（2026-07-31，QwenASR 首选转写补丁）
+
+- **主镜像**：基于 `v1.4` 用 `Dockerfile.fix` 打补丁层产出 `v0.1.9_v0.7.77_v1.5_v2.1`（新 skill：QwenASR 共享客户端 + 三入口接入），旧 `v1.4` 与 backup 保留作回滚点。
+- **web 镜像**：compose 的 web tag 也由 `OH_VERSION_HYPERFRAMES_VERSION` 控制，前端代码与 QwenASR 无关，直接 `docker tag <web:v1.4> <web:v1.5>` 对齐，**未重建**。
+- 未配 `QWENASR_URL` 时行为与补丁前完全一致（详见 `docs/hyperframes-skill-openharness-patches.md` §15）。
+
+### 7.2 清理记录（2026-07-30）
 
 **已删除：**
 
@@ -74,13 +144,7 @@ openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1  (主镜像)
 - 具名 volume（`weknora_*`、`llm_wiki_*`、`deeppresenter-*` 等属于其他项目）
 - `backup-20260730` 两个备份 tag（主镜像回滚点之一，待稳定后再删）
 
-## 五点一、v1.5 构建记录（2026-07-31，QwenASR 首选转写补丁）
-
-- **主镜像**：基于 `v1.4` 用 `Dockerfile.fix` 打补丁层产出 `v0.1.9_v0.7.77_v1.5_v2.1`（新 skill：QwenASR 共享客户端 + 三入口接入），旧 `v1.4` 与 backup 保留作回滚点。
-- **web 镜像**：compose 的 web tag 也由 `OH_VERSION_HYPERFRAMES_VERSION` 控制，前端代码与 QwenASR 无关，直接 `docker tag <web:v1.4> <web:v1.5>` 对齐，**未重建**。
-- 未配 `QWENASR_URL` 时行为与补丁前完全一致（详见 `docs/hyperframes-skill-openharness-patches.md` §15）。
-
-## 六、常用命令
+## 八、常用命令
 
 ```bash
 # 镜像 tag 变更：改 .env 的 OH_VERSION_HYPERFRAMES_VERSION，勿多处硬编码
