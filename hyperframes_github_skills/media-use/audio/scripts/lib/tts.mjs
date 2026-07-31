@@ -20,9 +20,10 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { heygenAuthHeaders, heygenCredential, heygenJSON } from "./heygen.mjs";
 import { pythonInvocation } from "./python.mjs";
+import { qwenAsrConfigured, transcribeViaQwenASR } from "../../../scripts/lib/qwenasr.mjs";
 
 // ── provider detection ────────────────────────────────────────────────────────
 export function qwenttsAvailable() {
@@ -422,10 +423,23 @@ export async function synthesizeHeygen({ text, voiceId, lang, speed, wavAbs }, d
   }
 }
 
-// ElevenLabs/Kokoro have no word timings — run Whisper over the wav. Returns the
-// flat [{id,text,start,end}] word array, or null. Each call uses a throwaway
-// --dir so parallel scenes don't collide on transcript.json.
+// QwenTTS/ElevenLabs/Kokoro have no word timings — get them from audio. When
+// $QWENASR_URL is set, the remote QwenASR wrapper (Qwen3-ASR + ForcedAligner,
+// GPU-hosted) is preferred: one HTTP call, no whisper spawn — the QwenTTS →
+// QwenASR → caption self-hosted loop. Usable ⇔ words is a non-empty array
+// (never mix QwenASR text with whisper timestamps); anything else falls
+// through to the whisper.cpp path below. Returns the flat [{id,text,start,end}]
+// word array, or null. Each whisper call uses a throwaway --dir so parallel
+// scenes don't collide on transcript.json.
 export async function transcribeWav({ wavRel, lang = "en", hyperframesDir }) {
+  if (qwenAsrConfigured()) {
+    const wavAbs = isAbsolute(wavRel) ? wavRel : join(hyperframesDir, wavRel);
+    const r = await transcribeViaQwenASR(wavAbs, { lang });
+    if (r && Array.isArray(r.words) && r.words.length) {
+      return r.words.map((w, i) => ({ id: i, text: w.text, start: w.start, end: w.end }));
+    }
+    console.error("qwenasr unusable (unreachable or no word timestamps) — falling back to whisper.cpp");
+  }
   const model = lang === "en" ? "small.en" : "small";
   const td = mkdtempSync(join(tmpdir(), "hf-trans-"));
   const args = ["hyperframes", "transcribe", wavRel, "--model", model, "--dir", td];

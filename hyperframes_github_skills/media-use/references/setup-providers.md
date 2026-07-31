@@ -65,7 +65,7 @@ private, on-device path instead of or ahead of HeyGen for that type. Only
 | `heygen`           | catalog (bgm/sfx/image/icon) + TTS (voice) + avatar video — the free-usage path | install through [verified HeyGen release instructions](https://developers.heygen.com/cli), then `heygen auth login --oauth` (needs >= v0.3.0) |
 | `mflux-generate`   | local image gen (FLUX), best-for-RAM                                            | `uv venv ~/.venvs/mflux && VIRTUAL_ENV=~/.venvs/mflux uv pip install mflux==0.9.6`                                                            |
 | `codex`            | image gen upsell (ChatGPT sub)                                                  | Codex CLI, logged in via ChatGPT (owns its own auth)                                                                                          |
-| `parakeet-mlx`     | local transcription (default ASR, best)                                         | `uv venv ~/.venvs/parakeet && VIRTUAL_ENV=~/.venvs/parakeet uv pip install parakeet-mlx`                                                      |
+| `parakeet-mlx`     | local transcription (default ASR when no QwenASR, best local)                    | `uv venv ~/.venvs/parakeet && VIRTUAL_ENV=~/.venvs/parakeet uv pip install parakeet-mlx`                                                      |
 | `ltx-2-mlx`        | local video gen                                                                 | `git clone https://github.com/dgrauet/ltx-2-mlx && cd ltx-2-mlx && uv sync --all-extras`                                                      |
 | `npx hyperframes`  | Kokoro TTS (voice), whisper.cpp (transcribe fallback), remove-background        | via the hyperframes CLI; whisper.cpp is built on first use (Homebrew on macOS, else git+cmake), models download from HuggingFace              |
 
@@ -74,6 +74,13 @@ The RAM-graded local-model shortlist + exact per-tier install/invoke lives in
 to see which model fits this machine). Without a tool on PATH, its provider
 prints a one-line diagnostic to stderr and resolve falls through where another
 provider exists (e.g. no `mflux` -> codex image upsell; no `parakeet-mlx` -> whisper.cpp).
+
+Transcription has a remote-first tier above every local tool: when `$QWENASR_URL`
+is set, `scripts/transcribe.mjs` calls the remote **QwenASR** wrapper service
+(GPU-hosted Qwen3-ASR + ForcedAligner; env config `QWENASR_URL` /
+`QWENASR_MODEL` / `QWENASR_TRANSCRIBE_PATH` / `QWENASR_TIMEOUT_MS`, see
+`audio/references/transcribe.md` § QwenASR) and falls back to
+parakeet/whisper.cpp on any failure.
 
 `heygen asset search` is a pre-launch command hidden from `heygen --help`, but it
 runs; providers tag requests with the allowlisted `X-HeyGen-Client-Source` header

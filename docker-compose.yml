@@ -45,7 +45,7 @@ services:
       args:
         PYTHON_VERSION: "3.11"
         UV_VERSION: "0.7.3"
-    image: openharness_hyperframes_qwen-tts_pptx:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.77_v1.4_v2.1}
+    image: openharness_hyperframes_qwen-tts_pptx:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.77_v1.5_v2.1}
     container_name: openharness
     environment:
       - PYTHONUNBUFFERED=1
@@ -65,6 +65,11 @@ services:
       - QWENTTS_REF_TEXT=${QWENTTS_REF_TEXT:-}
       - QWENTTS_VOICE=${QWENTTS_VOICE:-}
       - QWENTTS_CLONE_SCRIPT=${QWENTTS_CLONE_SCRIPT:-}
+      # QwenASR (远端 GPU 转写服务，词级时间戳) — 通过 .env 文件传入
+      - QWENASR_URL=${QWENASR_URL:-}
+      - QWENASR_MODEL=${QWENASR_MODEL:-}
+      - QWENASR_TRANSCRIBE_PATH=${QWENASR_TRANSCRIBE_PATH:-}
+      - QWENASR_TIMEOUT_MS=${QWENASR_TIMEOUT_MS:-}
     volumes:
       # 框架源码挂载（OpenHarness/ 子目录）— 修改宿主机代码，容器内立即生效
       # PYTHONPATH=/app/src 使 Python 优先从这里导入，覆盖 pip 安装的版本
@@ -89,7 +94,7 @@ services:
   # ---- 交互终端 ----
   shell:
     extends: openharness
-    container_name: openharness-shell-${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.77_v1.4_v2.1}
+    container_name: openharness-shell-${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.77_v1.5_v2.1}
     entrypoint: ["bash"]
 
   # ---- PostgreSQL ----
@@ -172,6 +177,11 @@ services:
       - QWENTTS_REF_TEXT=${QWENTTS_REF_TEXT:-}
       - QWENTTS_VOICE=${QWENTTS_VOICE:-}
       - QWENTTS_CLONE_SCRIPT=${QWENTTS_CLONE_SCRIPT:-}
+      # QwenASR (远端 GPU 转写服务，词级时间戳) — 通过 .env 文件传入
+      - QWENASR_URL=${QWENASR_URL:-}
+      - QWENASR_MODEL=${QWENASR_MODEL:-}
+      - QWENASR_TRANSCRIBE_PATH=${QWENASR_TRANSCRIBE_PATH:-}
+      - QWENASR_TIMEOUT_MS=${QWENASR_TIMEOUT_MS:-}
     volumes:
       - ./OpenHarness/src:/app/src
       - ./OpenHarness/ohmo:/app/ohmo
@@ -262,7 +272,7 @@ services:
       # WS-C 容器运行时：默认 process（子进程）；设 container 则每会话一个
       # 一次性容器（镜像复用既有主镜像 tag，不重建）。
       - OH_SESSION_RUNTIME=${OH_SESSION_RUNTIME:-process}
-      - OH_SESSION_IMAGE=${OH_SESSION_IMAGE:-openharness_hyperframes_qwen-tts_pptx:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.77_v1.4_v2.1}}
+      - OH_SESSION_IMAGE=${OH_SESSION_IMAGE:-openharness_hyperframes_qwen-tts_pptx:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.77_v1.5_v2.1}}
       # 可选：指向 docker-socket-proxy 缩小 sock 风险面（见 README 告警）
       - OH_DOCKER_HOST=${OH_DOCKER_HOST:-}
       # WS-D 池化调度：节点容量与有界 FIFO 准入队列（e2e 可调小）
@@ -293,7 +303,7 @@ services:
         # 留空 => 前端走同源相对路径，由 nginx 反代到 api 服务。
         # 若前端与 API 部署在不同域名，可在此填写公网 API 地址。
         VITE_API_BASE: "${VITE_API_BASE:-}"
-    image: openharness_hyperframes_web:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.77_v1.4_v2.1}
+    image: openharness_hyperframes_web:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.77_v1.5_v2.1}
     container_name: openharness-web
     environment:
       # Backend coordinates for the standalone nginx reverse-proxy.

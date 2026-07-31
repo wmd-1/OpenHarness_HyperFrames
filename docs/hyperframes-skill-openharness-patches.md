@@ -1,6 +1,6 @@
 # OpenHarness 对 HyperFrames skill 的定制补丁同步指南
 
-> 用途：本文档记录 OpenHarness 在**上游 HyperFrames skill** 基础上做的定制（**QwenTTS**），供以后从 hyperframes 的 github 拉取最新版 skill 后，照此重新应用补丁。
+> 用途：本文档记录 OpenHarness 在**上游 HyperFrames skill** 基础上做的定制（**QwenTTS + QwenASR**），供以后从 hyperframes 的 github 拉取最新版 skill 后，照此重新应用补丁。
 >
 > 对应提交：
 >
@@ -378,45 +378,45 @@ RUN HYPERFRAMES_NO_AUTO_INSTALL=0 npx hyperframes browser ensure
 `Dockerfile.fix` 的 `BASE_IMAGE` 默认值与示例命令需指向带 QwenTTS + pptx 的镜像 tag（`openharness_hyperframes_qwen-tts_pptx:...`，注意 `_pptx` 后缀；而非旧的 `openharness_hyperframes:...`）：
 
 ```dockerfile
-ARG BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1
+ARG BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1
 FROM ${BASE_IMAGE}
 ```
 
-> tag 4 段含义：`v0.1.9`（OH）_ `v0.7.77`（HyperFrames npm）_ `v1.4`（QwenTTS 补丁）_ `v2.1`（pptx 适配）。`.env.example` 的 `OH_VERSION_HYPERFRAMES_VERSION` 必须与此产出 tag 完全一致，否则 `docker compose up` 会因找不到镜像而误触发主 `Dockerfile` 全量构建（主 Dockerfile 钉 `hyperframes@0.6.102` 且无 pptx 的 COPY/pip，产出会缺 pptx skill 与依赖）。
+> tag 4 段含义：`v0.1.9`（OH）_ `v0.7.77`（HyperFrames npm）_ `v1.5`（**Qwen 语音补丁集：TTS 克隆 + ASR 首选**）_ `v2.1`（pptx 适配）。`.env.example` 的 `OH_VERSION_HYPERFRAMES_VERSION` 必须与此产出 tag 完全一致，否则 `docker compose up` 会因找不到镜像而误触发主 `Dockerfile` 全量构建（主 Dockerfile 钉 `hyperframes@0.6.102` 且无 pptx 的 COPY/pip，产出会缺 pptx skill 与依赖）。
 
 示例命令（注释里）：
 
 ```bash
 # 仅更新 skills（最快，<5s）
 docker build -f Dockerfile.fix \
-  --build-arg BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1 \
-  -t openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1 .
+  --build-arg BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1 \
+  -t openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1 .
 
 # 同时升级 Hyperframes 版本（较慢，约 1 分钟）
 docker build -f Dockerfile.fix \
-  --build-arg BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1 \
+  --build-arg BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1 \
   --build-arg HYPERFRAMES_VERSION=0.7.77 \
-  -t openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1 .
+  -t openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1 .
 
 # 按需预下载模型（Whisper small ~466MB / u2net ~168MB）+ 装 librosa
 docker build -f Dockerfile.fix \
-  --build-arg BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1 \
+  --build-arg BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1 \
   --build-arg Model_Download=1 \
-  -t openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1 .
+  -t openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1 .
 ```
 
 ### 5.2 `.env.example` — 版本标签
 
 ```bash
 # ---- 镜像版本标签 ----
-OH_VERSION_HYPERFRAMES_VERSION=v0.1.9_v0.7.77_v1.4_v2.1
+OH_VERSION_HYPERFRAMES_VERSION=v0.1.9_v0.7.77_v1.5_v2.1
 ```
 
 > `.env` 被 `.gitignore` 忽略，`QWENTTS_URL` 占位符与镜像 tag 不入库，需在构建/运行环境单独配置。此值必须与 `Dockerfile.fix` 产出 tag（5.1）及 `docker-compose.yml` 的 `image` 完全一致，否则 compose 找不到镜像。
 
-### 5.3 `docker-compose.yml` — QwenTTS 环境变量
+### 5.3 `docker-compose.yml` — QwenTTS / QwenASR 环境变量
 
-`api` 与 `openharness` 服务都需透传 QwenTTS 环境变量（v1.4 克隆脚本版：`QWENTTS_MODE` / `QWENTTS_MODEL` / `QWENTTS_INSTRUCTIONS` 已废弃移除，新增参考音频三项）：
+`api` 与 `openharness` 服务都需透传 QwenTTS 环境变量（v1.4 克隆脚本版：`QWENTTS_MODE` / `QWENTTS_MODEL` / `QWENTTS_INSTRUCTIONS` 已废弃移除，新增参考音频三项）与 QwenASR 四项（v1.5，见 §15）：
 
 ```yaml
 environment:
@@ -425,6 +425,10 @@ environment:
   - QWENTTS_REF_TEXT=${QWENTTS_REF_TEXT:-}
   - QWENTTS_VOICE=${QWENTTS_VOICE:-}
   - QWENTTS_CLONE_SCRIPT=${QWENTTS_CLONE_SCRIPT:-}
+  - QWENASR_URL=${QWENASR_URL:-}
+  - QWENASR_MODEL=${QWENASR_MODEL:-}
+  - QWENASR_TRANSCRIBE_PATH=${QWENASR_TRANSCRIBE_PATH:-}
+  - QWENASR_TIMEOUT_MS=${QWENASR_TIMEOUT_MS:-}
   - PRODUCER_HEADLESS_SHELL_PATH=/opt/chrome-headless-shell-linux64/chrome-headless-shell
   - CHROME_HEADLESS_BIN=/opt/chrome-headless-shell-linux64/chrome-headless-shell
 ```
@@ -459,12 +463,15 @@ python3 -m py_compile Qwen3-TTS-Script/qwen3_tts_clone.py
 ### 6.2 容器侧（确认 api 服务加载的就是改过的 skill）
 
 ```bash
-# api 容器跑的是 v1.4_v2.1 镜像
+# api 容器跑的是 v1.5_v2.1 镜像
 docker inspect openharness-api --format '{{.Config.Image}}'
-# 期望: openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1
+# 期望: openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1
 
 # 镜像内置 skill 含 QwenTTS
 docker exec openharness-api grep -c qwentts /opt/oh-skills-builtin/media-use/audio/scripts/lib/tts.mjs
+
+# 镜像内置 skill 含 QwenASR（v1.5，应命中 11 个文件：7 文档 + 3 补丁脚本 + 共享客户端）
+docker exec openharness-api sh -c 'grep -ril qwenasr /opt/oh-skills-builtin/ | wc -l'
 
 # 运行时加载的 skill 也含 QwenTTS（证明已同步到卷）
 docker exec openharness-api grep -c qwentts /root/.openharness/skills/media-use/audio/scripts/lib/tts.mjs
@@ -622,6 +629,7 @@ python3 -m py_compile scripts/pptx_path.py scripts/chart_extractor.py \
 | 2026-07-27 | —                 | **补丁二精简（我的操作）**：① 去除 skill 文档 Chrome 路径 callout（`hyperframes-cli/SKILL.md` ⑪、`hyperframes-cli/references/doctor-browser.md` ⑫/⑬/⑭）——运行时已预配置 `PRODUCER_HEADLESS_SHELL_PATH` / `CHROME_HEADLESS_BIN`；② 应需求**保留** build 时预装 bundled chrome 兜底，恢复 `Dockerfile`（第 69 行）与 `Dockerfile.fix`（第 44 行）的 `RUN HYPERFRAMES_NO_AUTO_INSTALL=0 npx hyperframes browser ensure`；③ 文档同步：原 §4 整节删除后重开为"§4 保留 build 兜底"（仅 §4.1），§6.2 恢复 bundled chrome 检查。详见 §13。                                                                                                                                                                                                                                                                                                                        |
 | 2026-07-27 | —                 | **QwenTTS 调用方式改为克隆脚本（v1.4）**：部署固定 `Qwen3-TTS-12Hz-1.7B-Base`（无预置音色），`synthesizeQwenTTS` 改为 spawn `qwen3_tts_clone.py` 做声音克隆（upload 模式）；环境变量换血（新增 `QWENTTS_REF_AUDIO`/`QWENTTS_REF_TEXT`/`QWENTTS_CLONE_SCRIPT`，废弃 `QWENTTS_MODE`/`QWENTTS_MODEL`/`QWENTTS_INSTRUCTIONS`）；文档同步 §3.1–§3.7 / §5.3 / §6，并已落地实际文件、静态验证全过。详见 §14                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | 2026-07-28 | —                 | **升级 HyperFrames skill 至 v0.7.77；按§2工作流重新同步 + 重打补丁（OpenSpec `resync-hyperframes-latest-patches`）**：拉取上游最新后先删后拷精确镜像覆盖（185 文件差异 + 大量新增：media-use luts/grading/recipes、hyperframes-animation 新 blueprints/rules 等）；**上游移除 `website-to-video` skill**（无定制标记、无构建引用，随覆盖移除）；重放 QwenTTS v1.4 全部补丁——tts.mjs 6 处逐字重放（锚点完好）、audio.mjs 2 处；**关键适配**：上游 SKILL.md 重构，audio engine 详情移至新增的 `references/audio.md`、provider 表移至 `references/setup-providers.md`，§3.5 的 3 处文档点按意图重映射为 4 处（SKILL.md description + voice 行、audio.md TTS exception、setup-providers.md voice 行）；tts.md §3.6 三处照常插入；静态验证全过（`node --check` ×2、qwentts 计数 31、文档点 grep 全中）；构建配置 §5 仅核对未动。后续已完成：镜像重建并将 hyperframes 升至 0.7.77（产出 tag `v0.1.9_v0.7.77_v1.4_v2.1`，§5 全部默认 tag 同步更正）；§6.2 容器侧验证通过（qwentts=31、克隆脚本+httpx、chrome 预装）；wrapper 与 Dockerfile.fix 改为先删后拷消除 skill 残留 |
+| 2026-07-31 | —                 | **补丁三：QwenASR 首选转写引擎（v1.5，OpenSpec `add-qwen3-asr-preferred-support`）**：新增共享客户端 `media-use/scripts/lib/qwenasr.mjs`；三入口接入（transcribe.mjs 引擎链 qwenasr→parakeet→whisper、tts.mjs#transcribeWav() 开头分支、embedded-captions/transcribe.cjs 内联 CJS 孪生客户端）；7 处文档补丁；服务端参考脚本 `Qwen3-ASR-Script/`（不进镜像）；compose/.env.example 透传 4 个 `QWENASR_*` 变量；镜像 tag 第三段 v1.4→v1.5（语义更新为“Qwen 语音补丁集：TTS 克隆 + ASR 首选”）并补丁层重建；容器内验收 18/18 通过（schema + 四种 fallback，含 whisper 真实回退）。详见 §15 |
 
 ---
 
@@ -747,3 +755,55 @@ monorepo 重构（§11）后，本指南从 `OpenHarness/docs/` 搬到仓库根 
 **验证**：静态全过——`node --check` tts.mjs / audio.mjs、qwentts 计数 **31**、克隆脚本 `py_compile`、`docker compose config`。**待办**：重建镜像后按 §6.2 补容器侧验证（脚本存在、venv `import httpx`、参考音频挂载、单句克隆冒烟）。
 
 **追记（同日，适配本地挂载路径部署）**：实际部署为先下载模型再挂载路径 serve（ModelScope 下载目录名为 `Qwen3-TTS-12Hz-1___7B-Base`，served name 是路径而非 HF 模型名），克隆脚本原默认 `--model Qwen/Qwen3-TTS-12Hz-1.7B-Base` 会被服务端 `_check_model` 拒为 404。修复（用户侧改脚本）：`--model` 默认值改为 None，不指定时 payload 不带 `model` 字段（vllm-omni 协议层 `model: str | None`，缺省即跳过模型名校验），显式传入才发送；`Qwen3-TTS-Script/README.md` 同步双部署示例与 Model mismatch 排错行。tts.mjs 本就不传 `--model`，补丁链路零改动；脚本经 Dockerfile.fix COPY 进镜像，随 v1.4 重建一并生效。
+
+---
+
+## 15. 补丁三：QwenASR（远端 GPU 转写，首选引擎，v1.5，2026-07-31）
+
+> OpenSpec 变更：`add-qwen3-asr-preferred-support`；方案文档：`docs/hyperframes-skill-qwen3-asr-integration-plan.md`（rev3）。
+
+### 15.1 意图与架构
+
+把部署在**远端 GPU 机**的 QwenASR wrapper 服务集成为转写链路**最高优先级**引擎（仿 QwenTTS 模式）：一次 HTTP POST 同时拿回文本 + 词级时间戳（ForcedAligner 强制对齐，秒、全局时间轴），替代容器内 CPU 跑 whisper.cpp/whisperx 的慢速路径。
+
+- **服务端**（非本仓交付边界，仅参考脚本入库）：`Qwen3-ASR-Script/qwen3_asr_server.py` — FastAPI wrapper + `Qwen3ASRModel.LLM`（vLLM **offline** backend，**非** OpenAI-compatible `vllm serve`）+ ForcedAligner。默认模型：ASR=`Qwen/Qwen3-ASR-1.7B`（转写+LID），对齐=`Qwen/Qwen3-ForcedAligner-0.6B`（仅对齐，两模型职责互斥）。长音频 chunk（180s）+ offset 合并由 qwen_asr 包服务端原生完成，客户端不切 chunk。部署/5 个服务端变量（`QWEN3_ASR_*`）见 `Qwen3-ASR-Script/README.md`，**不进镜像不进 compose**。
+- **skills 侧**：仅 HTTP 客户端接入，零新依赖（Node 18+ 原生 fetch/FormData）。
+- **API 契约**：`POST /transcribe` multipart（file/language/model/timestamps）→ `{ok,language,text,words:[{text,start,end}],duration_s}`；超长 413；静音 `{ok:true,text:"",words:[]}`；`GET /healthz`。
+
+### 15.2 容器侧环境变量（4 个，全部经 `.env` → compose 透传）
+
+| 变量 | 说明 |
+| --- | --- |
+| `QWENASR_URL` | 设置即启用 qwenasr 引擎（最高优先级）；未设时行为与上游完全一致 |
+| `QWENASR_MODEL` | 可选，设置才随请求透传 `model` 字段（默认服务端决定） |
+| `QWENASR_TRANSCRIBE_PATH` | 可选，转写接口路径，默认 `/transcribe` |
+| `QWENASR_TIMEOUT_MS` | 可选，请求超时，默认 600000（与服务端 `QWEN3_ASR_MAX_AUDIO_SEC` 413 构成长音频双层防护） |
+
+### 15.3 注入点（全部，上游同步后照此重放）
+
+**① 共享客户端（新增文件）**：`media-use/scripts/lib/qwenasr.mjs`（~94 行 ESM）— 导出 `qwenAsrConfigured()` / `transcribeViaQwenASR(audioPath,{lang})`；ISO→Qwen 语言全名映射（仅 aligner 11 语言 zh/en/yue/fr/de/it/ja/ko/pt/ru/es，表外语言不发 `language` 字段交服务端 LID）；任何运行期失败（不可达/非 200 含 413/`ok:false`/超时/JSON 解析失败）返回 `null`。上游同步时整文件直接拷回。
+
+**② 入口 A**：`media-use/scripts/transcribe.mjs` — import qwenasr.mjs；引擎链 `qwenasr（$QWENASR_URL 设置时最高优先级）→ parakeet → whisper.cpp`；`--engine qwenasr|parakeet|whisper` 可强制；`runQwenASR()` 成功写 `{text,language,words}` 并 `report("qwenasr",…)`；引擎选择尾部必须是 `else if (engine === "whisper")`（裸 else 会在 qwenasr 成功后误跑 whisper 覆盖结果）。
+
+**③ 入口 B**：`media-use/audio/scripts/lib/tts.mjs#transcribeWav()` — 函数开头注入 QwenASR 分支（import `isAbsolute` + qwenasr.mjs，相对路径 `../../../scripts/lib/qwenasr.mjs`）：成功且 words 可用时映射为既有 flat 词数组 `[{id,text,start,end}]` 直接返回（不再 spawn `npx hyperframes transcribe`）；失败落回 whisper.cpp 原路径。**不触碰**同文件 QwenTTS 补丁（§3）的任何注入点。
+
+**④ 入口 C**：`embedded-captions/scripts/transcribe.cjs` — 内联 ~40 行 CJS 孪生客户端（顶注“CJS twin of media-use/scripts/lib/qwenasr.mjs (keep the two in sync)”，embedded-captions 独立分发不跨 skill import）；引擎链 `qwenasr → whisperx → whisper.cpp`，`TRANSCRIBE_ENGINE=qwenasr|whisperx|whisper` 可强制；main 改 async（`main()` 包装 `_main()`，尾部 `main().catch(…exit(1))`）；成功时 words 补 `type:"word"`、`engine="qwenasr"`；既有静音守卫/尾部幻觉裁剪保持不动。
+
+**⑤ 文档补丁（7 处）**：`media-use/SKILL.md`（frontmatter description）、`media-use/references/audio.md`、`media-use/references/setup-providers.md`、`media-use/references/operations.md`、`media-use/audio/references/transcribe.md`（新增 `## QwenASR (remote deployment)` 节：架构/4 变量表/入口/fallback 语义）、`embedded-captions/SKILL.md`（引擎链）、`talking-head-recut/SKILL.md`（callout + `jq '.words'` 转换）。
+
+### 15.4 fallback 语义（三入口一致，验收已过）
+
+- **结果可用 ⇔** `ok:true` 且 `words` 为非空数组（或静音 `[]` 且 text 为空）；否则**整体丢弃完整回退**，禁止 QwenASR 文本与其他引擎时间戳混合。判定实现：`Array.isArray(words) && (words.length > 0 || text.trim() === "")`。
+- **auto 模式**（仅设 `QWENASR_URL`）：运行期失败 `console.error` 一行后优雅回退既有本地链。
+- **显式指定**（`--engine qwenasr` / `TRANSCRIBE_ENGINE=qwenasr`）：失败 fail-fast 非零退出（入口 A exit 1，入口 C exit 4）；未配 URL 同样 fail-fast 并报错指明 `$QWENASR_URL`。
+- **URL 未设**：三入口行为与上游完全一致，日志无 qwenasr 痕迹。
+
+容器内验收脚本：`e2e/qwenasr-accept/run-qwenasr-acceptance.sh`（+ 契约形状 mock `mock_qwenasr_server.mjs`），覆盖 schema/四种 fallback 情形，2026-07-31 在 v1.5 镜像内 18/18 通过（含 whisper 本地回退真实跑通）；依赖真实远端服务的验收（真实契约/TTS→ASR 链路/长音频）待服务可达后按 tasks 8.1/8.3/8.5 执行。
+
+### 15.5 上游同步重放说明
+
+1. 重放判据：`grep -ril qwenasr hyperframes_github_skills/` 应命中 **11 个文件**（7 文档 + 3 补丁脚本 + 共享客户端）；覆盖上游新版后命中数不足即为丢补丁。
+2. ① 客户端为新增文件直接拷回；②③④ 按 15.3 意图在对应函数重新注入（上游结构变化时按意图适配）；④ 的内联客户端需与①保持同步。
+3. 服务端参考脚本 `Qwen3-ASR-Script/` 不随上游同步覆盖（非 skill 文件）。
+4. 重建镜像后按 §6.2 验证 qwenasr 命中数，并跑 15.4 验收脚本。
+

@@ -1,6 +1,6 @@
 # OpenHarness_HyperFrames — Docker 镜像说明
 
-> 更新日期：2026-07-30
+> 更新日期：2026-07-31
 
 本项目所有测试遵循「已有镜像 + 挂载源码/叠加测试层」原则（见 `.qoder/rules/test-on-existing-images.md`），禁止从零重建基础镜像。
 
@@ -8,8 +8,8 @@
 
 | 镜像 | 大小 | 用途 |
 |---|---|---|
-| `openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1` | 11GB | **主镜像**。compose 的 `openharness` 与 `session` 服务；同时是所有测试镜像的根。tag 由 `.env` 的 `OH_VERSION_HYPERFRAMES_VERSION` 控制（默认 `v0.1.9_v0.7.77_v1.4_v2.1`） |
-| `openharness_hyperframes_web:v0.1.9_v0.7.77_v1.4_v2.1` | 78MB | web 前端 runtime（nginx） |
+| `openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1` | 11.1GB | **主镜像**。compose 的 `openharness` 与 `session` 服务；同时是所有测试镜像的根。tag 由 `.env` 的 `OH_VERSION_HYPERFRAMES_VERSION` 控制（默认 `v0.1.9_v0.7.77_v1.5_v2.1`）。tag 第三段 `v1.5` = Qwen 语音补丁集（TTS 克隆 + ASR 首选，见 `docs/hyperframes-skill-openharness-patches.md` §15） |
+| `openharness_hyperframes_web:v0.1.9_v0.7.77_v1.5_v2.1` | 78MB | web 前端 runtime（nginx）。tag 同样由 `OH_VERSION_HYPERFRAMES_VERSION` 控制，须与主镜像 tag 一致（前端代码与 QwenASR 补丁无关，v1.5 由 v1.4 retag 而来，未重建） |
 | `openharness_session_frontend:v0.1.0` | 79MB | session-frontend runtime，tag 由 `SESSION_FRONTEND_VERSION` 控制 |
 | `postgres:16-alpine` | 420MB | 数据库 |
 | `redis:7-alpine` | 58MB | 缓存 / celery broker |
@@ -21,7 +21,7 @@
 派生树（FROM 关系）：
 
 ```
-openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1  (主镜像)
+openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1  (主镜像)
  └─ oh-e2e:latest (11GB)              <- Dockerfile.e2e
      └─ oh-e2e-test:latest (11.1GB)   <- Dockerfile.test（加 pytest 等测试依赖）
          └─ openharness-session-frontend:e2e (12.3GB)
@@ -46,14 +46,16 @@ openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1  (主镜像)
 
 | 镜像 | 大小 | 说明 |
 |---|---|---|
-| `openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1-backup-20260730` | 11GB | 2026-07-30 打补丁前的主镜像快照。v0.7.42 已删除，**这是当前唯一回滚点**，待 v0.7.77 稳定后可删。与现镜像共享大部分 layer，实际额外占用小 |
+| `openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1` | 11GB | v1.5（QwenASR 补丁）前的主镜像。**当前主回滚点**，与 v1.5 共享大部分 layer，实际额外占用小；待 v1.5 稳定后可删 |
+| `openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1-backup-20260730` | 11GB | 2026-07-30 打补丁前的主镜像快照，与现镜像共享大部分 layer，实际额外占用小 |
+| `openharness_hyperframes_web:v0.1.9_v0.7.77_v1.4_v2.1` | 78MB | v1.5 前的 web 镜像（v1.5 即由它 retag），占用可忽略 |
 | `openharness_hyperframes_web:v0.1.9_v0.7.77_v1.4_v2.1-backup-20260730` | 78MB | web 同日备份，占用可忽略 |
 | `openharness_hyperframes_web:v0.1.9_v0.7.42_v1.4_v2.1` | 78MB | 旧版 web tag（占用极小，暂留） |
 | `openharness_hyperframes_web:v1.1` | 78MB | 旧版 web tag（占用极小，暂留） |
 
 ## 四、与本项目相关的其他镜像
 
-- `vllm/vllm-omni:v0.24.0`（30.9GB）：Qwen3-TTS 服务框架，本地挂载模型部署，**保留**。
+- `vllm/vllm-omni:v0.24.0`（30.9GB）：Qwen3-TTS / Qwen3-ASR 服务框架，本地挂载模型部署（部署在远端 GPU 机），**保留**。QwenASR wrapper 参考脚本见仓库根 `Qwen3-ASR-Script/`（不进镜像）。
 
 > 宿主机上另有 longcat-video、video-claw-backend、weknora 等其他项目的镜像与数据卷，与本项目无关，勿动。
 
@@ -70,7 +72,13 @@ openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1  (主镜像)
 **未动：**
 
 - 具名 volume（`weknora_*`、`llm_wiki_*`、`deeppresenter-*` 等属于其他项目）
-- `backup-20260730` 两个备份 tag（主镜像唯一回滚点，待稳定后再删）
+- `backup-20260730` 两个备份 tag（主镜像回滚点之一，待稳定后再删）
+
+## 五点一、v1.5 构建记录（2026-07-31，QwenASR 首选转写补丁）
+
+- **主镜像**：基于 `v1.4` 用 `Dockerfile.fix` 打补丁层产出 `v0.1.9_v0.7.77_v1.5_v2.1`（新 skill：QwenASR 共享客户端 + 三入口接入），旧 `v1.4` 与 backup 保留作回滚点。
+- **web 镜像**：compose 的 web tag 也由 `OH_VERSION_HYPERFRAMES_VERSION` 控制，前端代码与 QwenASR 无关，直接 `docker tag <web:v1.4> <web:v1.5>` 对齐，**未重建**。
+- 未配 `QWENASR_URL` 时行为与补丁前完全一致（详见 `docs/hyperframes-skill-openharness-patches.md` §15）。
 
 ## 六、常用命令
 
@@ -78,6 +86,13 @@ openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1  (主镜像)
 # 镜像 tag 变更：改 .env 的 OH_VERSION_HYPERFRAMES_VERSION，勿多处硬编码
 # 在已有镜像上打补丁层（不重建）:
 docker build -f Dockerfile.fix --build-arg BASE_IMAGE=<现有镜像:tag> -t <新tag> .
+
+# 例：QwenASR 补丁（v1.4 → v1.5）主镜像打补丁 + web 镜像 retag 对齐:
+docker build -f Dockerfile.fix \
+  --build-arg BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.4_v2.1 \
+  -t openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1 .
+docker tag openharness_hyperframes_web:v0.1.9_v0.7.77_v1.4_v2.1 \
+  openharness_hyperframes_web:v0.1.9_v0.7.77_v1.5_v2.1
 
 # 后端测试（容器内跑，禁止宿主机 pytest）:
 docker compose run --rm --entrypoint bash openharness -c \

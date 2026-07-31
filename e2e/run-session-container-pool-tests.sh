@@ -36,7 +36,7 @@ COMPOSE="docker compose"
 REPORT="${E2E_REPORT:-/tmp/session_container_e2e_report.txt}"
 : > "$REPORT"
 
-IMAGE="${OH_SESSION_IMAGE:-openharness_hyperframes_qwen-tts_pptx:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.77_v1.4_v2.1}}"
+IMAGE="${OH_SESSION_IMAGE:-openharness_hyperframes_qwen-tts_pptx:${OH_VERSION_HYPERFRAMES_VERSION:-v0.1.9_v0.7.77_v1.5_v2.1}}"
 STUB_BIN=/workspaces/.e2e/oh_backend_stub.py
 IDLE_GRACE=5
 VENV_PY=/root/.openharness-venv/bin/python

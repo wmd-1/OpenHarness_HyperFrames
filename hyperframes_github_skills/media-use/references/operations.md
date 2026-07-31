@@ -98,9 +98,16 @@ files as two real media layers and use the seek-safe GSAP timeline to reveal or
 crossfade between them. Use the realtime Bayer shader instead when the dither
 amount itself must animate continuously.
 
-## Transcription (default: Parakeet, better than whisper.cpp)
+## Transcription (QwenASR remote first; default local: Parakeet, better than whisper.cpp)
 
-`transcribe.mjs` is the default local transcription path. It runs **NVIDIA
+`transcribe.mjs` is the default transcription path. When `$QWENASR_URL` is set it
+first calls the remote **QwenASR** wrapper service (GPU-hosted Qwen3-ASR +
+ForcedAligner — one HTTP call returns text + word timestamps on a global
+timeline; config + fallback semantics in `audio/references/transcribe.md`
+§ QwenASR). Any failure or unusable timestamps falls back to the local chain
+below; `--engine qwenasr` forces it (fails fast instead of degrading).
+
+Locally it runs **NVIDIA
 Parakeet-TDT via parakeet-mlx**, which beats whisper.cpp on the Open ASR
 Leaderboard (avg WER ~6.05% vs 7.44%; on NOISY audio 4.73% vs 5.96%, where
 whisper-large-v3 hallucinated to 308% WER on meetings) and is 5-10x faster.
@@ -119,7 +126,7 @@ npx hyperframes transcribe talk.mp4 --engine parakeet   # or --engine auto (defa
 VERIFIED on 24GB: accurate, ~3s (cached) for 8s audio. Parakeet covers English +
 25 European languages. For other languages, or when parakeet-mlx is not
 installed, transcribe.mjs auto-falls-back to whisper.cpp (99 languages) via
-`hyperframes transcribe`. `--engine parakeet|whisper` forces one. (Cohere
+`hyperframes transcribe`. `--engine qwenasr|parakeet|whisper` forces one. (Cohere
 Transcribe tops the leaderboard on paper but its mlx-audio quants produced
 garbage and ran 40-70x slower on a Mac in testing, so it is not wired in.)
 

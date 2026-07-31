@@ -106,6 +106,15 @@ Read it for the word / sentence timings that drive card timing in Step 6; group
 words into sentences yourself at punctuation / pauses if you need segment-level
 chunks.
 
+> **QwenASR (remote GPU) available?** When `$QWENASR_URL` is set, prefer the
+> media-use transcribe entry — faster and word timings come from forced
+> alignment (Qwen3-ASR + ForcedAligner), with automatic whisper fallback:
+>
+> ```bash
+> node <MEDIA_USE_SKILL_DIR>/scripts/transcribe.mjs --input "$WORK_DIR/audio.mp3" --out "$WORK_DIR/qwenasr.json"
+> jq '.words' "$WORK_DIR/qwenasr.json" > "$WORK_DIR/transcript.json"   # this skill expects a FLAT word array
+> ```
+
 **Clamp to media duration.** Whisper can return the final word's `end` a hair past the
 actual clip length — clamp every card `endSec` and `composition.durationSeconds` to the
 `metadata.json` duration, or the render will show a black tail past the video.

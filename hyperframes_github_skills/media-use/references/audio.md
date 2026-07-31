@@ -17,4 +17,4 @@ node <SKILL_DIR>/audio/scripts/audio.mjs --request ./audio_request.json --out ./
 
 Single-shot helpers: `audio/scripts/heygen-tts.mjs` (one voice file). Transcription / background removal / captions use the `hyperframes` CLI (`transcribe`, `remove-background`), see the per-topic guides in `audio/references/` (`tts.md`, `bgm.md`, `sfx.md`, `transcribe.md`, `remove-background.md`, `captions/`).
 
-Transcription defaults to Parakeet (better than whisper.cpp: 6.05% vs 7.44% WER, 5-10x faster) via `scripts/transcribe.mjs`, with whisper.cpp auto-fallback (see `references/operations.md`).
+Transcription prefers remote **QwenASR** when `$QWENASR_URL` is set (GPU-hosted Qwen3-ASR + ForcedAligner wrapper, one HTTP call returns text + word timestamps — see `audio/references/transcribe.md` § QwenASR); otherwise defaults to Parakeet (better than whisper.cpp: 6.05% vs 7.44% WER, 5-10x faster) via `scripts/transcribe.mjs`, with whisper.cpp auto-fallback (see `references/operations.md`).

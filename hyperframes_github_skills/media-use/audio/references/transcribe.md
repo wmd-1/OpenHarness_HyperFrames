@@ -2,6 +2,42 @@
 
 Create normalized word-level timestamps. **Always specify `--model` explicitly** — the CLI default is `small.en`, which silently translates non-English audio into English.
 
+## QwenASR (remote deployment)
+
+When `$QWENASR_URL` is set, transcription prefers the remote **QwenASR** wrapper
+service over every local engine: a GPU-hosted FastAPI wrapper around
+`Qwen3ASRModel.LLM` (vLLM as in-process offline backend — NOT an
+OpenAI-compatible `vllm serve`) + Qwen3-ForcedAligner. One
+`POST /transcribe` (multipart) returns `{language, text, words}` with word-level
+timestamps in seconds on a global timeline; long audio is chunked and
+offset-merged server-side, so clients always upload the complete file.
+Deployment reference: `Qwen3-ASR-Script/` at the repo root (default models:
+`Qwen/Qwen3-ASR-1.7B` for transcription+LID, `Qwen/Qwen3-ForcedAligner-0.6B`
+for alignment only).
+
+Container-side env (all config lives in `.env` — nothing hardcoded):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `QWENASR_URL` | — | service base URL; **unset = feature off**, behavior identical to upstream |
+| `QWENASR_MODEL` | (empty) | optional model name; forwarded only when set |
+| `QWENASR_TRANSCRIBE_PATH` | `/transcribe` | endpoint path |
+| `QWENASR_TIMEOUT_MS` | `600000` | per-request timeout; raise for long videos |
+
+Entry points: `scripts/transcribe.mjs` (`--engine qwenasr` to force, fail-fast),
+the audio engine's `transcribeWav()` (QwenTTS synth → QwenASR timestamps →
+captions, no whisper spawn), and embedded-captions `transcribe.cjs`
+(`TRANSCRIBE_ENGINE=qwenasr`).
+
+**Fallback semantics**: the ForcedAligner covers only 11 languages (zh en yue fr
+de it ja ko pt ru es). A QwenASR result is usable ⇔ `ok:true` AND `words` is a
+non-empty array (`[]` only for genuine silence). `words:null` or any runtime
+failure (unreachable / non-200 / timeout) discards the ENTIRE result and falls
+back to the engines below — QwenASR text is never mixed with another engine's
+timestamps.
+
+## Local engines (hyperframes CLI / whisper.cpp)
+
 ```bash
 npx hyperframes transcribe audio.mp3  --model small.en             # known English
 npx hyperframes transcribe video.mp4  --model small --language es  # known Spanish

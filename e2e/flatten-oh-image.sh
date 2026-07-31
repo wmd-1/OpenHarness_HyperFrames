@@ -3,7 +3,7 @@
 # 用法: ./flatten-oh-image.sh [源镜像] [输出tar路径]
 set -euo pipefail
 
-SRC_IMAGE="${1:-openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.42_v1.4_v2.1}"
+SRC_IMAGE="${1:-openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1}"
 FLAT_IMAGE="${SRC_IMAGE}-flat"
 OUT_TAR="${2:-/root/data/$(echo "${SRC_IMAGE}" | tr ':' '-')-flat.tar}"
 TMP_CTR="oh-flatten-tmp"

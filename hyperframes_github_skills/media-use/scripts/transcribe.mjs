@@ -16,8 +16,13 @@ import { parseArgs } from "node:util";
 import { mergeTokensToWords } from "./lib/parakeet-words.mjs";
 import { track } from "./lib/telemetry.mjs";
 import { resolveNpxInvocation } from "./lib/npx-sync.mjs";
+import { qwenAsrConfigured, transcribeViaQwenASR } from "./lib/qwenasr.mjs";
 
-// The DEFAULT local transcription path. Prefers NVIDIA Parakeet-TDT via
+// The DEFAULT local transcription path. When $QWENASR_URL is set, a remote
+// QwenASR wrapper service (Qwen3-ASR + ForcedAligner, GPU-hosted — see
+// lib/qwenasr.mjs) is preferred over everything below: one HTTP call returns
+// text + word timestamps; any failure falls back to the local chain.
+// Otherwise prefers NVIDIA Parakeet-TDT via
 // parakeet-mlx, which beats whisper.cpp on the Open ASR Leaderboard (~6.05% vs
 // 7.44% avg WER, and 4.73% vs 5.96% on noisy test-other) and is 5-10x faster
 // with native punctuation. Emits { text, words:[{text,start,end}] } (word
@@ -33,7 +38,7 @@ const { values: args } = parseArgs({
   options: {
     input: { type: "string", short: "i" },
     out: { type: "string", short: "o" },
-    engine: { type: "string", default: "auto" }, // auto | parakeet | whisper
+    engine: { type: "string", default: "auto" }, // auto | qwenasr | parakeet | whisper
     model: { type: "string", default: "mlx-community/parakeet-tdt-0.6b-v3" },
     json: { type: "boolean", default: false },
     help: { type: "boolean", short: "h", default: false },
@@ -42,13 +47,15 @@ const { values: args } = parseArgs({
 });
 
 if (args.help) {
-  console.log(`media-use transcribe: better-than-whisper local ASR (Parakeet), whisper.cpp fallback
+  console.log(`media-use transcribe: remote QwenASR when $QWENASR_URL is set, else local ASR (Parakeet), whisper.cpp fallback
 
 Usage:
-  node transcribe.mjs --input audio.wav [--out audio.transcribe.json] [--engine auto|parakeet|whisper]
+  node transcribe.mjs --input audio.wav [--out audio.transcribe.json] [--engine auto|qwenasr|parakeet|whisper]
 
-Parakeet (default) beats whisper.cpp on accuracy + speed for English/European
-languages; whisper.cpp (99 languages) is the fallback. Install Parakeet once:
+QwenASR (remote GPU, word timestamps via ForcedAligner) is tried first when
+$QWENASR_URL is set. Parakeet beats whisper.cpp on accuracy + speed for
+English/European languages; whisper.cpp (99 languages) is the fallback.
+Install Parakeet once:
   uv venv ~/.venvs/parakeet && VIRTUAL_ENV=~/.venvs/parakeet uv pip install parakeet-mlx`);
   process.exit(0);
 }
@@ -104,6 +111,23 @@ function report(engine, wordCount) {
     );
 }
 
+// Remote QwenASR: one POST returns text + word timestamps on a global timeline.
+// Usable ⇔ words is a non-empty array (or [] with empty text = genuine silence);
+// otherwise the WHOLE result is discarded and we return false so the caller
+// falls back — never mix QwenASR text with another engine's timestamps.
+async function runQwenASR() {
+  const r = await transcribeViaQwenASR(inputPath, {});
+  if (!r) return false;
+  const usable = Array.isArray(r.words) && (r.words.length > 0 || r.text.trim() === "");
+  if (!usable) {
+    console.error("qwenasr: no usable word timestamps (words null/empty) — result discarded");
+    return false;
+  }
+  atomicWrite(outPath, JSON.stringify({ text: r.text, language: r.language, words: r.words }, null, 2));
+  report("qwenasr", r.words.length);
+  return true;
+}
+
 function runParakeet(runner) {
   const workDir = mkdtempSync(join(tmpdir(), "media-use-asr-"));
   try {
@@ -156,12 +180,32 @@ function runWhisper() {
 
 try {
   const parakeetBin = resolveParakeet();
-  const engine =
-    args.engine === "parakeet" || args.engine === "whisper"
+  let engine =
+    args.engine === "qwenasr" || args.engine === "parakeet" || args.engine === "whisper"
       ? args.engine
-      : parakeetBin
-        ? "parakeet"
-        : "whisper";
+      : qwenAsrConfigured()
+        ? "qwenasr"
+        : parakeetBin
+          ? "parakeet"
+          : "whisper";
+  if (engine === "qwenasr") {
+    if (!qwenAsrConfigured()) {
+      // explicit --engine qwenasr without config: fail fast, same semantics as
+      // provider=qwentts in the audio engine
+      throw new Error(
+        "--engine qwenasr requires $QWENASR_URL (remote QwenASR wrapper service; see media-use/audio/references/transcribe.md)",
+      );
+    }
+    if (!(await runQwenASR())) {
+      if (args.engine === "qwenasr") {
+        throw new Error(
+          "qwenasr transcription failed or returned no usable word timestamps (explicit --engine qwenasr: not falling back)",
+        );
+      }
+      console.error("qwenasr unavailable — falling back to local engines");
+      engine = parakeetBin ? "parakeet" : "whisper";
+    }
+  }
   if (engine === "parakeet") {
     if (!parakeetBin) {
       throw new Error(
@@ -169,7 +213,7 @@ try {
       );
     }
     runParakeet(parakeetBin);
-  } else {
+  } else if (engine === "whisper") {
     runWhisper();
   }
   await track("media_use_transcribe", { engine });

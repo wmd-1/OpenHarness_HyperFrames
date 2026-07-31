@@ -49,6 +49,46 @@ function ensureSource(project) {
 function _usableWords(d) {
   return d && Array.isArray(d.words) && d.words.some((w) => w && "start" in w && "end" in w);
 }
+
+// ── QwenASR inline client — CJS twin of media-use/scripts/lib/qwenasr.mjs (keep the
+// two in sync; embedded-captions ships standalone, no cross-skill import). Calls the
+// remote wrapper service (FastAPI + Qwen3ASRModel.LLM vLLM offline backend +
+// ForcedAligner — NOT an OpenAI-compatible `vllm serve`): one POST returns text +
+// word timestamps (seconds, global timeline). Env: QWENASR_URL / QWENASR_MODEL /
+// QWENASR_TRANSCRIBE_PATH / QWENASR_TIMEOUT_MS. Returns {language,text,words} or
+// null on ANY runtime failure (unreachable / non-200 incl. 413 / ok:false / timeout).
+const QWENASR_ISO_TO_QWEN = {
+  zh: "Chinese", en: "English", yue: "Cantonese", fr: "French", de: "German",
+  it: "Italian", ja: "Japanese", ko: "Korean", pt: "Portuguese", ru: "Russian", es: "Spanish",
+};
+async function transcribeViaQwenASR(audioPath, lang) {
+  const base = process.env.QWENASR_URL;
+  if (!base) return null;
+  const url = base.replace(/\/+$/, "") + (process.env.QWENASR_TRANSCRIBE_PATH || "/transcribe");
+  const timeoutMs = Number(process.env.QWENASR_TIMEOUT_MS || 600000);
+  try {
+    const body = new FormData();
+    body.set("file", new Blob([fs.readFileSync(audioPath)]), path.basename(audioPath));
+    body.set("timestamps", "1");
+    const qwenLang = lang ? QWENASR_ISO_TO_QWEN[String(lang).toLowerCase()] : undefined;
+    if (qwenLang) body.set("language", qwenLang); // unmapped → omit, server-side LID decides
+    if (process.env.QWENASR_MODEL) body.set("model", process.env.QWENASR_MODEL);
+    const res = await fetch(url, { method: "POST", body, signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data || data.ok !== true || typeof data.text !== "string") throw new Error("bad response shape");
+    const words = Array.isArray(data.words)
+      ? data.words.filter(
+          (w) => w && typeof w.text === "string" && Number.isFinite(w.start) && Number.isFinite(w.end),
+        )
+      : null;
+    return { language: data.language || "", text: data.text, words };
+  } catch (e) {
+    console.error(`[transcribe] qwenasr failed (${String(e.message || e).slice(0, 160)})`);
+    return null;
+  }
+}
+
 // Mean loudness of the audio, for the no-speech guard below. Silence → whisper
 // hallucinates (famously "Thank you."), and the decision gate refuses "no speech".
 function meanVolumeDb(audio) {
@@ -105,6 +145,9 @@ function audibleEnd(audio) {
 }
 
 function main() {
+  return _main();
+}
+async function _main() {
   const project = path.resolve(process.argv[2] || "");
   if (!process.argv[2]) {
     console.error("usage: transcribe.cjs <project-dir> [model] [language]");
@@ -160,12 +203,35 @@ function main() {
       { stdio: "ignore" },
     );
 
-  // ── engine: WhisperX (preferred — wav2vec2 forced alignment gives word timings far
-  // tighter than whisper.cpp's segment-interpolated ones; our gates are 80ms-strict) →
-  // fallback hyperframes whisper.cpp. Force with TRANSCRIBE_ENGINE=whisper|whisperx.
+  // ── engine: QwenASR (remote GPU, when $QWENASR_URL is set — Qwen3-ASR + ForcedAligner,
+  // word timings from forced alignment) → WhisperX (wav2vec2 forced alignment gives word
+  // timings far tighter than whisper.cpp's segment-interpolated ones; our gates are
+  // 80ms-strict) → fallback hyperframes whisper.cpp. Force with
+  // TRANSCRIBE_ENGINE=qwenasr|whisper|whisperx.
   let words = null,
     engine = null;
-  const wantWx = (process.env.TRANSCRIBE_ENGINE || "whisperx") === "whisperx";
+  const engineChoice = process.env.TRANSCRIBE_ENGINE || "";
+  if (engineChoice === "qwenasr" || (engineChoice === "" && process.env.QWENASR_URL)) {
+    if (!process.env.QWENASR_URL) {
+      console.error("[transcribe] TRANSCRIBE_ENGINE=qwenasr requires $QWENASR_URL");
+      process.exit(4);
+    }
+    const r = await transcribeViaQwenASR(audio, language);
+    // usable ⇔ non-empty word array (or [] with empty text = genuine silence); anything
+    // else discards the WHOLE result — never mix QwenASR text with whisper timestamps.
+    if (r && Array.isArray(r.words) && (r.words.length || !r.text.trim())) {
+      words = r.words.map((w) => ({ text: w.text, start: w.start, end: w.end, type: "word" }));
+      engine = "qwenasr";
+    } else if (engineChoice === "qwenasr") {
+      console.error(
+        "[transcribe] qwenasr failed or returned no usable word timestamps — exiting (explicit TRANSCRIBE_ENGINE=qwenasr, no fallback)",
+      );
+      process.exit(4);
+    } else {
+      console.error("[transcribe] qwenasr unusable — falling back to whisperx/whisper.cpp");
+    }
+  }
+  const wantWx = !words && (engineChoice || "whisperx") === "whisperx";
   if (wantWx) {
     try {
       const wav = path.join(project, "_wx_audio.wav");
@@ -329,4 +395,7 @@ function main() {
     console.error(`  do NOT author captions from fabricated words.`);
   }
 }
-main();
+main().catch((e) => {
+  console.error(`[transcribe] fatal: ${e && e.stack ? e.stack : e}`);
+  process.exit(1);
+});
