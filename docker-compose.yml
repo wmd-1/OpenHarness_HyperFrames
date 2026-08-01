@@ -21,9 +21,10 @@
 #   ―― 前端（独立 nginx 镜像，同源反代后端）――
 #   docker compose up -d web                               # 视频服务前端 http://localhost:5173（反代 api+session）
 #   docker compose up -d session-frontend                  # 会话前端   http://localhost:5174（反代 session）
+#   docker compose up -d design-frontend                   # 设计智能体平台前端 http://localhost:5175（反代 session）
 #
 #   ―― 组合 ――
-#   docker compose up -d api session web session-frontend  # 后端 + 双前端一键全拉起
+#   docker compose up -d api session web session-frontend design-frontend  # 后端 + 三前端一键全拉起
 #   docker compose logs -f session                         # 追服务日志
 #   docker compose down                                    # 停止并移除容器（数据卷保留）
 #
@@ -34,7 +35,7 @@
 #   创建 .env 文件（基于 .env.example）：
 #     ANTHROPIC_API_KEY=sk-ant-xxx
 #     OPENAI_API_KEY=sk-xxx
-#     OH_CORS_ORIGINS=http://localhost:5173   # 前端 dev 地址（生产填写真实域名）
+#     OH_CORS_ORIGINS=http://localhost:5173,http://localhost:5174,http://localhost:5175   # 前端 dev 地址（生产填写真实域名）
 # ============================================================================
 
 services:
