@@ -1,0 +1,6 @@
+(.venv) root@DESKTOP-A734GK0:~/projects/OpenHarness_HyperFrames# docker compose exec session python scripts/manage_api_keys.py create --tenant test_02 --label "my key_01"
+key_id:    97bb1016-c2d7-4b13-a349-7db48cffd19d
+tenant_id: test_02
+label:     my key_01
+api_key:   sk-oh-eWW2aocfb_xHerguJ--je4fxoLOUgjUJxNc_uNYEWhg
+Store this key now — it cannot be recovered (only its hash is kept).

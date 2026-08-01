@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import mimetypes
 import re
 import time
@@ -182,6 +183,20 @@ async def create_session(
     # Rate limit (fail-open).
     if not await check_rate_limit(_client_ip(request)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    # E2E fault injection (gated, OFF in production). Lets the frontend E2E
+    # exercise 403/503 create-failure paths without stressing shared capacity
+    # or changing daily-quota config that would break other suites.
+    if os.environ.get("OH_E2E_FAULT_INJECTION") == "1":
+        fault = request.query_params.get("fault")
+        if fault == "403":
+            raise HTTPException(status_code=403, detail="injected 403 (e2e)")
+        if fault == "503":
+            raise HTTPException(
+                status_code=503,
+                detail="injected 503 (e2e)",
+                headers={"Retry-After": "1"},
+            )
 
     tenant_id = tenant_from_request(request)
     actor = actor_from_request(request)

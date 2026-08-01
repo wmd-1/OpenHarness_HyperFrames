@@ -193,6 +193,9 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
           break;
         }
         case 'busy':
+          // 提交被后端拒绝（上一轮 turn_task 尚未收尾）：回滚 submit 时的乐观
+          // turnActive，否则输入区会永久停留在「轮次执行中」，只能刷新页面恢复。
+          conv.setTurnActive(sid, false);
           conv.addSystemMessage(sid, 'warning', '当前有轮次正在执行，请等待完成');
           break;
         case 'error': {

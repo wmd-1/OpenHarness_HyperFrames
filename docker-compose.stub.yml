@@ -16,3 +16,12 @@ services:
       # 每个 stub turn 最少耗时（秒）：给验收脚本一个确定性的 busy 窗口，
       # 用于断言并发配额 429（busy 会话不可被 D2/D4 idle 驱逐腾 slot）
       - OH_STUB_TURN_SECONDS=${OH_STUB_TURN_SECONDS:-3}
+      # e2e 放宽每租户并发配额，避免顺序单建会话被真实配额误伤；
+      # 并发配额 429 由 B4 显式多发并发建会话来验证（OH_TENANT_MAX_CONCURRENT 控制上限）。
+      - OH_TENANT_MAX_CONCURRENT=${OH_TENANT_MAX_CONCURRENT:-12}
+      # e2e 放宽每租户「每日建会话」配额（默认 200，反复跑 E2E 会耗尽导致
+      # 403 daily_quota_exceeded）。每日配额本身由 session-service 单测覆盖。
+      - OH_TENANT_MAX_DAILY=${OH_TENANT_MAX_DAILY:-100000}
+      # 开启 E2E 故障注入（OFF 即生产无影响）：?fault=403/503（建会话）、
+      # ?force_ws_code=<code>（WS 关闭码）。仅供前端 category-2 E2E 使用。
+      - OH_E2E_FAULT_INJECTION=1

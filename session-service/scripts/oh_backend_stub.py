@@ -21,13 +21,25 @@ from __future__ import annotations
 
 import json
 import os
-import sys
+import re
+import select
 import signal
 import subprocess
+import sys
 import time
+import uuid
 from pathlib import Path
 
 OHJSON = "OHJSON:"
+
+# Magic token in a submitted line that makes this stub emit a full approval flow
+# (permission -> edit_diff -> question). Gated by content (not a global env) so
+# existing tests that never send this token are unaffected.
+APPROVAL_TRIGGER = "@@approval"
+
+# Magic token that simulates a backend crash (os._exit) to exercise frontend
+# graceful handling of backend death.
+CRASH_TRIGGER = "@@crash"
 
 
 def emit(event: dict) -> None:
@@ -65,8 +77,24 @@ def write_mp4(cwd: Path, name: str = "out.mp4") -> str:
     return name
 
 
+def _stdin_ready(timeout: float) -> bool:
+    """Non-blocking check for pending stdin (used to honor interrupt / approval)."""
+    r, _, _ = select.select([sys.stdin], [], [], timeout)
+    return bool(r)
+
+
 def handle_submit(line: str, cwd: Path, turn_index: int) -> None:
     """Simulate one turn: delta -> tool -> mp4 -> line_complete."""
+    if line.strip().startswith("/model"):
+        # Model dual-channel ②: backend acknowledges the runtime model switch
+        # (real oh would reconfigure); emit a confirmation the UI can surface.
+        model = line.strip().split(None, 1)[1] if " " in line.strip() else ""
+        emit({"type": "assistant_delta", "message": f"Switched model to {model}"})
+        emit({"type": "assistant_complete", "message": f"Switched model to {model}"})
+        emit({"type": "state_snapshot", "state": {"model": model}})
+        emit({"type": "line_complete"})
+        return
+
     # Assistant text delta.
     emit({"type": "assistant_delta", "message": f"Stub reply to: {line}"})
     emit({"type": "assistant_complete", "message": f"Stub reply to: {line}"})
@@ -81,6 +109,97 @@ def handle_submit(line: str, cwd: Path, turn_index: int) -> None:
 
     emit({"type": "tasks_snapshot", "tasks": []})
     emit({"type": "line_complete"})
+
+
+def run_approval_flow(line: str, cwd: Path, turn_index: int, kinds=None) -> None:
+    """Emit approval frames (permission -> edit_diff -> question, or a subset
+    selected via ``@@approval:<kind>``) and wait for the client's responses
+    (written back to stdin by the session-service bridge)."""
+    all_steps = [
+        ("permission", "Approve writing the generated script file?"),
+        ("edit_diff", "Approve applying the following edit diff?"),
+        ("question", "Which framework should I scaffold the UI with?"),
+    ]
+    if kinds:
+        steps = [s for s in all_steps if s[0] in kinds]
+    else:
+        steps = all_steps
+    deadline = time.time() + 120.0  # safety cap
+    for kind, message in steps:
+        rid = f"req-{uuid.uuid4().hex[:8]}"
+        modal: dict = {
+            "request_id": rid,
+            # Frontend ApprovalModal dispatches on `modal.kind` (permissions/edit_diff/question).
+            "kind": kind,
+            "type": kind,
+            "message": message,
+            "title": message,
+            "timeout": 300,
+        }
+        if kind == "permission":
+            modal["tool_name"] = "render_video"
+            modal["reason"] = "生成视频需要调用渲染工具"
+        if kind == "edit_diff":
+            modal["path"] = "main.py"
+            modal["added"] = 1
+            modal["removed"] = 0
+            modal["diff"] = "--- a/main.py\n+++ b/main.py\n@@\n+print('hello')\n"
+        if kind == "question":
+            modal["question"] = message
+            modal["options"] = [{"label": "React"}, {"label": "Vue"}]
+        emit({"type": "modal_request", "modal": modal})
+
+        answered = False
+        while not answered:
+            if _stdin_ready(0.5):
+                raw = sys.stdin.buffer.readline()
+                if not raw:
+                    return  # EOF: client gone
+                try:
+                    req = json.loads(raw.decode("utf-8").strip())
+                except json.JSONDecodeError:
+                    continue
+                t = req.get("type")
+                if t in ("permission_response", "question_response") and req.get("request_id") == rid:
+                    answered = True
+                elif t == "interrupt":
+                    emit({"type": "line_complete", "interrupted": True})
+                    return
+                # ignore unrelated lines
+            if time.time() > deadline:
+                emit({"type": "line_complete", "interrupted": True})
+                return
+    # All approved: run the actual turn.
+    handle_submit(line, cwd, turn_index)
+
+
+def run_interruptible(line: str, cwd: Path, turn_index: int) -> None:
+    """Run a normal turn but honor an incoming ``interrupt`` during the busy wait,
+    ending the turn early (interrupted) instead of blocking the full duration."""
+    secs = float(os.environ.get("OH_STUB_TURN_SECONDS", "0"))
+    deadline = time.time() + secs
+    interrupted = False
+    while time.time() < deadline:
+        if _stdin_ready(0.1):
+            raw = sys.stdin.buffer.readline()
+            if not raw:
+                return
+            try:
+                req = json.loads(raw.decode("utf-8").strip())
+            except json.JSONDecodeError:
+                continue
+            if req.get("type") == "interrupt":
+                interrupted = True
+                break
+            # ignore other lines that may arrive during the wait
+        else:
+            time.sleep(0.02)
+    if interrupted:
+        emit({"type": "assistant_delta", "message": f"Interrupted: {line}"})
+        emit({"type": "assistant_complete", "message": f"Interrupted: {line}"})
+        emit({"type": "line_complete", "interrupted": True})
+        return
+    handle_submit(line, cwd, turn_index)
 
 
 def main() -> int:
@@ -147,9 +266,18 @@ def main() -> int:
             continue
         if t == "submit_line":
             line = req.get("line", "")
-            # Simulate a little work so timeout/interrupt paths are exercisable.
-            time.sleep(float(os.environ.get("OH_STUB_TURN_SECONDS", "0")))
-            handle_submit(line, cwd, turn_index)
+            if CRASH_TRIGGER in line:
+                # Simulate a backend crash: terminate the process abnormally so
+                # the session-service supervisor detects the death (-> FAILED/COLD).
+                emit({"type": "error", "message": "simulated crash"})
+                sys.stdout.buffer.flush()
+                os._exit(1)
+            if APPROVAL_TRIGGER in line:
+                m = re.search(r"@@approval:(\w+)", line)
+                kinds = [m.group(1)] if (m and m.group(1) in ("permission", "edit_diff", "question")) else None
+                run_approval_flow(line, cwd, turn_index, kinds)
+            else:
+                run_interruptible(line, cwd, turn_index)
             turn_index += 1
             continue
         emit({"type": "error", "message": f"unknown request type: {t}"})

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
@@ -161,6 +162,20 @@ async def session_ws(
     if not ok:
         await websocket.close(code=4401, reason="Invalid API key")
         return
+
+    # E2E WS close-code injection (gated, OFF in production). Lets the frontend
+    # E2E exercise every close-code branch (4429/4430/4503/4500/4400/4404)
+    # without stressing shared capacity. The test harness appends
+    # `?force_ws_code=<code>` to the WS URL via a WebSocket constructor patch.
+    if os.environ.get("OH_E2E_FAULT_INJECTION") == "1":
+        fwc = websocket.query_params.get("force_ws_code")
+        if fwc:
+            try:
+                code = int(fwc)
+            except ValueError:
+                code = 4500
+            await websocket.close(code=code, reason="injected (e2e)")
+            return
 
     # Rate limit WS connection establishment (same IP token bucket as POST).
     if not await check_rate_limit(_client_ip(websocket)):

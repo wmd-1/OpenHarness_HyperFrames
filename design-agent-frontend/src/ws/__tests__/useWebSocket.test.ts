@@ -351,6 +351,20 @@ describe('useWebSocket 消息发送', () => {
     expect(conv.messages[0]).toMatchObject({ kind: 'user', text: 'hi' });
     expect(conv.inputHistory).toEqual(['hi']);
   });
+
+  it('busy 帧回滚乐观 turnActive（否则输入区永久卡在轮次执行中）', () => {
+    const { result } = renderHook(() => useWebSocket(SID));
+    const ws = MockWebSocket.instances[0];
+    act(() => ws.serverOpen());
+    act(() => {
+      result.current.submit('hi');
+    });
+    expect(useConversationStore.getState().conversations[SID]?.turnActive).toBe(true);
+    act(() => ws.serverFrame({ type: 'busy' }));
+    const conv = useConversationStore.getState().conversations[SID];
+    expect(conv.turnActive).toBe(false);
+    expect(conv.messages.at(-1)).toMatchObject({ kind: 'system', level: 'warning' });
+  });
 });
 
 describe('useWebSocket 关闭码与重连', () => {

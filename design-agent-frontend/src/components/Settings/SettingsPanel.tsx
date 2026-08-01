@@ -20,7 +20,7 @@ export function SettingsPanel() {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/40"
+      className="fixed inset-0 z-[200] bg-black/40"
       onClick={() => setOpen(false)}
       onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
       role="presentation"

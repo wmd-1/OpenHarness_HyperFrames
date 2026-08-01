@@ -1,0 +1,85 @@
+================================================================================
+设计智能体前端 · 真实后端 E2E 测试报告
+日期：2026-08-01（第三轮更新：原「后端阻断」项已落地）
+执行方式：既有镜像 openharness-design-frontend:e2e 内运行 Playwright（真实浏览器 chrome-headless-shell）
+后端：docker compose -f docker-compose.yml -f docker-compose.stub.yml up -d session（真实 FastAPI + Postgres + Redis + WS + stub oh）
+结果：41 passed / 0 failed（~3.7m）；前端单测 296 passed（同镜像内 vitest）
+================================================================================
+
+一、如何运行
+  ./e2e/run-design-frontend-real-backend-tests.sh                       # 跑全量（41 例）
+  ./e2e/run-design-frontend-real-backend-tests.sh real-category2        # 只跑类别二补齐（18 例）
+  ./e2e/run-design-frontend-real-backend-tests.sh "real-category2 --grep W3"   # 单用例
+  KEEP=1 ./e2e/run-design-frontend-real-backend-tests.sh                # 跑完保留栈
+所有测试在既有镜像内执行；宿主机只负责起栈与编排。禁止宿主机直跑、禁止从零重建基础镜像。
+
+二、测试覆盖（真实场景，零 mock）
+  正常流程 J（4）：J1 真实登录→建会话→WS 流式→turn_complete 含产物；J2 真实产物直链
+    200(video/mp4) 与 Range 206；J3 关闭会话进入只读；J4 个人空间视频 tab 真实聚合（含已关闭）。
+  边界 B（5）：B1 空输入发送禁用；B2 超大文本真实提交；B3 特殊字符往返无注入；
+    B4 并发建会话触发真实并发配额 429；B5 刷新重放恢复会话。
+  错误处理 E（2）：E1 错 Key→401→回欢迎页重认证；E2 未知 session_id→404→前端优雅回退空工作区。
+  浏览器兼容 C（3）：C1 新标签打开会话直链；C2 前进/后退不破坏会话；C3 清 localStorage 重访回欢迎。
+  平台一致性与演示标识 R/D（3）：R1 首页 3 能力域卡片；R2 个人空间 tab 派生自注册表；D1 demo 域带「演示数据」标识。
+  进阶能力（6，real-advanced.spec.ts）：
+    T1 Terminal 模式切换：单条 WS 贯穿 Chat/Terminal（切换不重连），切回 Chat 历史保留。
+    M1 模型双通道①：建会话经 extra_oh_args 注入 --model（请求拦截断言真实 POST 请求体）。
+    M2 模型双通道②：空闲态经 WS 提交 /model，下拉乐观更新显示。
+    M3 模型切换入口在轮次执行中禁用（busy 态防御）。
+    I1 中断控制接线：busy 期间中断按钮可见可点、WS interrupt 已发出。
+    W4 软关闭（DELETE→read_only）后轮次历史仍可读。
+  类别二补齐（18，real-category2.spec.ts）：
+    A1a/A1b/A1c 审批弹窗 permission / edit_diff / question：stub 发射真实 modal_request，
+      前端按 modal.kind 分派，响应经 permission_response / question_response 真实回程。
+    A1d 审批全流程：三弹窗按 permission→edit_diff→question 顺序出现并逐个处理至 turn_complete。
+    I1 中断真正缩短轮次：中断后 <5s 出现 "Interrupted:"（后端真实提前 line_complete）。
+    M2 /model 后端回执：stub 真实处理 /model 并回显 Switched model to <name>。
+    E3 建会话 403：内联 role=alert 展示后端 detail 原文，停留创建态。
+    E5 建会话 503：内联「服务容量已满」+ Retry-After 倒计时后「重试」可点。
+    E6 503 内联抑制：不弹全局 fatal 横幅，全页仅对话框内一处 alert。
+    E9a 4404（未知会话）/ E9b 4400（非法 session_id）/ E9c 4403（已关闭会话）：真实状态驱动，不重连、优雅回退。
+    E9d 4429 / 4430 / 4503 / 4500（4 例）：?force_ws_code 受控注入，不白屏、不无限重连。
+    E1 OH 后端崩溃：@@crash 令 stub OH 进程退出，前端优雅回退、页面仍可交互。
+    W3 刷新后 WS 重连 resume：两轮真实轮次 → reload → REST turns 连续（≥2）、历史幂等不重复渲染。
+
+三、为覆盖类别二引入的可控触发能力（生产默认关闭）
+  stub oh（session-service/scripts/oh_backend_stub.py）—— 用「消息内容令牌」而非全局 env，避免影响既有用例：
+    @@approval[:permission|edit_diff|question]  发射审批帧
+    @@crash                                     OH 进程退出（等价后端崩溃）
+    /model <name>                               真实处理并回显（不再 unknown request type）
+    轮次 sleep 期间以 select 非阻塞读 stdin      interrupt 即时生效
+  session-service（仅当 OH_E2E_FAULT_INJECTION=1 生效，生产默认关闭）：
+    POST /v1/sessions?fault=403|503             建会话故障注入（app/routers/sessions.py）
+    WS ?force_ws_code=<code>                    强制 close code（app/routers/ws.py）
+  docker-compose.stub.yml：OH_TENANT_MAX_DAILY=100000（默认 200，反复跑 E2E 会耗尽 → 403 daily_quota_exceeded）
+
+四、实施中修正的真实后端事实（关键）
+  1. 真实栈需要签发 API Key（scripts/manage_api_keys.py create），否则建会话返回 401。
+  2. 轮次列表端点 GET /v1/sessions/{id}/turns 响应体为 { items: [...] }（非 turns），
+     artifact 直链为 /v1/sessions/{id}/turns/{turn_index}/artifact?api_key=&mode=stream。
+  3. WS 状态属性 data-ws-status 实际值为 ready（非 connected）。
+  4. 登录需点击「保存」按钮；关闭会话需用 /close 命令（历史卡片关闭按钮存在歧义）。
+  5. 首页为静态模块卡片，登录后落在首页而非视频模块；触发 401 需进入 /video。
+  6. 每租户并发配额 OH_TENANT_MAX_CONCURRENT 默认 1；E2E 栈放宽至 12。
+  7. Playwright 容器以 --network host 运行，使用动态空闲端口 E2E_PORT，vite 代理 /v1 → localhost:8001。
+  8. 每租户每日建会话配额 tenant_max_daily 默认 200（env OH_TENANT_MAX_DAILY）；
+     耗尽后返回 403 daily_quota_exceeded，表现为无关用例批量失败，极易误判为测试 bug。
+  9. 软关闭（DELETE）为 read_only：会话仍保留、da.currentSessionId 不清空、前端输入框禁用。
+  10. turn_complete ≠ 后端空闲：WS 发出 turn_complete 后 turn_task 仍在收尾，此时立即提交下一轮
+      会被后端以 {"type":"busy"} 拒绝 —— 真实竞态窗口（前端 UI 此时已可输入）。
+  11. 建会话 503 的全局横幅抑制按请求 pathname 判定，测试用 route.continue({url}) 追加 query 不破坏抑制。
+
+五、本轮 E2E 发现并修复的前端缺陷
+  WS busy 帧未回滚乐观 turnActive：submit 时乐观置 turnActive=true，收到 busy 只加一条 warning，
+  未回滚 → 输入区永久停留「轮次执行中」，只能刷新页面恢复。
+  修复：src/ws/useWebSocket.ts 的 busy 分支增加 conv.setTurnActive(sid, false)。
+  回归单测：src/ws/__tests__/useWebSocket.test.ts ▸「busy 帧回滚乐观 turnActive」。
+  （该缺陷只在真实后端 + 真实浏览器下暴露，mock 后端不会产生 busy 竞态。）
+
+六、仍未落地
+  - P2 容器 docker stats CPU/内存峰值：e2e 镜像无 docker.sock（infra 度量，非前端功能测试）。
+  - W1 后半 / W2 cold 状态：需 idle grace 20s 驱逐，时序敏感；后端 ws.sh #2–#3 已覆盖。
+  - J5 多轮产物切换条、P1 ≤8 并发性能基线、P3 百轮分页滚动：技术可行、本轮未排期（建议 J5 下一轮）。
+  - 口径说明：E1 用「杀 OH 子进程」替代「kill session 容器」（共享栈风险），未覆盖「整个网关不可达→恢复重连」；
+    4429/4430/4503/4500 属受控注入，非自然业务态触发；WS 正常断连的完整指数退避时序（分钟级）未验。
+================================================================================
