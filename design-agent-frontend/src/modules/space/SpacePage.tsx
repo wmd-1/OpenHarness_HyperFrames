@@ -229,16 +229,7 @@ function AgentAssetsTab({
         <div
           role="dialog"
           aria-label="视频预览"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.72)',
-            zIndex: 200,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 32,
-          }}
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-8"
           onClick={() => setPreviewRef(null)}
         >
           <div
@@ -256,15 +247,7 @@ function AgentAssetsTab({
               type="button"
               aria-label="关闭预览"
               onClick={() => setPreviewRef(null)}
-              style={{
-                marginTop: 12,
-                background: 'transparent',
-                border: '1px solid rgba(255,255,255,0.4)',
-                color: '#fff',
-                borderRadius: 6,
-                padding: '6px 16px',
-                cursor: 'pointer',
-              }}
+              className="preview-modal-close mt-3 rounded-lg border border-white/40 px-4 py-1.5 text-sm text-white hover:bg-white/10"
             >
               关闭
             </button>

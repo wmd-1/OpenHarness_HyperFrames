@@ -1,4 +1,4 @@
-<!-- 最后更新：2026-07-30 -->
+<!-- 最后更新：2026-08-02 -->
 
 # plans — 实施计划文档
 
@@ -14,6 +14,8 @@ plans/
 ```
 
 - 计划完成或废弃后移入 `archive/`，不删除（保留决策轨迹）；
-- 当前进行中：`Service_Web_Test_Fixes_Plan_2026-07-30.md`
-  （service/web 测试问题整改，对应 openspec 变更
-  `2026-07-30-fix-service-web-test-findings`）。
+- 当前进行中：
+  - `Design_Agent_Frontend_Architecture_v2_2026-07-31.md`（设计前端架构 v2）
+  - `Design_Agent_Frontend_Four_Modules_Plan_2026-07-31.md`（四大模块建设方案）
+- 已归档（`archive/`）：
+  - `Design_Agent_Frontend_Modal_Layout_Plan_2026-08-02.md`（提示框/模态框布局间距整改，对应 openspec `design-frontend-modal-layout`，2026-08-02 实施完成并归档）

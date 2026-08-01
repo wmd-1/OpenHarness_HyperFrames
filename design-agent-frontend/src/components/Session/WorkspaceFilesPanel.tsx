@@ -70,7 +70,7 @@ export function WorkspaceFilesPanel({
 
         {/* stale 提示（F5.3）：跨节点归档快照至多落后一个 turn */}
         {wf.source === 'archive' && wf.stale && (
-          <p className="text-warn bg-warn/10 px-4 py-1.5 text-xs" role="status">
+          <p className="text-warn bg-warn/10 px-4 py-2 text-xs" role="status">
             文件为最近归档快照，可能落后最新一轮
           </p>
         )}
@@ -114,13 +114,13 @@ export function WorkspaceFilesPanel({
             {wf.files.map((file) => (
               <li
                 key={file.path}
-                className="border-line hover:bg-raised flex items-center gap-2 border-b px-4 py-2"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="text-fg block truncate font-mono text-xs" title={file.path}>
-                    {file.path}
-                  </span>
-                  <span className="text-muted block text-xs">
+              className="border-line hover:bg-raised flex items-center gap-2 border-b px-4 py-2.5"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="text-fg block truncate font-mono text-xs leading-snug" title={file.path}>
+                  {file.path}
+                </span>
+                <span className="text-muted block mt-0.5 text-xs leading-snug">
                     {formatBytes(file.size)} · {formatRelativeTime(file.mtime)}
                   </span>
                 </span>

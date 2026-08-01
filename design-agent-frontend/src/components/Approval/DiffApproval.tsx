@@ -26,8 +26,8 @@ export function DiffApproval({ modal, onDecide }: DiffApprovalProps) {
         <FileDiff size={20} className="text-warn mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1">
           <p className="text-fg text-sm font-medium">请求修改文件</p>
-          <p className="text-muted mt-0.5 break-all font-mono text-xs">{modal.path ?? '未知路径'}</p>
-          <p className="mt-1 text-xs">
+          <p className="text-muted mt-1 break-all font-mono text-xs leading-snug">{modal.path ?? '未知路径'}</p>
+          <p className="mt-1.5 text-xs">
             <span className="text-ok">+{modal.added ?? 0}</span>{' '}
             <span className="text-err">-{modal.removed ?? 0}</span>
           </p>
@@ -36,7 +36,7 @@ export function DiffApproval({ modal, onDecide }: DiffApprovalProps) {
 
       {/* diff 内容（滚动区域） */}
       <pre
-        className="bg-base border-line mt-3 max-h-64 overflow-auto rounded-lg border p-3 text-xs leading-5"
+        className="bg-base border-line mt-4 max-h-72 overflow-auto rounded-lg border p-3 text-xs leading-6"
         data-testid="diff-content"
       >
         {diffLines.map((line, i) => (
@@ -46,7 +46,7 @@ export function DiffApproval({ modal, onDecide }: DiffApprovalProps) {
         ))}
       </pre>
 
-      <div className="mt-5 flex flex-wrap justify-end gap-2">
+      <div className="mt-6 flex flex-wrap justify-end gap-3">
         <button
           type="button"
           onClick={() => onDecide(false, 'reject')}

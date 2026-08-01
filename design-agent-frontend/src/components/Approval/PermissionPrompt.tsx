@@ -15,15 +15,15 @@ export function PermissionPrompt({ modal, onDecide }: PermissionPromptProps) {
       <div className="flex items-start gap-3">
         <ShieldCheck size={20} className="text-warn mt-0.5 shrink-0" />
         <div className="min-w-0">
-          <p className="text-fg text-sm font-medium">
-            工具 <code className="bg-raised rounded px-1 font-mono">{modal.tool_name ?? '未知工具'}</code>{' '}
+          <p className="text-fg text-sm leading-relaxed font-medium">
+            工具 <code className="bg-raised rounded px-1.5 py-0.5 font-mono">{modal.tool_name ?? '未知工具'}</code>{' '}
             请求执行权限
           </p>
-          {modal.reason && <p className="text-muted mt-1 text-xs break-words">{modal.reason}</p>}
+          {modal.reason && <p className="text-muted mt-2 text-xs leading-relaxed break-words">{modal.reason}</p>}
         </div>
       </div>
 
-      <div className="mt-5 flex flex-wrap justify-end gap-2">
+      <div className="mt-6 flex flex-wrap justify-end gap-3">
         <button
           type="button"
           onClick={() => onDecide(false, 'reject')}

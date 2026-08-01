@@ -64,12 +64,12 @@ export function ApprovalModal({ sessionId, approval, approve }: ApprovalModalPro
         role="dialog"
         aria-modal="true"
         aria-label="审批请求"
-        className="bg-surface border-line w-full max-w-lg rounded-xl border p-5 shadow-xl"
+        className="bg-surface border-line w-full max-w-lg rounded-xl border p-6 shadow-xl"
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-fg text-base font-semibold">审批请求</h2>
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-fg text-base leading-snug font-semibold">审批请求</h2>
           <span
-            className={`flex items-center gap-1 text-xs tabular-nums ${
+            className={`flex items-center gap-1.5 text-xs tabular-nums ${
               warning ? 'text-warn font-medium' : 'text-muted'
             }`}
             aria-live={warning ? 'polite' : 'off'}

@@ -41,11 +41,11 @@ export function ConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="bg-surface border-line w-full max-w-sm rounded-xl border p-5 shadow-xl"
+        className="bg-surface border-line w-full max-w-md rounded-xl border p-6 shadow-xl"
       >
-        <h2 className="text-fg text-base font-semibold">{title}</h2>
-        <p className="text-muted mt-2 text-sm">{message}</p>
-        <div className="mt-5 flex justify-end gap-2">
+        <h2 className="text-fg text-base leading-snug font-semibold">{title}</h2>
+        <p className="text-muted mt-3 text-sm leading-relaxed">{message}</p>
+        <div className="mt-6 flex justify-end gap-3">
           <button
             type="button"
             onClick={onCancel}

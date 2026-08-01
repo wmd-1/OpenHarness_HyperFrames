@@ -149,22 +149,22 @@ export function CreateDialog() {
         aria-modal="true"
         aria-label="创建会话"
         onClick={(e) => e.stopPropagation()}
-        className="bg-surface border-line w-full max-w-md rounded-xl border p-5 shadow-xl"
+        className="bg-surface border-line w-full max-w-md rounded-xl border p-6 shadow-xl"
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-fg text-base font-semibold">创建会话</h2>
+          <h2 className="text-fg text-base leading-snug font-semibold">创建会话</h2>
           <button
             type="button"
             onClick={close}
             aria-label="关闭"
-            className="text-muted hover:text-fg rounded p-1"
+            className="text-muted hover:text-fg rounded p-1.5"
           >
             <X size={16} />
           </button>
         </div>
 
         {/* 权限策略选择 */}
-        <div role="radiogroup" aria-label="权限策略" className="flex flex-col gap-2">
+        <div role="radiogroup" aria-label="权限策略" className="flex flex-col gap-2.5">
           {POLICIES.map(({ policy: p, label, description, Icon }) => (
             <button
               key={p}
@@ -172,21 +172,21 @@ export function CreateDialog() {
               role="radio"
               aria-checked={policy === p}
               onClick={() => setPolicy(p)}
-              className={`flex items-start gap-3 rounded-lg border p-3 text-left transition-colors ${
+              className={`flex items-start gap-3 rounded-lg border p-3.5 text-left transition-colors ${
                 policy === p ? 'border-accent bg-accent/5' : 'border-line hover:border-muted'
               }`}
             >
               <Icon size={18} className={policy === p ? 'text-accent' : 'text-muted'} />
               <span>
                 <span className="text-fg block text-sm font-medium">{label}</span>
-                <span className="text-muted block text-xs">{description}</span>
+                <span className="text-muted block mt-1 text-xs leading-snug">{description}</span>
               </span>
             </button>
           ))}
         </div>
 
         {/* 高级参数 */}
-        <div className="mt-4">
+        <div className="mt-5">
           <button
             type="button"
             onClick={() => setShowAdvanced((v) => !v)}
@@ -203,16 +203,16 @@ export function CreateDialog() {
                 placeholder="--temperature 0.7 --max-turns 20"
                 aria-label="额外参数"
                 aria-invalid={!!argError}
-                className={`bg-base w-full rounded border px-3 py-2 font-mono text-sm outline-none ${
+                className={`bg-base w-full rounded border px-3 py-2.5 font-mono text-sm outline-none ${
                   argError ? 'border-err' : 'border-line focus:border-accent'
                 }`}
               />
               {argError ? (
-                <p className="text-err mt-1 text-xs" role="alert">
+                <p className="text-err mt-1.5 text-xs leading-snug" role="alert">
                   {argError}
                 </p>
               ) : (
-                <p className="text-muted mt-1 text-xs">
+                <p className="text-muted mt-1.5 text-xs leading-snug">
                   仅允许：--temperature / --max-turns / --model / --effort / --no-cache /
                   --verbose
                 </p>
@@ -222,12 +222,12 @@ export function CreateDialog() {
         </div>
 
         {submitError && (
-          <p className="text-err mt-3 text-sm" role="alert">
+          <p className="text-err mt-4 text-sm leading-relaxed" role="alert">
             {submitError}
           </p>
         )}
 
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-6 flex justify-end gap-3">
           <button
             type="button"
             onClick={close}

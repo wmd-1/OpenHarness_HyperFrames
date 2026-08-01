@@ -23,6 +23,15 @@
   --font-stack: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   --transition-base: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   --transition-panel: 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  /* 间距与行高令牌（change: design-frontend-modal-layout）：供原生 CSS 类与内联场景全局调参 */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+  --leading-body: 1.6;
+  --leading-tight: 1.45;
 }
 html { font-size: 14px; }
 body { font-family: var(--font-stack); background: var(--bg-page); color: var(--text-primary); line-height: 1.6; min-height: 100vh; overflow-x: hidden; }
@@ -481,19 +490,25 @@ body { font-family: var(--font-stack); background: var(--bg-page); color: var(--
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-elevated);
-  padding: 6px;
-  min-width: 160px;
+  padding: var(--space-sm);
+  min-width: 180px;
   z-index: 50;
 }
 .btn-model .model-dropdown.show { display: block; }
 .model-option {
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
   font-size: 13px;
+  line-height: var(--leading-tight);
   color: var(--text-secondary);
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition: all var(--transition-base);
   display: flex; align-items: center; gap: 8px;
+}
+/* 视频预览 Modal 关闭按钮（change: design-frontend-modal-layout）：暗主题覆盖钩子 */
+.preview-modal-close {
+  background: transparent;
+  cursor: pointer;
 }
 .model-option:hover { background: var(--bg-hover); color: var(--text-primary); }
 .model-option.active { background: var(--accent-light); color: var(--accent); font-weight: 500; }

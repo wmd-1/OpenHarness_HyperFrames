@@ -23,7 +23,7 @@ export function QuestionPrompt({ modal, onDecide }: QuestionPromptProps) {
     <div>
       <div className="flex items-start gap-3">
         <MessageCircleQuestion size={20} className="text-accent mt-0.5 shrink-0" />
-        <p className="text-fg min-w-0 whitespace-pre-wrap break-words text-sm font-medium">
+        <p className="text-fg min-w-0 whitespace-pre-wrap break-words text-sm leading-relaxed font-medium">
           {modal.question ?? '（问题内容缺失）'}
         </p>
       </div>
@@ -38,13 +38,13 @@ export function QuestionPrompt({ modal, onDecide }: QuestionPromptProps) {
             submit();
           }
         }}
-        rows={3}
+        rows={4}
         placeholder="输入回答…（Enter 提交，Shift+Enter 换行）"
         aria-label="回答"
-        className="bg-base border-line focus:border-accent mt-3 w-full resize-y rounded-lg border px-3 py-2 text-sm outline-none"
+        className="bg-base border-line focus:border-accent mt-4 w-full resize-y rounded-lg border px-3 py-2.5 text-sm leading-relaxed outline-none"
       />
 
-      <div className="mt-4 flex justify-end gap-2">
+      <div className="mt-5 flex justify-end gap-3">
         <button
           type="button"
           onClick={() => onDecide(false, 'reject')}

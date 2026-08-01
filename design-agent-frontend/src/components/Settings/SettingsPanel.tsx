@@ -44,13 +44,13 @@ export function SettingsPanel() {
             <X size={18} />
           </button>
         </div>
-        <div className="flex-1 space-y-6 overflow-y-auto p-4">
+        <div className="flex-1 space-y-6 overflow-y-auto p-5">
           <section>
-            <h3 className="text-fg mb-2 text-sm font-medium">API Key</h3>
+            <h3 className="text-fg mb-3 text-sm font-medium">API Key</h3>
             <ApiKeyInput />
           </section>
           <section>
-            <h3 className="text-fg mb-2 text-sm font-medium">主题</h3>
+            <h3 className="text-fg mb-3 text-sm font-medium">主题</h3>
             <ThemeSelector />
           </section>
         </div>
