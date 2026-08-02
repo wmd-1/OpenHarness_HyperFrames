@@ -7,6 +7,7 @@ import { isDemoAgent, listAgents } from '../../platform/registry';
 import type { AgentDescriptor, ArtifactRef } from '../../platform/types';
 import { moduleIconFor } from '../../shared/moduleIcon';
 import { CustomVideoPlayer } from '../video/CustomVideoPlayer';
+import { ModalShell } from '../../components/Common/ModalShell';
 import { displaySessionTime } from '../demo-shared/demoTime';
 import { pageCount, pageSlice } from './paging';
 import { thumbTypeLabel } from './spaceLabels';
@@ -226,33 +227,32 @@ function AgentAssetsTab({
       )}
 
       {previewRef && previewSrc && (
-        <div
-          role="dialog"
-          aria-label="视频预览"
-          className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-black/60 p-8"
-          onClick={() => setPreviewRef(null)}
+        <ModalShell
+          open
+          onClose={() => setPreviewRef(null)}
+          ariaLabel="视频预览"
+          overlayDimClass="bg-black/60"
+          overlayPaddingClass="p-8"
+          containerClassName=""
+          containerStyle={{ width: 'min(960px, 100%)' }}
+          closeOnOverlayClick
         >
-          <div
-            style={{ width: 'min(960px, 100%)' }}
-            onClick={(e) => e.stopPropagation()}
+          <CustomVideoPlayer
+            src={previewSrc}
+            onDownload={() => {
+              const url = agent.providers.artifacts.downloadUrl(previewRef);
+              if (url) window.open(url, '_blank', 'noopener');
+            }}
+          />
+          <button
+            type="button"
+            aria-label="关闭预览"
+            onClick={() => setPreviewRef(null)}
+            className="preview-modal-close mt-3 rounded-lg border border-white/40 px-4 py-1.5 text-sm text-white hover:bg-white/10"
           >
-            <CustomVideoPlayer
-              src={previewSrc}
-              onDownload={() => {
-                const url = agent.providers.artifacts.downloadUrl(previewRef);
-                if (url) window.open(url, '_blank', 'noopener');
-              }}
-            />
-            <button
-              type="button"
-              aria-label="关闭预览"
-              onClick={() => setPreviewRef(null)}
-              className="preview-modal-close mt-3 rounded-lg border border-white/40 px-4 py-1.5 text-sm text-white hover:bg-white/10"
-            >
-              关闭
-            </button>
-          </div>
-        </div>
+            关闭
+          </button>
+        </ModalShell>
       )}
     </>
   );

@@ -1,14 +1,14 @@
 // 工作区文件面板（F5）：右侧抽屉（移动端全屏覆盖），平铺列表 + prefix 过滤；
 // 双源角标（live 实时 / archive 归档快照 + stale 提示 / none 空态）；
 // <a download> 直链下载（?api_key=，浏览器跟随 presigned 302）。
+// change: design-frontend-overlay-primitives — 接入 DrawerShell，z-40→var(--z-modal)。
 
 import { Download, FolderOpen, Loader2, RefreshCw, X } from 'lucide-react';
-import { useRef } from 'react';
 import { workspaceFileUrl } from '../../api/sessions';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useWorkspaceFiles } from '../../hooks/useWorkspaceFiles';
 import type { Session } from '../../types/session';
 import { formatBytes, formatRelativeTime } from '../../utils/format';
+import { DrawerShell } from '../Common/DrawerShell';
 
 export function WorkspaceFilesPanel({
   session,
@@ -19,24 +19,9 @@ export function WorkspaceFilesPanel({
 }) {
   const sid = session.session_id;
   const wf = useWorkspaceFiles(sid);
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useFocusTrap(panelRef, { active: true, onEscape: onClose });
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex justify-end bg-black/40"
-      onClick={onClose}
-      role="presentation"
-    >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="工作区文件"
-        onClick={(e) => e.stopPropagation()}
-        className="bg-surface border-line flex h-full w-full flex-col border-l shadow-xl sm:w-96"
-      >
+    <DrawerShell open onClose={onClose} ariaLabel="工作区文件" widthClass="sm:w-96">
         {/* 头部：标题 + 双源角标 + 刷新/关闭 */}
         <div className="border-line flex items-center gap-2 border-b px-4 py-3">
           <FolderOpen size={16} className="text-muted" />
@@ -153,7 +138,6 @@ export function WorkspaceFilesPanel({
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </DrawerShell>
   );
 }

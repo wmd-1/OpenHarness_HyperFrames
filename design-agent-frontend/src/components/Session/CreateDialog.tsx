@@ -1,7 +1,9 @@
 // 创建会话对话框（task 7.7）：权限策略选择 + 高级参数（白名单前端校验）。
-// 焦点圈定 + Escape 关闭统一走 useFocusTrap（task 5.10 D5）。
+// 焦点圈定 + Escape 关闭统一走 ModalShell→useFocusTrap（task 5.10 D5）。
+// change: design-frontend-overlay-primitives — 接入 ModalShell，z-50→var(--z-modal)，
+// overlay-click 保现（关闭，closeOnOverlayClick），Escape→close 保现（close 内 submitting 守卫不变）。
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Bot, Loader2, ShieldCheck, X } from 'lucide-react';
 import { createSession } from '../../api/sessions';
 import {
@@ -13,10 +15,10 @@ import {
 import { useSessionStore } from '../../store/sessionStore';
 import { useUiStore } from '../../store/uiStore';
 import type { PermissionPolicy } from '../../types/session';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { requestSessionListRefresh } from '../../hooks/useSessionList';
 import { withModelArg } from '../../utils/model';
 import { tokenizeArgs, validateExtraArgs } from '../../utils/sanitize';
+import { ModalShell } from '../Common/ModalShell';
 
 const POLICIES: {
   policy: PermissionPolicy;
@@ -53,8 +55,6 @@ export function CreateDialog() {
   // 503 容量满：Retry-After 倒计时，归零后重试按钮自动可点（F4）
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
 
-  const dialogRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     if (retryCountdown === null || retryCountdown <= 0) return;
     const timer = window.setTimeout(
@@ -71,11 +71,6 @@ export function CreateDialog() {
     setArgError(null);
     setRetryCountdown(null);
   };
-
-  // 焦点圈定 + Escape 关闭（D5）
-  useFocusTrap(dialogRef, { active: open, onEscape: close });
-
-  if (!open) return null;
 
   const handleArgsChange = (value: string) => {
     setRawArgs(value);
@@ -137,31 +132,24 @@ export function CreateDialog() {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={close}
-      onKeyDown={(e) => e.key === 'Escape' && close()}
-      role="presentation"
+    <ModalShell
+      open={open}
+      onClose={close}
+      ariaLabel="创建会话"
+      maxWidthClass="max-w-md"
+      closeOnOverlayClick
     >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="创建会话"
-        onClick={(e) => e.stopPropagation()}
-        className="bg-surface border-line w-full max-w-md rounded-xl border p-6 shadow-xl"
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-fg text-base leading-snug font-semibold">创建会话</h2>
-          <button
-            type="button"
-            onClick={close}
-            aria-label="关闭"
-            className="text-muted hover:text-fg rounded p-1.5"
-          >
-            <X size={16} />
-          </button>
-        </div>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-fg text-base leading-snug font-semibold">创建会话</h2>
+        <button
+          type="button"
+          onClick={close}
+          aria-label="关闭"
+          className="text-muted hover:text-fg rounded p-1.5"
+        >
+          <X size={16} />
+        </button>
+      </div>
 
         {/* 权限策略选择 */}
         <div role="radiogroup" aria-label="权限策略" className="flex flex-col gap-2.5">
@@ -250,7 +238,6 @@ export function CreateDialog() {
               : '创建'}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }

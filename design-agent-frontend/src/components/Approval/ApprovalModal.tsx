@@ -1,18 +1,20 @@
 // 审批模态框容器（task 10.1）：按 modal.kind 分发到具体弹窗；
-// 可访问性（焦点圈定/Escape 拒绝/初始焦点）统一走 useFocusTrap（D5）。
+// 可访问性（焦点圈定/Escape 拒绝/初始焦点）统一走 ModalShell→useFocusTrap（D5）。
 // 数据来源 conversation.pendingApproval，决策经 conversation.approve 提交。
+// change: design-frontend-overlay-primitives — 接入 ModalShell，z-50→var(--z-modal)，
+// overlay-click 保现（不关闭，closeOnOverlayClick=false），Escape→reject 保现（task 10.6）。
 
-import { useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 import { TimerReset } from 'lucide-react';
 import { useConversationStore } from '../../store/conversationStore';
 import type { PendingApproval } from '../../store/conversationStore';
 import type { ApprovalReply } from '../../types/ws';
 import { useApproval } from '../../hooks/useApproval';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
 import type { ApprovalDecision } from './approvalTypes';
 import { DiffApproval } from './DiffApproval';
 import { PermissionPrompt } from './PermissionPrompt';
 import { QuestionPrompt } from './QuestionPrompt';
+import { ModalShell } from '../Common/ModalShell';
 
 export interface ApprovalModalProps {
   sessionId: string;
@@ -22,7 +24,6 @@ export interface ApprovalModalProps {
 }
 
 export function ApprovalModal({ sessionId, approval, approve }: ApprovalModalProps) {
-  const dialogRef = useRef<HTMLDivElement>(null);
   const { remainingS, warning } = useApproval(sessionId, approval);
   const requestId = approval.request_id ?? approval.modal?.request_id;
 
@@ -45,49 +46,42 @@ export function ApprovalModal({ sessionId, approval, approve }: ApprovalModalPro
     [approve, requestId, sessionId],
   );
 
+  // 关闭=拒绝（task 10.6 业务定义，非历史遗留；保现，分离「关闭/拒绝」需单独 UX change）。
   const reject = useCallback(() => decide(false, 'reject'), [decide]);
-
-  // 焦点圈定 + Escape 拒绝（task 10.6，实现提取为 useFocusTrap，D5）
-  useFocusTrap(dialogRef, { onEscape: reject });
 
   const kind = approval.modal?.kind ?? 'permission';
   const modal = approval.modal ?? { kind };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      role="presentation"
-      data-testid="approval-modal"
+    <ModalShell
+      open
+      onClose={reject}
+      ariaLabel="审批请求"
+      maxWidthClass="max-w-lg"
+      closeOnOverlayClick={false}
+      dataTestId="approval-modal"
     >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="审批请求"
-        className="bg-surface border-line w-full max-w-lg rounded-xl border p-6 shadow-xl"
-      >
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-fg text-base leading-snug font-semibold">审批请求</h2>
-          <span
-            className={`flex items-center gap-1.5 text-xs tabular-nums ${
-              warning ? 'text-warn font-medium' : 'text-muted'
-            }`}
-            aria-live={warning ? 'polite' : 'off'}
-          >
-            <TimerReset size={13} />
-            {Math.floor(remainingS / 60)}:{String(remainingS % 60).padStart(2, '0')}
-          </span>
-        </div>
-
-        {kind === 'edit_diff' ? (
-          <DiffApproval modal={modal} onDecide={decide} />
-        ) : kind === 'question' ? (
-          <QuestionPrompt modal={modal} onDecide={decide} />
-        ) : (
-          // permission 及未知类型统一走权限确认（保守默认）
-          <PermissionPrompt modal={modal} onDecide={decide} />
-        )}
+      <div className="mb-5 flex items-center justify-between">
+        <h2 className="text-fg text-base leading-snug font-semibold">审批请求</h2>
+        <span
+          className={`flex items-center gap-1.5 text-xs tabular-nums ${
+            warning ? 'text-warn font-medium' : 'text-muted'
+          }`}
+          aria-live={warning ? 'polite' : 'off'}
+        >
+          <TimerReset size={13} />
+          {Math.floor(remainingS / 60)}:{String(remainingS % 60).padStart(2, '0')}
+        </span>
       </div>
-    </div>
+
+      {kind === 'edit_diff' ? (
+        <DiffApproval modal={modal} onDecide={decide} />
+      ) : kind === 'question' ? (
+        <QuestionPrompt modal={modal} onDecide={decide} />
+      ) : (
+        // permission 及未知类型统一走权限确认（保守默认）
+        <PermissionPrompt modal={modal} onDecide={decide} />
+      )}
+    </ModalShell>
   );
 }
