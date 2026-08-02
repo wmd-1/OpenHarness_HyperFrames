@@ -1,6 +1,9 @@
 // 原型页面设计源码视图（demo loadCodeContent 逻辑移植）：
 // 静态示例代码 + 行号 + 简易语法高亮。输入为本文件内静态常量，
 // 高亮结果经 dangerouslySetInnerHTML 渲染是安全的（先转义再包 span）。
+// 注：下方 SAMPLE_CSS_CODE 中的 --bg-page/--bg-module/--accent/--text-primary/
+// --shadow-card 是「示例源码文本内容」（展示给用户看的样例），不是运行时样式，
+// 故不随主题令牌统一而改（change: design-frontend-theme-unify-and-layout-tokens 任务 4.5）。
 
 export const SAMPLE_HTML_CODE = [
   '<!DOCTYPE html>',

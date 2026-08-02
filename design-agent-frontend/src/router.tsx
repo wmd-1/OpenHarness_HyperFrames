@@ -15,16 +15,7 @@ const SpacePage = lazy(() =>
 
 function PageFallback() {
   return (
-    <div
-      style={{
-        flex: 1,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: 'var(--text-secondary)',
-        minHeight: 240,
-      }}
-    >
+    <div className="flex flex-1 items-center justify-center text-muted min-h-[240px]">
       加载中…
     </div>
   );

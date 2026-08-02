@@ -49,7 +49,7 @@ export function VideoPreviewPanel({
             <VideoModuleIcon />
             视频预览
             {activeTurn !== null && (
-              <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-tertiary)' }}>
+              <span className="font-normal text-muted" style={{ fontSize: 12 }}>
                 第 {activeTurn + 1} 轮产物
               </span>
             )}
@@ -84,14 +84,7 @@ export function VideoPreviewPanel({
           <div
             role="tablist"
             aria-label="产物轮次切换"
-            style={{
-              display: 'flex',
-              gap: 6,
-              padding: '8px 16px',
-              borderBottom: '1px solid var(--border-light)',
-              background: 'var(--bg-module)',
-              overflowX: 'auto',
-            }}
+            className="flex gap-1.5 border-b border-line bg-surface px-4 py-2 overflow-x-auto"
           >
             {artifactTurns.map((turn) => (
               <button
@@ -104,9 +97,9 @@ export function VideoPreviewPanel({
                 style={
                   turn === activeTurn
                     ? {
-                        background: 'var(--accent-light)',
-                        color: 'var(--accent)',
-                        borderColor: 'var(--accent)',
+                        background: 'color-mix(in srgb, var(--app-accent) 12%, var(--app-surface))',
+                        color: 'var(--app-accent)',
+                        borderColor: 'var(--app-accent)',
                       }
                     : undefined
                 }

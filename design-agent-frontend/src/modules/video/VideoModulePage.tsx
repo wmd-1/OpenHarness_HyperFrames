@@ -232,7 +232,7 @@ export function VideoModulePage() {
                   会话 {currentId.slice(0, 12)}…
                 </code>
                 <StatusBadge status={session.status} />
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                <span className="text-muted" style={{ fontSize: 12 }}>
                   轮次 {session.turn_count}
                 </span>
               </div>

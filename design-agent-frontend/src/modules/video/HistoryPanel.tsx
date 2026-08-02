@@ -47,7 +47,7 @@ export function HistoryPanel() {
               marginLeft: 'auto',
               border: 'none',
               background: 'transparent',
-              color: 'var(--text-tertiary)',
+              color: 'var(--app-text-muted)',
               cursor: 'pointer',
               display: 'flex',
               padding: 2,
@@ -115,7 +115,7 @@ export function HistoryPanel() {
                     style={{
                       border: 'none',
                       background: 'transparent',
-                      color: 'var(--text-tertiary)',
+                      color: 'var(--app-text-muted)',
                       cursor: 'pointer',
                       display: 'flex',
                       padding: 2,
@@ -145,8 +145,7 @@ export function HistoryPanel() {
               background: 'transparent',
               textAlign: 'center',
               fontSize: 12,
-              color: 'var(--text-tertiary)',
-              fontFamily: 'var(--font-stack)',
+              color: 'var(--app-text-muted)',
             }}
           >
             {loadingMore ? '加载中…' : '加载更多'}

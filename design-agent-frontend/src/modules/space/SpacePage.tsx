@@ -229,7 +229,7 @@ function AgentAssetsTab({
         <div
           role="dialog"
           aria-label="视频预览"
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-8"
+          className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-black/60 p-8"
           onClick={() => setPreviewRef(null)}
         >
           <div
