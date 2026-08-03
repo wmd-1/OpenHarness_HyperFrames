@@ -237,6 +237,10 @@ class SessionSupervisor:
         policy = permission_policy or settings.permission_policy
         sid = uuid.uuid4()
         cwd = Path(settings.workspace_root) / str(sid)
+        # Derive the native snapshot id BEFORE acquiring the slot (spec D8) so it
+        # is available for the backend env (OH_SESSION_ID) at spawn time — the
+        # stub emulates OpenHarness's post-turn snapshot write and needs it.
+        oh_session_id = derive_oh_session_id(cwd)
         row_committed = False
         # Admission FIRST (WS-D): tenant quota / capacity / eviction / queue
         # all resolve before any side effect, so a 429/503 rejection leaves no
@@ -248,11 +252,10 @@ class SessionSupervisor:
             permission_mode=policy,
             oh_session_id=None,
             extra_args=extra_args or [],
-            env_overrides=self._tenant_env(tenant_id),
+            env_overrides=self._tenant_env(tenant_id, oh_session_id),
         )
         try:
             cwd.mkdir(parents=True, exist_ok=True)
-            oh_session_id = derive_oh_session_id(cwd)
             # Stage-in the tenant's authoritative data BEFORE anything else (WS-B):
             # MinIO unreachable raises TenantStoreError -> router returns 503 and
             # no session row/process is created (fail-fast).
@@ -355,9 +358,20 @@ class SessionSupervisor:
         live.state = SessionState.CREATING
         self._sessions[conv.id] = live
         # Resume semantics (session-history-switch D10): the new live process
-        # must restore the source session's conversation context — spawning
-        # without --resume would silently drop it.
-        await self._spawn(live, resume=True)
+        # must restore the source session's conversation context. The resume
+        # decision is no longer hardcoded — it goes through the single recovery
+        # policy (snapshot presence + completed-turn count). A session with
+        # completed turns but no snapshot raises RecoveryFailedError here and is
+        # NOT silently spawned.
+        from app.session import recovery
+
+        decision = await recovery.resolve_for_conversation(
+            conversation_id=conv.id,
+            tenant_id=tenant_id,
+            oh_session_id=oh_session_id,
+            db=db,
+        )
+        await self._spawn(live, resume=decision is recovery.ResumeDecision.RESUME)
         conv.status = SessionStatus.LIVE
         await db.commit()
 
@@ -389,7 +403,7 @@ class SessionSupervisor:
                 permission_mode=live.permission_policy,
                 oh_session_id=oh_sid,
                 extra_args=live.extra_args,
-                env_overrides=self._tenant_env(live.tenant_id),
+                env_overrides=self._tenant_env(live.tenant_id, live.oh_session_id),
             )
         try:
             await proc.start()
@@ -484,16 +498,23 @@ class SessionSupervisor:
                 return
             # Before ready: discard other startup events too.
 
-    def _tenant_env(self, tenant_id: str) -> dict[str, str]:
+    def _tenant_env(self, tenant_id: str, oh_session_id: str | None = None) -> dict[str, str]:
         """WS-B: redirect the backend's config/data trees to the tenant's
         staging dirs so user-scope memory stays tenant-continuous and
         tenant-private. The provider credential rides along as an env var
         (node-level credential gateway), resolved fresh at every spawn —
-        never through tenant files, never cached."""
+        never through tenant files, never cached.
+
+        ``OH_SESSION_ID`` is exposed so backend processes (incl. the stub, which
+        faithfully emulates OpenHarness's post-turn snapshot write) can locate
+        the session's snapshot directory. Real OpenHarness ignores the extra
+        var; it is harmless to production."""
         env = {
             "OPENHARNESS_CONFIG_DIR": str(tenant_store.local_config_dir(tenant_id)),
             "OPENHARNESS_DATA_DIR": str(tenant_store.local_data_dir(tenant_id)),
         }
+        if oh_session_id:
+            env["OH_SESSION_ID"] = oh_session_id
         cred = credentials.resolve_provider_credential()
         if cred is not None:
             env[cred[0]] = cred[1]
@@ -681,17 +702,20 @@ class SessionSupervisor:
             # OpenHarness sees the files from turn one. Best-effort.
             live.cwd.mkdir(parents=True, exist_ok=True)
             await workspace_store.stage_in(live.tenant_id, live.sid, live.cwd)
-            resume = True
-            if not await tenant_store.has_session_snapshot(
-                live.tenant_id, live.oh_session_id
-            ):
-                # 0-turn COLD session with no snapshot (D8 edge case): there
-                # is no context to restore and ``--resume`` would fail at the
-                # CLI level — fall back to a fresh spawn.
-                conv = await db.get(Conversation, live.sid)
-                if conv is not None and conv.turn_count == 0:
-                    resume = False
-            await self._spawn(live, resume=resume)
+            # Single decision entry point: snapshot presence + completed-turn
+            # count. RECOVERY_FAILED raises RecoveryFailedError (no spawn); the
+            # prior inline ``turn_count == 0`` fallback is subsumed here.
+            from app.session import recovery
+
+            decision = await recovery.resolve_for_conversation(
+                conversation_id=live.sid,
+                tenant_id=live.tenant_id,
+                oh_session_id=live.oh_session_id,
+                db=db,
+            )
+            await self._spawn(
+                live, resume=decision is recovery.ResumeDecision.RESUME
+            )
         finally:
             await route_registry.release_lock(str(live.sid), holder)
 

@@ -341,36 +341,64 @@ def _purge_session_sync(tenant_id: str, oh_session_id: str) -> None:
             client.remove_object(settings.minio_bucket, obj.object_name)
 
 
-def _has_local_snapshot(tenant_id: str, oh_session_id: str) -> bool:
-    """Cheap fs check: any ``sessions/{oh_session_id}*`` entry in staging."""
-    base = local_data_dir(tenant_id) / "sessions"
-    if not base.is_dir():
+def _is_snapshot_marker(name: str) -> bool:
+    """Internal: what counts as a valid snapshot marker.
+
+    File-name / format knowledge is intentionally confined to this function so
+    the recovery policy never references concrete filenames (constraint 3). When
+    OpenHarness changes its snapshot file layout, only this predicate changes.
+    """
+    return name.endswith(".json") and not name.startswith(".")
+
+
+def _has_valid_snapshot_marker(sessions_root: Path, oh_session_id: str) -> bool:
+    """True if any session dir under ``sessions_root`` for ``oh_session_id``
+    contains a non-empty snapshot marker file. Empty dirs / zero-byte files /
+    non-marker files do NOT count (kills the old false-positive)."""
+    if not sessions_root.is_dir() or not oh_session_id:
         return False
-    return any(base.glob(oh_session_id + "*"))
+    for d in sessions_root.glob(oh_session_id + "*"):
+        if not d.is_dir():
+            continue
+        for p in d.iterdir():
+            if p.is_file() and p.stat().st_size > 0 and _is_snapshot_marker(p.name):
+                return True
+    return False
+
+
+def _has_local_snapshot(tenant_id: str, oh_session_id: str) -> bool:
+    """Valid-snapshot check against node-local staging (marker-aware)."""
+    return _has_valid_snapshot_marker(local_data_dir(tenant_id) / "sessions", oh_session_id)
 
 
 def _has_remote_snapshot_sync(tenant_id: str, oh_session_id: str) -> bool:
-    """Bucket prefix probe for the session's snapshot objects."""
+    """Bucket prefix probe honoring the snapshot marker (non-empty only)."""
     client = _client()
     prefix = _remote_prefix(tenant_id) + "openharness/data/sessions/" + oh_session_id
-    for _obj in client.list_objects(
+    for obj in client.list_objects(
         settings.minio_bucket, prefix=prefix, recursive=True
     ):
-        return True
+        size = getattr(obj, "size", 0) or 0
+        fname = obj.object_name.rsplit("/", 1)[-1]
+        if size > 0 and _is_snapshot_marker(fname):
+            return True
     return False
 
 
 # --- public async API ------------------------------------------------------------
 
 
-async def has_session_snapshot(tenant_id: str, oh_session_id: str) -> bool:
+async def has_valid_snapshot(tenant_id: str, oh_session_id: str) -> bool:
     """Whether a recoverable native snapshot exists for this session.
 
-    Feeds the ``resumable`` business field (spec session-tenant-isolation):
-    the node-local staging directory is consulted first (fs stat, cheap); the
-    tenant-bucket prefix is queried only when the local copy is absent, and
-    skipped entirely when the store is disabled. Probe errors degrade to
-    ``False`` (never advertise a resume that cannot be satisfied).
+    Feeds the recovery decision (spec session-tenant-isolation). Node-local
+    staging is consulted first (fs stat, cheap); the tenant-bucket prefix is
+    queried only when the local copy is absent, and skipped entirely when the
+    store is disabled. Probe errors degrade to ``False`` (never advertise a
+    resume that cannot be satisfied).
+
+    The "what is a valid snapshot" rule lives in ``_is_snapshot_marker`` — this
+    function only consumes the boolean, never filenames.
     """
     validate_tenant_id(tenant_id)
     if not oh_session_id:
@@ -388,6 +416,10 @@ async def has_session_snapshot(tenant_id: str, oh_session_id: str) -> bool:
             "tenant_snapshot_check_failed", tenant_id=tenant_id, error=str(exc)
         )
         return False
+
+
+# Backwards-compatible alias (existing mocks / routers may still reference it).
+has_session_snapshot = has_valid_snapshot
 
 
 async def copy_rules_into_workspace(tenant_id: str, workspace: Path) -> None:

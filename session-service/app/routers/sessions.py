@@ -113,7 +113,7 @@ async def _business_fields(conv: Conversation) -> tuple[bool, bool]:
         and conv.status in (SessionStatus.COLD, SessionStatus.FAILED)
         and conv.turn_count > 0
     ):
-        resumable = await tenant_store.has_session_snapshot(
+        resumable = await tenant_store.has_valid_snapshot(
             conv.tenant_id, conv.oh_session_id or ""
         )
     return resumable, read_only

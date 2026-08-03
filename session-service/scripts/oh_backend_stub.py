@@ -83,6 +83,28 @@ def _stdin_ready(timeout: float) -> bool:
     return bool(r)
 
 
+def write_snapshot_marker() -> None:
+    """Faithfully emulate OpenHarness writing a session snapshot marker after a
+    completed turn. This lets the session-service recovery policy (which keys off
+    a valid snapshot marker) classify a resumed STUB session as RESUME instead of
+    RECOVERY_FAILED. No-op when the backend env (OPENHARNESS_DATA_DIR /
+    OH_SESSION_ID) is absent — the real `oh` backend writes its own snapshot and
+    ignores this entirely.
+    """
+    data_dir = os.environ.get("OPENHARNESS_DATA_DIR")
+    sid = os.environ.get("OH_SESSION_ID")
+    if not data_dir or not sid:
+        return
+    marker_dir = Path(data_dir) / "sessions" / sid
+    try:
+        marker_dir.mkdir(parents=True, exist_ok=True)
+        (marker_dir / "latest.json").write_text(
+            json.dumps({"emulated_by": "oh_backend_stub", "resumable": True})
+        )
+    except OSError:
+        pass
+
+
 def handle_submit(line: str, cwd: Path, turn_index: int) -> None:
     """Simulate one turn: delta -> tool -> mp4 -> line_complete."""
     if line.strip().startswith("/model"):
@@ -108,6 +130,7 @@ def handle_submit(line: str, cwd: Path, turn_index: int) -> None:
     emit({"type": "tool_completed", "tool_name": "render_video", "output": f"wrote {name}", "is_error": False})
 
     emit({"type": "tasks_snapshot", "tasks": []})
+    write_snapshot_marker()
     emit({"type": "line_complete"})
 
 
