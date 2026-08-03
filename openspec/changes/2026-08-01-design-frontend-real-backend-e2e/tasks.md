@@ -18,7 +18,7 @@
 - [x] 3 错误：E1(错 Key→401)、E2(未知 session→404 优雅回退) 全绿；E3–E9 余下项 pending（后端阻断，见下）。
 - [x] 8 兼容：C1/C2/C3 全绿（含清 localStorage→回 Welcome，对应 8.4）。
 - [x] 9 平台一致性 & 演示标识：R1/R2/D1 全绿。
-- [x] 10 报告：`design-agent-frontend/e2e/real_backend_report_2026-08-01.txt` 已产出；详细版见 `docs/design-frontend-real-backend-e2e-report.md`。
+- [x] 10 报告：`design-agent-frontend/e2e/real_backend_report_2026-08-01.txt` 已产出；详细版见 `docs/design-frontend-real-backend-e2e-report-2026-08-01.md`。
 
 ## 落地状态（2026-08-01，续轮）
 新增 `design-agent-frontend/e2e/real-advanced.spec.ts`（6 例，stub 可确定触发）：
@@ -29,7 +29,7 @@
 - [x] 6.3 I1：对话中发中断（WS interrupt）→ 轮次正常结束后按钮消失（前端接线；缩短轮次依赖后端即时响应，stub 不缩短）。
 - [x] 4.4 W4：DELETE 软关闭后 turns 历史仍可读（后端 status=closed，前端只读不误清空）。
 
-### 未覆盖项三分归类（详见 docs/design-frontend-real-backend-e2e-report.md §4）
+### 未覆盖项三分归类（详见 docs/design-frontend-real-backend-e2e-report-2026-08-01.md §4）
 
 #### 类别一：永久不应由前端 E2E 覆盖（非前端职责，后端集成测试已覆盖）
 - [ ] 2.6 B6 路径穿越 400：属后端契约（`rest.sh` #11），前端不暴露路径穿越 UI，无需前端复盖。
@@ -144,7 +144,7 @@
 - [x] 9.2 D1 演示标识：ui-prototype / drawio-diagram（maturity=demo）在 /ui 页面数据带「演示数据」角标；视频 tab（ga）不带。
 
 ## 10. 报告与清理
-- [x] 10.1 编排脚本产出 `design-agent-frontend/e2e/real_backend_report_2026-08-01.txt`；详细版见 `docs/design-frontend-real-backend-e2e-report.md`。
+- [x] 10.1 编排脚本产出 `design-agent-frontend/e2e/real_backend_report_2026-08-01.txt`；详细版见 `docs/design-frontend-real-backend-e2e-report-2026-08-01.md`。
 - [x] 10.2 `e2e/mock-backend.mjs` 已废弃：`playwright.config.ts` 不再启动它（旧 mock scenario 文件已删除），保留文件本身避免影响单测。
 - [x] 10.3 本地按编排脚本跑全绿（首轮 23 passed / 0 failed，~1.5m）。
 - [x] 10.4 第三轮（类别二）落地后全量回归：**41 passed / 0 failed（~3.7m）**；

@@ -6,7 +6,7 @@
 - 状态：待评审（确认后整理为 OpenSpec change `design-frontend-overlay-primitives`）
 - 范围（v2 收敛后）：**仅** `ModalShell` + `DrawerShell` 公共原语 + 4 居中浮层接入 + 2 抽屉接入 + **z-index 叠层 bug 修复** + **SpacePage 视频预览 a11y 修复**
 - 前置：`design-frontend-modal-layout`（浮层间距令牌，已归档）+ `design-frontend-theme-system`（主题统一 + `--z-*` 令牌，已归档）
-- 参考基准：`docs/design-frontend-ui-layout-theme-audit.md` §2.5、`plans/Design_Agent_Frontend_Modal_Layout_Plan_2026-08-02.md` 附录 A
+- 参考基准：`docs/design-frontend-ui-layout-theme-audit-2026-08-02.md` §2.5、`plans/Design_Agent_Frontend_Modal_Layout_Plan_2026-08-02.md` 附录 A
 
 > **v2 收敛说明**（按 2026-08-03 评审意见）：
 > 1. **ModalShell + DrawerShell + z-index/a11y 修复** = 第一阶段范围（收益高、风险低，公共原语明确）。

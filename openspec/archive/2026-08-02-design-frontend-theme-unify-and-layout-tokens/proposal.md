@@ -1,6 +1,6 @@
 ## Why
 
-`design-agent-frontend` 存在两个互不连通的 CSS 变量族与一组布局令牌矛盾，导致：① **主题切换不全局生效**——`ThemeProvider` 只写 `--app-*` 14 个变量，但全应用 ~80% 可见面积由 `src/styles/demo.css :root` 的**另一套遗留 token**（`--bg-page`/`--bg-module`/`--accent`/`--text-primary`…）驱动，且 demo.css **零 `data-theme` 选择器**、含 37+ 硬编码 hex，切换深色时仅 `<body>` 翻深，顶栏/卡片/对话气泡/预览面板全亮；② **布局令牌自相矛盾**——`.module-card` `border-radius:16px` 与 `--radius-card:14px` 冲突、box-shadow 用字面 rgba 而非 `var(--shadow-card)`、`calc(100vh-56px)` 魔法数三处无 `--header-height` 令牌、`--space-*` 令牌定义却几乎未被引用、z-index 无全局表、容器策略三套不统一。审计报告见 `docs/design-frontend-ui-layout-theme-audit.md`。
+`design-agent-frontend` 存在两个互不连通的 CSS 变量族与一组布局令牌矛盾，导致：① **主题切换不全局生效**——`ThemeProvider` 只写 `--app-*` 14 个变量，但全应用 ~80% 可见面积由 `src/styles/demo.css :root` 的**另一套遗留 token**（`--bg-page`/`--bg-module`/`--accent`/`--text-primary`…）驱动，且 demo.css **零 `data-theme` 选择器**、含 37+ 硬编码 hex，切换深色时仅 `<body>` 翻深，顶栏/卡片/对话气泡/预览面板全亮；② **布局令牌自相矛盾**——`.module-card` `border-radius:16px` 与 `--radius-card:14px` 冲突、box-shadow 用字面 rgba 而非 `var(--shadow-card)`、`calc(100vh-56px)` 魔法数三处无 `--header-height` 令牌、`--space-*` 令牌定义却几乎未被引用、z-index 无全局表、容器策略三套不统一。审计报告见 `docs/design-frontend-ui-layout-theme-audit-2026-08-02.md`。
 
 ## What Changes
 

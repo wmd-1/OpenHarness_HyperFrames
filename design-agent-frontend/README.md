@@ -84,8 +84,12 @@ DESIGN_FRONTEND_IMAGE=openharness_design_frontend:v0.1.0 \
   bash e2e/run-design-frontend-docker-tests.sh
 ```
 
-- E2E 使用 `e2e/mock-backend.mjs` 模拟后端（含 `POST /__mock/seed` 场景预置），
-  用例见 `e2e/session-flow.spec.ts`、`e2e/history-switch.spec.ts`、`e2e/demo-and-space.spec.ts`。
+- E2E 现已统一基于**真实后端**（`docker compose -f docker-compose.yml -f docker-compose.stub.yml up session`
+  搭配 `oh_backend_stub`，免 LLM key），由 `e2e/run-design-frontend-real-backend-tests.sh` 触发；用例见
+  `e2e/real-*.spec.ts`（`real-journey` / `real-boundary` / `real-category2` / `real-advanced` / `real-compat` /
+  `real-errors` / `real-platform`）。`e2e/mock-backend.mjs` 已**废弃**（Playwright 配置不再启用，旧 mock
+  用例已删除），仅作本地调试参考。详细断言与租户隔离方案见
+  `docs/design-frontend-real-backend-e2e-report-2026-08-01.md`。
 - Playwright 的 npm 版本必须与 CI Docker 镜像版本严格对齐
   （见 `.github/workflows/design-frontend.yml`）。
 

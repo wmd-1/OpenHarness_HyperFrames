@@ -1,6 +1,6 @@
 ## Context
 
-`design-agent-frontend` 存在两个互不连通的 CSS 变量族与一组布局令牌矛盾，详见审计报告 `docs/design-frontend-ui-layout-theme-audit.md`。现状：
+`design-agent-frontend` 存在两个互不连通的 CSS 变量族与一组布局令牌矛盾，详见审计报告 `docs/design-frontend-ui-layout-theme-audit-2026-08-02.md`。现状：
 
 - **族 A（主题感知）**：`src/theme/themes.ts` 定义 5 套主题的 `cssVars`（14 个 `--app-*` 键）；`src/theme/ThemeProvider.tsx` 的 `applyTheme()` 把 `--app-*` 写入 `documentElement` inline style；`src/index.css` `:root` 兜底 14 个 `--app-*`，`@theme inline` 把它们映射为 Tailwind 颜色 token（`bg-base`/`text-fg`/`color-accent`…）。仅 `components/{Settings,Session,Chat,Common,Approval,Layout,Welcome}` 用 Tailwind token → 主题感知。
 - **族 B（主题盲，遗留）**：`src/styles/demo.css:2-35` `:root` 定义 `--bg-page`/`--bg-module`/`--bg-input`/`--bg-hover`/`--border-light`/`--accent`/`--accent-light`/`--accent-hover`/`--text-primary`/`--text-secondary`/`--text-tertiary`/`--text-on-accent`（+ `--shadow-*`/`--radius-*`/`--font-stack`/`--transition-*`/`--space-*`/`--leading-*`），**从不被 ThemeProvider 更新**。`demo.css` 零 `data-theme` 选择器、含 37+ 硬编码 hex。`~80%` 可见面积（顶栏、主页、四能力域详情页、个人空间、聊天面板、消息气泡）由 demo.css 驱动 → 主题盲。

@@ -6,7 +6,8 @@
 #   1. install the multi-instance dependencies into the existing venv,
 #   2. overlay the multi-instance `service/` (the code under test),
 #   3. add the OH_ROLE entrypoint + a faithful `oh` stub for offline rendering.
-FROM openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1
+ARG BASE_IMAGE=openharness_hyperframes_qwen-tts_pptx:v0.1.9_v0.7.77_v1.5_v2.1
+FROM ${BASE_IMAGE}
 
 USER root
 

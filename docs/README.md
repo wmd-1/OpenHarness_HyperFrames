@@ -1,4 +1,4 @@
-<!-- 最后更新：2026-07-30 -->
+<!-- 最后更新：2026-08-03 -->
 
 # docs — 项目文档与报告
 
@@ -10,6 +10,8 @@
 | 文件 | 说明 |
 | --- | --- |
 | `hyperframes-skill-openharness-patches.md` | HyperFrames skill 的本地补丁分层记录（基线 = `hyperframes_github_skills_latest/`，补丁落在 `hyperframes_github_skills/`） |
+| `design-frontend-ui-layout-theme-audit-2026-08-02.md` | design-agent-frontend UI 布局与主题审计报告（2026-08-02） |
+| `design-frontend-real-backend-e2e-report-2026-08-01.md` | design-agent-frontend 真实后端 E2E 详细报告（2026-08-01） |
 | `service-web-test-report-2026-07-30.md` | service + web 测试报告 |
 | `session-code-review-2026-07-30.md` | session 相关代码审查记录 |
 | `session-e2e-test-report-2026-07-30.md` | session E2E 测试报告 |

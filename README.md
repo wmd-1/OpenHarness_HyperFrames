@@ -36,7 +36,7 @@ OpenHarness_HyperFrames/
 ├── docs/                       # 补丁说明、测试报告等文档
 ├── Dockerfile                  # 主镜像（构建上下文 = 仓库根）
 ├── Dockerfile.fix              # 在已有镜像上打补丁层（ARG BASE_IMAGE，不重建基础镜像）
-├── Dockerfile.e2e / .test / .session-test / .oh-test   # 测试叠加层镜像
+├── Dockerfile(.fix/.deps-patch/.e2e/.test/.session-test/.oh-test)  # 主镜像 + 补丁层 + 测试叠加层
 ├── docker-compose.yml          # 运行时挂载 ./OpenHarness/*、./service、./session-service
 ├── docker-compose.stub.yml     # session stub 模式 override（e2e/实况验收）
 ├── docker-compose.e2e.yml      # e2e 专用 compose
@@ -47,7 +47,7 @@ OpenHarness_HyperFrames/
 
 由 `docker-compose.yml` 统一编排，主镜像
 `openharness_hyperframes_qwen-tts_pptx:${OH_VERSION_HYPERFRAMES_VERSION}`
-（默认 `v0.1.9_v0.7.77_v1.4_v2.1`）：
+（默认 `v0.1.9_v0.7.77_v1.5_v2.1`）：
 
 | 服务 | 端口 | 说明 |
 | --- | --- | --- |

@@ -83,11 +83,11 @@ docker build --target test -t openharness-web:test ./web
 bash e2e/run-web-docker-tests.sh
 
 # 3) 复用已有运行时镜像做冒烟（不重建；tag 以 .env 的 OH_VERSION_HYPERFRAMES_VERSION 为准）
-WEB_IMAGE=openharness_hyperframes_web:v0.1.9_v0.7.77_v1.4_v2.1 \
+WEB_IMAGE=openharness_hyperframes_web:v0.1.9_v0.7.77_v1.5_v2.1 \
   bash e2e/run-web-docker-smoke.sh
 
 # 4) 全量测试并给通过验证的新镜像打标
-WEB_NEW_TAG=openharness_hyperframes_web:v0.1.9_v0.7.77_v1.4_v2.1 \
+WEB_NEW_TAG=openharness_hyperframes_web:v0.1.9_v0.7.77_v1.5_v2.1 \
   bash e2e/run-web-docker-tests.sh
 ```
 
