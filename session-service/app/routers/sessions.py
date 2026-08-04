@@ -60,6 +60,7 @@ from app.session.lifecycle import SessionState
 from app.session.pool import PoolAdmissionError, TenantQuotaExceeded
 from app.session.supervisor import CapacityFullError, SessionNotFound, get_supervisor
 from app.session.tenant_store import TenantStoreError
+from app.session.process import BackendProcessError
 from app.storage.s3 import storage_for_kind
 
 router = APIRouter(prefix="/v1/sessions", tags=["sessions"])
@@ -258,6 +259,14 @@ async def create_session(
         # WS-B fail-fast: tenant authoritative store unreachable -> no
         # session is created (stage-in already rolled back any partials).
         raise HTTPException(status_code=503, detail="tenant data store unavailable")
+    except BackendProcessError as exc:
+        # C3 (change 2): backend could not start (e.g. missing credential) —
+        # the session converges to FAILED inside the supervisor; surface 503
+        # with a business error code (NOT the internal C1–C4 taxonomy).
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "backend_start_failed", "message": str(exc)},
+        )
     # Cold-start latency histogram (WS-D observability): admission wait +
     # stage-in + backend spawn through ready.
     SESSION_CREATE_DURATION.observe(time.monotonic() - started)

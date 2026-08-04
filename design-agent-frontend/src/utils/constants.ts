@@ -55,6 +55,13 @@ export const WS_ADMISSION_MESSAGES: Record<string, string> = {
   SESSION_UNAVAILABLE: '会话复活失败，可稍后重试或新建会话',
 };
 
+/** 后端业务错误码（Change2/Change3 错误边界契约）：经 error 帧 `code` 区分，
+ *  不经过自定义 close code。命中时 UI 同时展示 code + message 并上抛 toast。 */
+export const BACKEND_FAILURE_CODES = new Set<string>([
+  'BACKEND_START_FAILED',
+  'RECOVERY_FAILED',
+]);
+
 // ---- 心跳 / 重连 ----
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 /** 连续 N 次 ping 无 pong 判定死连接。 */
@@ -74,6 +81,12 @@ export const CAPACITY_MAX_RETRIES = 4;
 export const UNAVAILABLE_MAX_RETRIES = 2;
 /** 唤醒等待超过该时长追加「仍在排队/冷启动中」提示（F3.4，纯前端计时）。 */
 export const WAKEUP_SLOW_HINT_MS = 30_000;
+
+// ---- BFCache 唤醒探测（Change3：ws-bfcache-reconnect）----
+/** probe：发送 ping 后在超时内未收到 pong 即判定为「假死/被 BFCache 冻结」并强制重连。 */
+export const PROBE_TIMEOUT_MS = 4_000;
+/** 多生命周期事件（pageshow/visibilitychange/online）集中去抖，避免重复 probe。 */
+export const PROBE_DEBOUNCE_MS = 1_000;
 
 // ---- 流式渲染批量 flush（design D6）----
 export const STREAM_FLUSH_INTERVAL_MS = 50;

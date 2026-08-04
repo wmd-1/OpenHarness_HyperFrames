@@ -199,11 +199,31 @@ class SessionSupervisor:
             try:
                 if live.state == SessionState.COLD:
                     await self.rehydrate(live, db=db)
-            except Exception:
+            except Exception as exc:
                 # Failed to come up — drop the placeholder so a later attempt
                 # (or another client) can retry cleanly.
                 if self._sessions.get(live.sid) is live:
                     self._sessions.pop(live.sid, None)
+                # Backend startup failure (C3) / recovery failed (C4) converge to a
+                # terminal FAILED DB state; other failures leave the row COLD for
+                # retry. FAILED is explicitly excluded from auto-recycle. The
+                # caller's `db` may be invalidated, so use a fresh session.
+                from app.session.process import BackendProcessError
+                from app.session.recovery import RecoveryFailedError
+
+                if isinstance(exc, (BackendProcessError, RecoveryFailedError)):
+                    try:
+                        from app import db as app_db
+
+                        async with app_db.async_session() as s:
+                            await s.execute(
+                                update(Conversation)
+                                .where(Conversation.id == live.sid)
+                                .values(status=SessionStatus.FAILED)
+                            )
+                            await s.commit()
+                    except Exception:
+                        pass
                 raise
             return live
 
@@ -364,14 +384,41 @@ class SessionSupervisor:
         # completed turns but no snapshot raises RecoveryFailedError here and is
         # NOT silently spawned.
         from app.session import recovery
+        from app.session.process import BackendProcessError
 
-        decision = await recovery.resolve_for_conversation(
-            conversation_id=conv.id,
-            tenant_id=tenant_id,
-            oh_session_id=oh_session_id,
-            db=db,
-        )
-        await self._spawn(live, resume=decision is recovery.ResumeDecision.RESUME)
+        try:
+            decision = await recovery.resolve_for_conversation(
+                conversation_id=conv.id,
+                tenant_id=tenant_id,
+                oh_session_id=oh_session_id,
+                db=db,
+            )
+            await self._spawn(
+                live, resume=decision is recovery.ResumeDecision.RESUME
+            )
+        except (BackendProcessError, recovery.RecoveryFailedError):
+            # Failure state machine (change 2): when the live instance never
+            # comes up (C3 backend startup failure, or C4 recovery failed),
+            # converge to a terminal state instead of leaving the row in
+            # CREATING/COLD — and never leave a dangling adapter=None registry
+            # entry. The pool slot is already released inside _spawn.
+            live.state = SessionState.FAILED
+            self._sessions.pop(conv.id, None)
+            # The caller's `db` may be in an invalidated transaction state after
+            # the backend-failure exception, so mark FAILED on a fresh session.
+            try:
+                from app import db as app_db
+
+                async with app_db.async_session() as s:
+                    await s.execute(
+                        update(Conversation)
+                        .where(Conversation.id == conv.id)
+                        .values(status=SessionStatus.FAILED)
+                    )
+                    await s.commit()
+            except Exception:
+                pass
+            raise
         conv.status = SessionStatus.LIVE
         await db.commit()
 
@@ -453,7 +500,10 @@ class SessionSupervisor:
         - no ``ready`` within ``timeout`` -> kill the process group, then
           raise :class:`BackendProcessError`.
         """
-        assert live.adapter is not None and live.process is not None
+        if live.adapter is None or live.process is None:
+            raise RuntimeError(
+                "session adapter/process not initialized before await_ready"
+            )
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         startup_types = {"ready", "state_snapshot", "tasks_snapshot", "compact_progress"}
@@ -780,7 +830,8 @@ class SessionSupervisor:
         deadline = loop.time() + settings.turn_timeout_seconds
         try:
             with track_turn():
-                assert live.adapter is not None
+                if live.adapter is None:
+                    raise SessionNotFound(sid)
                 await live.adapter.submit_line(text)
                 # Inline event pump so finalization precedes the terminal yield.
                 while True:
@@ -953,7 +1004,8 @@ class SessionSupervisor:
     async def interrupt(self, sid: uuid.UUID | str) -> None:
         """Interrupt the active turn (spec: interrupt cancels the active turn)."""
         live = self.get(sid)
-        assert live.adapter is not None
+        if live.adapter is None:
+            raise SessionNotFound(sid)
         await live.adapter.interrupt()
 
     async def _handle_crash(self, live: LiveSession) -> None:
@@ -1052,7 +1104,8 @@ class SessionSupervisor:
 
     async def _drain_logs(self, live: LiveSession) -> None:
         """Forward non-protocol stdout lines to the bounded Redis log stream."""
-        assert live.adapter is not None
+        if live.adapter is None:
+            return
         try:
             while True:
                 line = await live.adapter.logs.get()

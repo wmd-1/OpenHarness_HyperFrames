@@ -24,6 +24,7 @@ function stubWs(submitResult: boolean): UseWebSocketResult {
   return {
     status: submitResult ? 'ready' : 'idle',
     reconnectAttempt: 0,
+    reconnecting: false,
     submit: vi.fn(() => submitResult),
     interrupt: vi.fn(() => true),
     approve: vi.fn(() => true),

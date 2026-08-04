@@ -35,6 +35,9 @@ from app.session.pool import (
 )
 from app.session.supervisor import CapacityFullError, SessionNotFound, get_supervisor
 from app.session.tenant_store import TenantStoreError
+from app.session.process import BackendProcessError, BACKEND_START_FAILED_CODE
+from app.session.recovery import RecoveryFailedError, RECOVERY_FAILED_CODE
+from app.observability import metrics as obs_metrics
 
 router = APIRouter(tags=["ws"])
 
@@ -89,6 +92,31 @@ async def _close_admission_failure(
     except Exception:
         pass
     await websocket.close(code=_ADMISSION_CLOSE_CODES[reason], reason=reason)
+
+
+async def _close_backend_failure(websocket: WebSocket, exc: Exception) -> None:
+    """C3/C4 failure: send the business-classified error frame, then close 1011.
+
+    Per change 2: NO custom WS close code. The client distinguishes C3
+    (``BACKEND_START_FAILED``) from C4 (``RECOVERY_FAILED``) via the frame
+    ``code`` field, never via the close code.
+    """
+    code = (
+        BACKEND_START_FAILED_CODE
+        if isinstance(exc, BackendProcessError)
+        else RECOVERY_FAILED_CODE
+    )
+    try:
+        obs_metrics.SESSION_BACKEND_FAILURES.labels(code=code).inc()
+    except Exception:
+        pass
+    try:
+        await websocket.send_json(
+            {"type": "error", "code": code, "message": str(exc) or code}
+        )
+    except Exception:
+        pass
+    await websocket.close(code=1011, reason=code[:123])
 
 
 def _ws_provided_key(websocket: WebSocket) -> str:
@@ -211,6 +239,21 @@ async def session_ws(
         await websocket.close(code=4403, reason="Session is closed")
         return
 
+    # E2E 后端故障注入（受 OH_E2E_FAULT_INJECTION 门控，生产默认关闭）：
+    # 直接走 C3/C4 分类路径，让前端验证「1011 + error.code」错误边界，
+    # 而无需真正让后端进程崩溃。仅当显式携带 force_backend_failure 参数时生效。
+    if os.environ.get("OH_E2E_FAULT_INJECTION") == "1":
+        fb = websocket.query_params.get("force_backend_failure")
+        if fb:
+            await websocket.accept()
+            exc = (
+                RecoveryFailedError("injected recovery failure (e2e)")
+                if fb == "recovery"
+                else BackendProcessError("injected backend start failure (e2e)")
+            )
+            await _close_backend_failure(websocket, exc)
+            return
+
     await websocket.accept()
     sup = get_supervisor()
 
@@ -227,6 +270,13 @@ async def session_ws(
                 async with db.async_session() as session:
                     try:
                         live = await sup.register_live_session(live, db=session)
+                    except (BackendProcessError, RecoveryFailedError) as exc:
+                        await _close_backend_failure(websocket, exc)
+                        try:
+                            await session.commit()
+                        except Exception:
+                            pass
+                        return
                     except (CapacityFullError, PoolAdmissionError, RuntimeError) as exc:
                         await _close_admission_failure(websocket, exc)
                         return
@@ -260,6 +310,13 @@ async def session_ws(
                 # client triggers rehydrate; the rest reuse the live session.
                 try:
                     live = await sup.register_live_session(cold, db=session)
+                except (BackendProcessError, RecoveryFailedError) as exc:
+                    await _close_backend_failure(websocket, exc)
+                    try:
+                        await session.commit()
+                    except Exception:
+                        pass
+                    return
                 except (CapacityFullError, PoolAdmissionError, RuntimeError) as exc:
                     await _close_admission_failure(websocket, exc)
                     return
@@ -272,6 +329,15 @@ async def session_ws(
             if conv3 is not None:
                 try:
                     await sup.create_session_from_existing(conv3, tenant_id, db=session)
+                except (BackendProcessError, RecoveryFailedError) as exc:
+                    # C3 backend startup failure / C4 recovery failed: surface a
+                    # classified error frame and close 1011 (no custom code).
+                    await _close_backend_failure(websocket, exc)
+                    try:
+                        await session.commit()
+                    except Exception:
+                        pass
+                    return
                 except (CapacityFullError, PoolAdmissionError, TenantStoreError) as exc:
                     # TenantStoreError: stage-in from the authoritative bucket
                     # failed (WS-B fail-fast) -> SESSION_UNAVAILABLE / 4500.

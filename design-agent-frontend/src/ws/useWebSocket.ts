@@ -14,6 +14,7 @@ import type { ApprovalReply, ServerFrame, WsStatus } from '../types/ws';
 import {
   STREAM_FLUSH_CHAR_THRESHOLD,
   STREAM_FLUSH_INTERVAL_MS,
+  BACKEND_FAILURE_CODES,
   WS_ADMISSION_MESSAGES,
   WS_CLOSE_CODES,
   WS_CLOSE_MESSAGES,
@@ -84,6 +85,8 @@ class StreamBuffer {
 export interface UseWebSocketResult {
   status: WsStatus;
   reconnectAttempt: number;
+  /** 自动重连进行中（BFCache 唤醒或网络抖动），UI 应隐藏「手动重试」按钮（Change3）。 */
+  reconnecting: boolean;
   submit: (text: string) => boolean;
   interrupt: () => boolean;
   approve: (requestId: string, allowed: boolean, reply?: ApprovalReply, answer?: string) => boolean;
@@ -108,6 +111,8 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
   );
   const clientRef = useRef<WebSocketClient | null>(null);
   const listenersRef = useRef(new Set<(frame: ServerFrame) => void>());
+  // Change3：标记是否处于「重连中」，用于 recovered toast 的判定（仅真正恢复时提示）。
+  const wasReconnectingRef = useRef(false);
 
   useEffect(() => {
     if (!sessionId || !apiKey || !canConnect) return;
@@ -206,6 +211,18 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
             admissionNotified = true;
             console.warn(`[ws] admission error ${frame.code}:`, frame.message);
             conv.addSystemMessage(sid, 'error', admissionMsg);
+          } else if (frame.code && BACKEND_FAILURE_CODES.has(frame.code)) {
+            // 后端业务错误码（BACKEND_START_FAILED / RECOVERY_FAILED）：展示 code + message，
+            // 并上抛到 toast（Change3：error 状态 → UI toast 接线）。
+            const text = `${frame.code}${frame.message ? `：${frame.message}` : ''}`;
+            conv.addSystemMessage(sid, 'error', text);
+            useUiStore.getState().showToast({
+              id: 'ws-backend-error',
+              level: 'error',
+              message: `后端错误：${frame.code}`,
+              detail: frame.message,
+              sticky: true,
+            });
           } else {
             conv.addSystemMessage(sid, 'error', frame.message);
           }
@@ -237,6 +254,32 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
       useWsStore.getState().setStatus(sid, nextStatus);
       if (detail?.attempt !== undefined) {
         useWsStore.getState().setReconnectAttempt(sid, detail.attempt);
+      }
+
+      // Change3：连接状态 → 瞬时 toast 接线（reconnecting / recovered）。
+      if (nextStatus === 'reconnecting') {
+        wasReconnectingRef.current = true;
+        useUiStore.getState().showToast({
+          id: 'ws-reconnect',
+          level: 'info',
+          message: '连接中断，正在重新连接…',
+          spinner: true,
+          sticky: true,
+        });
+      } else if (nextStatus === 'ready') {
+        if (wasReconnectingRef.current) {
+          wasReconnectingRef.current = false;
+          useUiStore.getState().dismissToast('ws-reconnect');
+          useUiStore.getState().showToast({
+            id: 'ws-recovered',
+            level: 'success',
+            message: '连接已恢复',
+            duration: 3000,
+          });
+        }
+      } else if (nextStatus === 'failed') {
+        // 重连耗尽：清掉进行中的重连 toast（后端错误码已由 error 帧单独提示）。
+        useUiStore.getState().dismissToast('ws-reconnect');
       }
       if (nextStatus === 'auth_failed') {
         useAuthStore.getState().markAuthExpired();
@@ -324,7 +367,16 @@ export function useWebSocket(sessionId: string | null): UseWebSocketResult {
   }, []);
 
   return useMemo(
-    () => ({ status, reconnectAttempt, submit, interrupt, approve, retry, addFrameListener }),
+    () => ({
+      status,
+      reconnectAttempt,
+      reconnecting: status === 'reconnecting' || status === 'connecting',
+      submit,
+      interrupt,
+      approve,
+      retry,
+      addFrameListener,
+    }),
     [status, reconnectAttempt, submit, interrupt, approve, retry, addFrameListener],
   );
 }

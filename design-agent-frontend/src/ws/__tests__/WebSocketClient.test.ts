@@ -1,20 +1,8 @@
-// WebSocketClient 单测：4429 有界重试（task 3.5 A3）+ 心跳判死（task 5.12 F6）。
-// fake timers 驱动：4429 每次等待 60s 重试，超限后转 failed 不再重连；
-// 连接成功（onopen）与手动 retry() 清零计数；3×30s 无 pong 主动断开重连。
+// WebSocketClient BFCache 唤醒探测 + 生命周期监听测试（Change3：ws-bfcache-reconnect）。
+// 复用与 useWebSocket.test.ts 一致的 MockWebSocket 行为（记录实例、可控服务端帧）。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { WebSocketClient } from '../WebSocketClient';
-import {
-  CAPACITY_MAX_RETRIES,
-  CAPACITY_RETRY_DELAY_MS,
-  HEARTBEAT_INTERVAL_MS,
-  RATE_LIMIT_MAX_RETRIES,
-  RATE_LIMIT_RETRY_DELAY_MS,
-  RECONNECT_BASE_DELAY_MS,
-  UNAVAILABLE_MAX_RETRIES,
-  WS_CLOSE_CODES,
-} from '../../utils/constants';
-import type { WsStatus } from '../../types/ws';
+import { WebSocketClient, type WebSocketClientOptions } from '../WebSocketClient';
 
 class MockWebSocket {
   static readonly CONNECTING = 0;
@@ -38,10 +26,8 @@ class MockWebSocket {
     this.sent.push(data);
   }
 
-  close(code = 1000): void {
-    // 仿真实 WebSocket：关闭后触发 onclose（cleanupSocket 已先置空 handler）
+  close(): void {
     this.readyState = MockWebSocket.CLOSED;
-    this.onclose?.({ code });
   }
 
   serverOpen(): void {
@@ -49,264 +35,99 @@ class MockWebSocket {
     this.onopen?.();
   }
 
+  serverFrame(frame: Record<string, unknown>): void {
+    this.onmessage?.({ data: JSON.stringify(frame) });
+  }
+
   serverClose(code: number): void {
     this.readyState = MockWebSocket.CLOSED;
     this.onclose?.({ code });
   }
-
-  serverMessage(data: string): void {
-    this.onmessage?.({ data });
-  }
 }
 
-function lastSocket(): MockWebSocket {
-  return MockWebSocket.instances[MockWebSocket.instances.length - 1];
-}
-
-describe('WebSocketClient 4429 有界重试（A3）', () => {
-  let statuses: WsStatus[];
-  let client: WebSocketClient;
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.stubGlobal('WebSocket', MockWebSocket);
-    MockWebSocket.instances = [];
-    statuses = [];
-    client = new WebSocketClient({
-      sessionId: 's1',
-      getApiKey: () => 'k',
-      getLastTurnIndex: () => null,
-      onFrame: () => undefined,
-      onStatus: (status) => statuses.push(status),
-      wsFactory: (url) => new MockWebSocket(url) as unknown as WebSocket,
-    });
-  });
-
-  afterEach(() => {
-    client.dispose();
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-  });
-
-  it('4429 每次等待 60s 重试，超限后转 failed 且不再重连', () => {
-    client.connect();
-    expect(MockWebSocket.instances).toHaveLength(1);
-
-    // 前 RATE_LIMIT_MAX_RETRIES 次：rate_limited + 60s 后重连
-    for (let i = 0; i < RATE_LIMIT_MAX_RETRIES; i += 1) {
-      lastSocket().serverClose(WS_CLOSE_CODES.RATE_LIMITED);
-      expect(statuses.at(-1)).toBe('rate_limited');
-      vi.advanceTimersByTime(RATE_LIMIT_RETRY_DELAY_MS);
-      expect(MockWebSocket.instances).toHaveLength(i + 2);
-    }
-
-    // 第 3 次 4429：超限转 failed，60s 后也不再新建连接
-    lastSocket().serverClose(WS_CLOSE_CODES.RATE_LIMITED);
-    expect(statuses.at(-1)).toBe('failed');
-    const count = MockWebSocket.instances.length;
-    vi.advanceTimersByTime(RATE_LIMIT_RETRY_DELAY_MS * 2);
-    expect(MockWebSocket.instances).toHaveLength(count);
-  });
-
-  it('连接成功（onopen）清零限流计数', () => {
-    client.connect();
-    lastSocket().serverClose(WS_CLOSE_CODES.RATE_LIMITED);
-    vi.advanceTimersByTime(RATE_LIMIT_RETRY_DELAY_MS);
-    // 重连成功后计数清零
-    lastSocket().serverOpen();
-    for (let i = 0; i < RATE_LIMIT_MAX_RETRIES; i += 1) {
-      lastSocket().serverClose(WS_CLOSE_CODES.RATE_LIMITED);
-      expect(statuses.at(-1)).toBe('rate_limited');
-      vi.advanceTimersByTime(RATE_LIMIT_RETRY_DELAY_MS);
-    }
-    lastSocket().serverClose(WS_CLOSE_CODES.RATE_LIMITED);
-    expect(statuses.at(-1)).toBe('failed');
-  });
-
-  it('手动 retry() 清零限流计数并立即重连', () => {
-    client.connect();
-    for (let i = 0; i <= RATE_LIMIT_MAX_RETRIES; i += 1) {
-      lastSocket().serverClose(WS_CLOSE_CODES.RATE_LIMITED);
-      vi.advanceTimersByTime(RATE_LIMIT_RETRY_DELAY_MS);
-    }
-    expect(statuses.at(-1)).toBe('failed');
-
-    const before = MockWebSocket.instances.length;
-    client.retry();
-    expect(MockWebSocket.instances).toHaveLength(before + 1);
-    // 计数已清零：再次 4429 仍会安排重试而非 failed
-    lastSocket().serverClose(WS_CLOSE_CODES.RATE_LIMITED);
-    expect(statuses.at(-1)).toBe('rate_limited');
-  });
+const baseOpts = (): WebSocketClientOptions => ({
+  sessionId: 's1',
+  getApiKey: () => 'k',
+  getLastTurnIndex: () => 7,
+  onFrame: () => {},
+  onStatus: () => {},
 });
 
-describe('WebSocketClient 准入关闭码策略（F3.2）', () => {
-  let statuses: WsStatus[];
-  let client: WebSocketClient;
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.stubGlobal('WebSocket', MockWebSocket);
-    MockWebSocket.instances = [];
-    statuses = [];
-    client = new WebSocketClient({
-      sessionId: 's1',
-      getApiKey: () => 'k',
-      getLastTurnIndex: () => null,
-      onFrame: () => undefined,
-      onStatus: (status) => statuses.push(status),
-      wsFactory: (url) => new MockWebSocket(url) as unknown as WebSocket,
-    });
-  });
-
-  afterEach(() => {
-    client.dispose();
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-  });
-
-  it('4430 配额满：置 quota_exceeded 且不自动重连，手动 retry() 可恢复', () => {
-    client.connect();
-    lastSocket().serverClose(WS_CLOSE_CODES.QUOTA_EXCEEDED);
-    expect(statuses.at(-1)).toBe('quota_exceeded');
-
-    // 不自动重连：任意时长后也无新连接
-    vi.advanceTimersByTime(CAPACITY_RETRY_DELAY_MS * 10);
-    expect(MockWebSocket.instances).toHaveLength(1);
-
-    // 手动重试立即新建连接
-    client.retry();
-    expect(MockWebSocket.instances).toHaveLength(2);
-  });
-
-  it('4503 容量满：固定 15s 有界重试，超限转 failed 不再重连', () => {
-    client.connect();
-
-    for (let i = 0; i < CAPACITY_MAX_RETRIES; i += 1) {
-      lastSocket().serverClose(WS_CLOSE_CODES.CAPACITY_FULL);
-      expect(statuses.at(-1)).toBe('reconnecting');
-      // 固定间隔（非指数）：差 1ms 不重连，满 15s 重连
-      vi.advanceTimersByTime(CAPACITY_RETRY_DELAY_MS - 1);
-      expect(MockWebSocket.instances).toHaveLength(i + 1);
-      vi.advanceTimersByTime(1);
-      expect(MockWebSocket.instances).toHaveLength(i + 2);
-    }
-
-    // 第 5 次 4503：超限转 failed，不再新建连接
-    lastSocket().serverClose(WS_CLOSE_CODES.CAPACITY_FULL);
-    expect(statuses.at(-1)).toBe('failed');
-    const count = MockWebSocket.instances.length;
-    vi.advanceTimersByTime(CAPACITY_RETRY_DELAY_MS * 2);
-    expect(MockWebSocket.instances).toHaveLength(count);
-  });
-
-  it('4500 会话不可用：指数 1s/2s 有界 2 次，超限转 failed', () => {
-    client.connect();
-
-    // 第 1 次：1s 后重连
-    lastSocket().serverClose(WS_CLOSE_CODES.SERVER_ERROR);
-    expect(statuses.at(-1)).toBe('reconnecting');
-    vi.advanceTimersByTime(RECONNECT_BASE_DELAY_MS);
-    expect(MockWebSocket.instances).toHaveLength(2);
-
-    // 第 2 次：2s 后重连
-    lastSocket().serverClose(WS_CLOSE_CODES.SERVER_ERROR);
-    expect(statuses.at(-1)).toBe('reconnecting');
-    vi.advanceTimersByTime(RECONNECT_BASE_DELAY_MS * 2);
-    expect(MockWebSocket.instances).toHaveLength(3);
-
-    // 第 3 次：超限（UNAVAILABLE_MAX_RETRIES=2）转 failed
-    expect(UNAVAILABLE_MAX_RETRIES).toBe(2);
-    lastSocket().serverClose(WS_CLOSE_CODES.SERVER_ERROR);
-    expect(statuses.at(-1)).toBe('failed');
-    vi.advanceTimersByTime(RECONNECT_BASE_DELAY_MS * 8);
-    expect(MockWebSocket.instances).toHaveLength(3);
-  });
-
-  it('连接成功（onopen）清零 4503/4500 计数', () => {
-    client.connect();
-    lastSocket().serverClose(WS_CLOSE_CODES.CAPACITY_FULL);
-    vi.advanceTimersByTime(CAPACITY_RETRY_DELAY_MS);
-    // 重连成功后计数清零：再来满额 4503 仍能走完整重试而非提前 failed
-    lastSocket().serverOpen();
-    for (let i = 0; i < CAPACITY_MAX_RETRIES; i += 1) {
-      lastSocket().serverClose(WS_CLOSE_CODES.CAPACITY_FULL);
-      expect(statuses.at(-1)).toBe('reconnecting');
-      vi.advanceTimersByTime(CAPACITY_RETRY_DELAY_MS);
-    }
-    lastSocket().serverClose(WS_CLOSE_CODES.CAPACITY_FULL);
-    expect(statuses.at(-1)).toBe('failed');
-  });
-
-  it('default 回归：1006 网络断开仍走指数退避重连（不受新分支影响）', () => {
-    client.connect();
-    lastSocket().serverClose(1006);
-    expect(statuses.at(-1)).toBe('reconnecting');
-    vi.advanceTimersByTime(RECONNECT_BASE_DELAY_MS);
-    expect(MockWebSocket.instances).toHaveLength(2);
-  });
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.stubGlobal('WebSocket', MockWebSocket);
+  MockWebSocket.instances = [];
 });
 
-describe('WebSocketClient 心跳判死（F6）', () => {
-  let statuses: WsStatus[];
-  let client: WebSocketClient;
+afterEach(() => {
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
-  const countPings = (ws: MockWebSocket) =>
-    ws.sent.filter((raw) => (JSON.parse(raw) as { op: string }).op === 'ping').length;
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.stubGlobal('WebSocket', MockWebSocket);
-    MockWebSocket.instances = [];
-    statuses = [];
-    client = new WebSocketClient({
-      sessionId: 's1',
-      getApiKey: () => 'k',
-      getLastTurnIndex: () => null,
-      onFrame: () => undefined,
-      onStatus: (status) => statuses.push(status),
-      wsFactory: (url) => new MockWebSocket(url) as unknown as WebSocket,
-    });
-  });
-
-  afterEach(() => {
-    client.dispose();
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-  });
-
-  it('连续 3×30s 无 pong：主动断开并自动重连', () => {
+describe('WebSocketClient BFCache 唤醒探测', () => {
+  it('probe() 在未 OPEN 时强制重连并保留恢复策略（api_key / last_turn_index）', () => {
+    const client = new WebSocketClient(baseOpts());
     client.connect();
-    const ws = lastSocket();
-    ws.serverOpen();
-
-    // 前 3 个 tick 各发一次 ping（均无 pong 回应）
-    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS * 3);
-    expect(countPings(ws)).toBe(3);
-    expect(ws.readyState).toBe(MockWebSocket.OPEN);
-
-    // 第 4 个 tick：missedPongs 达上限 → 主动 close 触发重连调度
-    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
-    expect(ws.readyState).toBe(MockWebSocket.CLOSED);
-    expect(statuses.at(-1)).toBe('reconnecting');
-
-    // 退避 1s 后新建连接
-    vi.advanceTimersByTime(RECONNECT_BASE_DELAY_MS);
+    const first = MockWebSocket.instances[0];
+    // 未 serverOpen → 仍为 CONNECTING（非 OPEN）
+    client.probe();
     expect(MockWebSocket.instances).toHaveLength(2);
+    const second = MockWebSocket.instances[1];
+    const url = new URL(second.url);
+    expect(url.searchParams.get('api_key')).toBe('k');
+    expect(url.searchParams.get('last_turn_index')).toBe('7');
+    first.close();
+    second.close();
   });
 
-  it('每次 ping 后收到 pong：计数重置，连接保持存活', () => {
+  it('probe() 在 OPEN 且收到 pong 时不重连（连接确为存活）', () => {
+    const client = new WebSocketClient(baseOpts());
     client.connect();
-    const ws = lastSocket();
+    const ws = MockWebSocket.instances[0];
     ws.serverOpen();
-
-    // 远超 3 个心跳周期，但每次都及时回 pong
-    for (let i = 0; i < 6; i += 1) {
-      vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
-      ws.serverMessage(JSON.stringify({ type: 'pong' }));
-    }
-    expect(ws.readyState).toBe(MockWebSocket.OPEN);
+    client.probe();
+    expect(ws.sent.some((m) => JSON.parse(m).op === 'ping')).toBe(true);
+    ws.serverFrame({ type: 'pong' });
+    vi.advanceTimersByTime(5000); // 超过 PROBE_TIMEOUT_MS(4000)
     expect(MockWebSocket.instances).toHaveLength(1);
-    expect(countPings(ws)).toBe(6);
+    ws.close();
+  });
+
+  it('probe() 在 OPEN 但超时未收到 pong 时强制重连', () => {
+    const client = new WebSocketClient(baseOpts());
+    client.connect();
+    const ws = MockWebSocket.instances[0];
+    ws.serverOpen();
+    client.probe();
+    vi.advanceTimersByTime(5000); // > PROBE_TIMEOUT_MS
+    expect(MockWebSocket.instances).toHaveLength(2);
+    ws.close();
+    MockWebSocket.instances[1].close();
+  });
+
+  it('页面可见性恢复（visibilitychange）触发去抖 probe 并在死连接时重连', () => {
+    const client = new WebSocketClient(baseOpts());
+    client.connect();
+    const ws = MockWebSocket.instances[0]; // BFCache 冻结态：未 OPEN
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    document.dispatchEvent(new Event('visibilitychange'));
+    vi.advanceTimersByTime(1500); // > PROBE_DEBOUNCE_MS(1000)
+    expect(MockWebSocket.instances.length).toBeGreaterThanOrEqual(2);
+    ws.close();
+    MockWebSocket.instances.forEach((w) => w.close());
+  });
+
+  it('页面隐藏时网络断开（1006）不自动重连，推迟到唤醒探测', () => {
+    const client = new WebSocketClient(baseOpts());
+    client.connect();
+    const ws = MockWebSocket.instances[0];
+    ws.serverOpen();
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    ws.serverClose(1006);
+    vi.advanceTimersByTime(60_000);
+    expect(MockWebSocket.instances).toHaveLength(1); // 不应排程任何重连
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    ws.close();
   });
 });

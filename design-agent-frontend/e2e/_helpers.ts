@@ -211,3 +211,43 @@ export async function closeActiveSession(page: Page): Promise<void> {
   await page.getByRole('dialog').getByRole('button', { name: '关闭会话' }).click();
   await expect(input).toBeDisabled();
 }
+
+/** 在每次新建 WebSocket 时向 URL 追加查询参数（如 api_key / force_ws_code / force_backend_failure）。
+ *  以 init script 形式注入，对所有 `new WebSocket(url)` 生效（含重连时重建的 URL）。 */
+export function patchWebSocketUrl(params: Record<string, string>): string {
+  const arr = JSON.stringify(Object.entries(params));
+  return `
+    (() => {
+      const Orig = window.WebSocket;
+      window.WebSocket = class extends Orig {
+        constructor(url, protocols) {
+          try {
+            const u = new URL(url, location.href);
+            for (const [k, v] of ${arr}) u.searchParams.set(k, v);
+            url = u.toString();
+          } catch (e) { /* keep original url */ }
+          super(url, protocols);
+        }
+      };
+    })();
+  `;
+}
+
+/** 记录所有 WebSocket close 码到 window.__wsCloseCodes（用于断言 1011 关闭等）。
+ *  与 patchWebSocketUrl 可叠加：按注入顺序形成包装链。 */
+export function captureWsCloseCodes(): string {
+  return `
+    (() => {
+      const Orig = window.WebSocket;
+      window.__wsCloseCodes = [];
+      window.WebSocket = class extends Orig {
+        constructor(url, protocols) {
+          super(url, protocols);
+          this.addEventListener('close', (e) => {
+            (window.__wsCloseCodes = window.__wsCloseCodes || []).push(e.code);
+          });
+        }
+      };
+    })();
+  `;
+}

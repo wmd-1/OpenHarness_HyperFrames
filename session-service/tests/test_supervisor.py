@@ -12,10 +12,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.config import settings
-from app.models import Conversation, SessionStatus
+from app.models import Conversation, ConversationTurn, SessionStatus, TurnStatus
 from app.session import pool as pool_module
+from app.session import workspace_store
 from app.session.lifecycle import SessionState
 from app.session.pool import TenantQuotaExceeded
+from app.session.recovery import RecoveryFailedError
 from app.session.supervisor import LiveSession, SessionSupervisor
 
 
@@ -240,15 +242,15 @@ async def test_failed_tenant_eviction_reports_false_and_acquire_rejects(monkeypa
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "has_snapshot,turns,expected_resume",
+    "has_snapshot,completed,expect_resume,expect_recovery_failed",
     [
-        (False, 0, False),  # 0-turn, no snapshot -> fresh spawn fallback
-        (True, 0, True),
-        (False, 3, True),  # turns exist: still attempt --resume
+        (False, 0, False, False),  # 0-turn, no snapshot -> fresh spawn
+        (True, 0, True, False),    # snapshot present -> --resume
+        (False, 3, None, True),    # completed turns but no snapshot -> RECOVERY_FAILED
     ],
 )
 async def test_rehydrate_resume_decision(
-    db_session, monkeypatch, has_snapshot, turns, expected_resume
+    db_session, monkeypatch, has_snapshot, completed, expect_resume, expect_recovery_failed
 ):
     sup = SessionSupervisor()
     live = _make_live("cold", None)
@@ -259,31 +261,49 @@ async def test_rehydrate_resume_decision(
         tenant_id="default",
         status=SessionStatus.COLD,
         oh_session_id=live.oh_session_id,
-        turn_count=turns,
+        turn_count=completed,
         extra_oh_args="[]",
     )
     db_session.add(conv)
+    for i in range(completed):
+        db_session.add(
+            ConversationTurn(
+                conversation_id=live.sid,
+                turn_index=i,
+                prompt="x",
+                status=TurnStatus.COMPLETED,
+            )
+        )
     await db_session.commit()
 
     monkeypatch.setattr("app.session.tenant_store.stage_in", AsyncMock())
+    monkeypatch.setattr("app.session.workspace_store.stage_in", AsyncMock())
+    # The single recovery decision reads ``has_valid_snapshot`` (not the legacy
+    # ``has_session_snapshot`` alias) plus the completed-turn count from the DB.
     monkeypatch.setattr(
-        "app.session.tenant_store.has_session_snapshot",
+        "app.session.tenant_store.has_valid_snapshot",
         AsyncMock(return_value=has_snapshot),
     )
     spawn = AsyncMock()
     monkeypatch.setattr(sup, "_spawn", spawn)
 
-    await sup.rehydrate(live, db=db_session)
+    if expect_recovery_failed:
+        with pytest.raises(RecoveryFailedError):
+            await sup.rehydrate(live, db=db_session)
+        return
 
+    await sup.rehydrate(live, db=db_session)
     spawn.assert_awaited_once()
-    assert spawn.await_args.kwargs["resume"] is expected_resume
+    assert spawn.await_args.kwargs["resume"] is expect_resume
 
 
 @pytest.mark.asyncio
 async def test_create_session_from_existing_spawns_with_resume(
     db_session, monkeypatch, tmp_path
 ):
-    """D10 bug fix: re-arming an existing session must resume its context."""
+    """D10: re-arming an existing session must resume its context. Per the
+    single recovery decision, RESUME requires a valid snapshot, so we assert
+    on ``has_valid_snapshot`` rather than the legacy turn_count heuristic."""
     sup = SessionSupervisor()
     conv = Conversation(
         id=uuid.uuid4(),
@@ -296,9 +316,22 @@ async def test_create_session_from_existing_spawns_with_resume(
         extra_oh_args="[]",
     )
     db_session.add(conv)
+    db_session.add(
+        ConversationTurn(
+            conversation_id=conv.id,
+            turn_index=0,
+            prompt="x",
+            status=TurnStatus.COMPLETED,
+        )
+    )
     await db_session.commit()
 
     monkeypatch.setattr("app.session.tenant_store.stage_in", AsyncMock())
+    monkeypatch.setattr("app.session.workspace_store.stage_in", AsyncMock())
+    monkeypatch.setattr(
+        "app.session.tenant_store.has_valid_snapshot",
+        AsyncMock(return_value=True),
+    )
     spawn = AsyncMock()
     monkeypatch.setattr(sup, "_spawn", spawn)
 

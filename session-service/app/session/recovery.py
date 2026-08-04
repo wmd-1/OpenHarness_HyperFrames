@@ -23,6 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import ConversationTurn, TurnStatus
 from app.session import tenant_store
 
+# Business error code exposed to clients for C4 (recovery failed). Intentionally
+# NOT the internal C1–C4 taxonomy, which is reserved for metrics/logs only.
+RECOVERY_FAILED_CODE = "RECOVERY_FAILED"
+
 
 class ResumeDecision(str, Enum):
     """Outcome of the recovery matrix."""

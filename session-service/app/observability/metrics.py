@@ -75,6 +75,13 @@ POOL_REJECTED = Counter(
     labelnames=("reason",),  # tenant_quota | queue_full | queue_timeout
 )
 
+# Change 2: backend startup (C3) / recovery (C4) failures surfaced to clients.
+SESSION_BACKEND_FAILURES = Counter(
+    "oh_session_backend_failures_total",
+    "Backend startup or recovery failures surfaced to clients (change 2).",
+    labelnames=("code",),  # BACKEND_START_FAILED | RECOVERY_FAILED
+)
+
 SESSION_CREATE_DURATION = Histogram(
     "oh_session_create_duration_seconds",
     "End-to-end session creation duration (admission through backend ready), "

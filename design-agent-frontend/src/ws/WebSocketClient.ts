@@ -16,6 +16,8 @@ import {
   RECONNECT_MAX_ATTEMPTS,
   RECONNECT_MAX_DELAY_MS,
   UNAVAILABLE_MAX_RETRIES,
+  PROBE_TIMEOUT_MS,
+  PROBE_DEBOUNCE_MS,
   WS_CLOSE_CODES,
 } from '../utils/constants';
 import type { ApprovalReply, ClientFrame, ServerFrame, WsStatus } from '../types/ws';
@@ -48,6 +50,14 @@ export class WebSocketClient {
   private disposed = false;
   /** 手动 disconnect 后不再自动重连。 */
   private intentionalClose = false;
+  /** BFCache 唤醒探测相关（Change3）。 */
+  private lifecycleStarted = false;
+  private probeTimer: number | null = null;
+  private probePending = false;
+  private probeTimeoutTimer: number | null = null;
+  private pageShowHandler: (() => void) | null = null;
+  private visibilityHandler: (() => void) | null = null;
+  private onlineHandler: (() => void) | null = null;
 
   constructor(opts: WebSocketClientOptions) {
     this.opts = opts;
@@ -58,6 +68,7 @@ export class WebSocketClient {
     this.intentionalClose = false;
     this.clearReconnectTimer();
     this.openSocket();
+    this.startLifecycleWatchers();
   }
 
   disconnect(): void {
@@ -140,6 +151,14 @@ export class WebSocketClient {
       if (!frame) return;
       if (frame.type === 'pong') {
         this.missedPongs = 0;
+        if (this.probePending) {
+          // 唤醒探测收到 pong：连接确实存活，取消强制重连计时
+          this.probePending = false;
+          if (this.probeTimeoutTimer !== null) {
+            window.clearTimeout(this.probeTimeoutTimer);
+            this.probeTimeoutTimer = null;
+          }
+        }
       }
       if (frame.type === 'session_ready') {
         this.opts.onStatus('ready');
@@ -209,6 +228,11 @@ export class WebSocketClient {
         break;
     }
     // 网络断开（1006 等）→ 指数退避重连
+    if (typeof document !== 'undefined' && document.hidden) {
+      // 页面被隐藏/冻结（BFCache）时浏览器会断开套接字；推迟到
+      // visibilitychange/pageshow 唤醒后由 probe() 探测重连，避免后台空转
+      return;
+    }
     if (this.reconnectAttempt >= RECONNECT_MAX_ATTEMPTS) {
       this.opts.onStatus('failed', { closeCode: code });
       return;
@@ -227,6 +251,94 @@ export class WebSocketClient {
       this.reconnectAttempt += 1;
       this.openSocket();
     }, delay);
+  }
+
+  // ---- BFCache 唤醒探测（Change3）----
+
+  /** 注册页面生命周期监听：BFCache/后台恢复时主动探测连接存活。仅在浏览器环境注册（SSR 安全）。 */
+  private startLifecycleWatchers(): void {
+    if (this.lifecycleStarted) return;
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    this.lifecycleStarted = true;
+
+    this.pageShowHandler = () => this.scheduleProbe();
+    this.visibilityHandler = () => {
+      // 仅在页面重新可见（从后台/BFCache 恢复）时探测；隐藏时不探测
+      if (!document.hidden) this.scheduleProbe();
+    };
+    this.onlineHandler = () => this.scheduleProbe();
+
+    window.addEventListener('pageshow', this.pageShowHandler);
+    document.addEventListener('visibilitychange', this.visibilityHandler);
+    window.addEventListener('online', this.onlineHandler);
+  }
+
+  private stopLifecycleWatchers(): void {
+    if (!this.lifecycleStarted) return;
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    if (this.pageShowHandler) window.removeEventListener('pageshow', this.pageShowHandler);
+    if (this.visibilityHandler) document.removeEventListener('visibilitychange', this.visibilityHandler);
+    if (this.onlineHandler) window.removeEventListener('online', this.onlineHandler);
+    this.pageShowHandler = this.visibilityHandler = this.onlineHandler = null;
+    this.lifecycleStarted = false;
+    this.clearProbeTimers();
+  }
+
+  /** 生命周期事件去抖后触发一次探测（避免 pageshow/visibility/online 集中触发重复 probe）。 */
+  private scheduleProbe(): void {
+    if (this.disposed || this.intentionalClose) return;
+    if (this.probeTimer !== null) window.clearTimeout(this.probeTimer);
+    this.probeTimer = window.setTimeout(() => {
+      this.probeTimer = null;
+      this.probe();
+    }, PROBE_DEBOUNCE_MS);
+  }
+
+  /**
+   * 探测当前连接是否仍可用。BFCache 冻结会让「OPEN」套接字实际已死但状态不变，
+   * 故需主动 ping 验证：
+   * - 未 OPEN：立即强制重连（恢复策略不变——api_key / last_turn_index 仍由 getter 现取）。
+   * - OPEN：发 ping，PROBE_TIMEOUT 内无 pong 则强制重连。
+   */
+  probe(): void {
+    if (this.disposed || this.intentionalClose) return;
+    if (!this.isOpen) {
+      this.forceReconnect();
+      return;
+    }
+    if (this.probePending) return;
+    this.probePending = true;
+    this.ping();
+    this.probeTimeoutTimer = window.setTimeout(() => {
+      this.probeTimeoutTimer = null;
+      this.probePending = false;
+      this.forceReconnect();
+    }, PROBE_TIMEOUT_MS);
+  }
+
+  /** 强制重连：重置有界/指数重试计数（唤醒是新的「会话上下文」），复用既有恢复策略。 */
+  private forceReconnect(): void {
+    this.clearReconnectTimer();
+    this.clearProbeTimers();
+    this.probePending = false;
+    // 恢复策略（api_key / last_turn_index）由 getter 现取，openSocket 不改变它们
+    this.reconnectAttempt = 0;
+    this.rateLimitRetries = 0;
+    this.capacityRetries = 0;
+    this.unavailableRetries = 0;
+    this.openSocket();
+  }
+
+  private clearProbeTimers(): void {
+    if (this.probeTimer !== null) {
+      window.clearTimeout(this.probeTimer);
+      this.probeTimer = null;
+    }
+    if (this.probeTimeoutTimer !== null) {
+      window.clearTimeout(this.probeTimeoutTimer);
+      this.probeTimeoutTimer = null;
+    }
+    this.probePending = false;
   }
 
   private startHeartbeat(): void {
@@ -277,6 +389,7 @@ export class WebSocketClient {
   private cleanup(): void {
     this.clearReconnectTimer();
     this.stopHeartbeat();
+    this.stopLifecycleWatchers();
     this.cleanupSocket();
   }
 }

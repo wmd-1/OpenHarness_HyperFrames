@@ -25,6 +25,11 @@ class BackendProcessError(RuntimeError):
     """Raised when the subprocess cannot be started or has exited."""
 
 
+# Business error code exposed to clients for C3 (backend startup failure).
+# Intentionally NOT the internal C1–C4 taxonomy (metrics/logs only).
+BACKEND_START_FAILED_CODE = "BACKEND_START_FAILED"
+
+
 class OhBackendProcess:
     """Owns one ``oh --backend-only`` subprocess.
 

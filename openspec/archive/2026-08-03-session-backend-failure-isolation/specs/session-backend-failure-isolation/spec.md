@@ -22,7 +22,12 @@
 - **AND** MUST NOT 退化为 `AttributeError` 或 `TypeError`
 
 ### Requirement: 后端故障 MUST 以分类错误码暴露给客户端
-后端拉起失败与恢复失败 MUST 先经 WebSocket 发送结构化 `error` 帧（含可区分的 `code` 与安全的 `detail`），再以 **1011（server error）** 关闭连接；REST 侧 MUST 返回与之一致的分类状态码（恢复失败为 **409 Conflict**，后端启动失败为 503）。错误分类 MUST 至少区分：准入/容量失败、租户存储不可用、后端启动失败、恢复失败。失败分类 MUST 由 `error.code` 字段（如 `BACKEND_START_FAILED` / `RECOVERY_FAILED`）承载，MUST NOT 通过自定义 close code 编码。内部分类编号（C1–C4）仅用于服务端指标/日志，MUST NOT 出现在对客户端暴露的 `error.code` 中。
+后端拉起失败与恢复失败 MUST 先经 WebSocket 发送结构化 `error` 帧（含可区分的 `code` 与安全的 `detail`），再以 **1011（server error）** 关闭连接；REST 侧后端启动失败 MUST 返回 **503**。错误分类 MUST 至少区分：准入/容量失败、租户存储不可用、后端启动失败、恢复失败。失败分类 MUST 由 `error.code` 字段（如 `BACKEND_START_FAILED` / `RECOVERY_FAILED`）承载，MUST NOT 通过自定义 close code 编码。内部分类编号（C1–C4）仅用于服务端指标/日志，MUST NOT 出现在对客户端暴露的 `error.code` 中。
+
+> **错误边界契约（验收口径，2026-08-03 最终决策）**：
+> - **WS backend / recovery failure** → 以 **1011** 关闭 + `error` 帧 `code`（`BACKEND_START_FAILED` / `RECOVERY_FAILED`）；
+> - **REST backend unavailable（C3）** → **503**；
+> - **409** 状态码**保留给未来的显式 resume / conflict API**，**本变更不强行使用 409**。当前恢复失败（C4）统一经 WebSocket 以 1011 + `error.code=RECOVERY_FAILED` 暴露；REST 侧不因此返回 409。
 
 #### Scenario: 后端启动失败
 - **WHEN** 会话恢复过程中后端进程启动失败

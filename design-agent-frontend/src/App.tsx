@@ -7,6 +7,7 @@ import { useAuthStore } from './store/authStore';
 import { LEGACY_SESSION_IDS_KEY } from './utils/constants';
 import { AppRouter } from './router';
 import { WelcomeScreen } from './components/Welcome/WelcomeScreen';
+import { Toaster } from './components/Common/Toaster';
 
 /** 启动清理：旧版 localStorage 会话 ID 缓存已废弃（列表服务端权威化）。 */
 function clearLegacySessionIds(): void {
@@ -24,5 +25,10 @@ export function App() {
     clearLegacySessionIds();
   }, []);
 
-  return apiKey ? <AppRouter /> : <WelcomeScreen />;
+  return (
+    <>
+      {apiKey ? <AppRouter /> : <WelcomeScreen />}
+      <Toaster />
+    </>
+  );
 }

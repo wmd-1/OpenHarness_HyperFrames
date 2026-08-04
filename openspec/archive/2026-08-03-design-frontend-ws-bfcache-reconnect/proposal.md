@@ -1,6 +1,6 @@
 # 设计前端：WS 页面唤醒（BFCache）重连（design-frontend-ws-bfcache-reconnect）
 
-> 状态：**DRAFT（仅提案，未实现代码）** · 日期：2026-08-03
+> 状态：**已归档（验收通过）** · 日期：2026-08-03 · 归档：2026-08-04
 > 本 change 与后端 `session-snapshot-storage-contract` / `session-backend-failure-isolation` **相互独立**，可单独实施。
 
 ## Why
