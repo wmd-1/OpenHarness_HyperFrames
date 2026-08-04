@@ -1,7 +1,23 @@
 # 测试基建：E2E 浏览器升级完整 Chromium + new headless 以支持 BFCache
 
-> 状态：**DRAFT（仅提案，未实现）** · 日期：2026-08-04
+> 状态：**DRAFT / In Progress（BF3 受阻，暂未归档）** · 日期：2026-08-04
 > 本 change 是 `2026-08-03-design-frontend-ws-bfcache-reconnect`（Change3）的**前置 test-infra 项**，从 Change3 验收边界中拆出。不修改任何产品/前端逻辑，只解决 E2E 运行环境的浏览器能力。
+
+## 阻塞原因与调查结论（2026-08-04）
+
+> **阻塞**：在当前 Playwright 启动的 Chromium 配置下，真实 HTTP 控制组无法命中 BFCache，因此无法完成 BF3 的预期验证（`pageshow.persisted===true` 始终为 `false`，`goBack()` 表现为整页 reload）。本 change **暂不归档**，保持 DRAFT / In Progress；BF3 用例维持能力门控 + skip。
+
+**已确认事实（证据链完整）**：
+- 升级到完整 Chromium 133.0.6943.16 + new headless（`PW_USE_NEW_HEADLESS=1`）后，BF3 真实栈仍 `pageshow.persisted===false`；隔离探针显示 `goBack()` 为整页 reload（`marker:"LOST(reloaded)"`）。
+- 真实 HTTP 控制组（测试进程内 Node `http` 静态服务、独立进程 `python3 -m http.server`，`e2e/static-ab/{a,b}.html`）同样 `backPersisted=false`。
+- headless↔headed 唯一变量对照（同 Chromium、同 `--no-sandbox`、同真实 HTTP 控制组）：new headless（`chromeDelta=0`）与 headed（`PW_HEADED=1`，`chromeDelta=85` 确为真实有头窗口）**均** `backPersisted=false` → 运行模式不是根因。
+- 已排除：vite / HMR / 业务代码 / 应用 WebSocket / `route.fulfill` / `data:` / 静态服务方式 / 运行模式。
+
+**表述纪律（用户裁定）**：当前结论**仅限**「在当前 Playwright 启动的 Chromium 配置下（new headless 与有头模式均），BFCache 未命中」，**不得扩大为「Chromium/浏览器本身不支持 BFCache」**。
+
+**未决问题（留待新 change，不扩展本 change）**：是 Chromium 版本还是启动参数（`--no-sandbox`、Playwright 默认自动化 flags、DevTools 附加）禁用 BFCache，本轮未深入排查。后续调查以 `docs/bfcache-e2e-investigation-2026-08-04.md` 为输入。
+
+**约束遵守**：未改 BF3 验收目标、未改 `visibilitychange`、未改业务/前端逻辑、未改 `OH_E2E_FAULT_INJECTION` 契约。诊断产物（`real-bfcache-static-http.spec.ts` + `e2e/static-ab/` + `PW_HEADED=1` 分支）保留不删。
 
 ## Why
 

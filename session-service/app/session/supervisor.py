@@ -27,7 +27,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
-from app.models import Conversation, ConversationTurn, SessionStatus, TurnArtifact, TurnStatus
+from app.models import (
+    Conversation,
+    ConversationTurn,
+    SessionStatus,
+    SessionStatusReason,
+    TurnArtifact,
+    TurnStatus,
+)
 from app.observability.metrics import SESSIONS_LIVE, track_turn
 from app.session import credentials
 from app.session import logs as log_stream
@@ -1357,6 +1364,49 @@ class SessionSupervisor:
         if cleaned:
             log.info("orphan scan cleaned %d stale workspace(s)", cleaned)
         return cleaned
+
+    async def reconcile_stale_live(self) -> int:
+        """Startup convergence (session-lifecycle-convergence, part A).
+
+        Any ``LIVE``/``IDLE`` conversation with no in-memory instance is
+        orphaned by a gateway restart (its backend subprocess died with the
+        old process) — converge it to ``COLD`` (``status_reason =
+        "gateway_restart"``) so the next WS connect rehydrates it via
+        ``oh --resume``.
+
+        Idempotent: once demoted to COLD it is no longer selected. Sessions
+        that *do* have a live in-memory instance (this gateway already owns
+        them) are left untouched. Opens its own DB session (mirrors
+        ``sweep_stale_creating``). Returns the number of sessions moved.
+        """
+        from app import db as app_db
+        from sqlalchemy import select
+
+        async with app_db.async_session() as db_session:
+            rows = (
+                await db_session.execute(
+                    select(Conversation).where(
+                        Conversation.status.in_(
+                            [SessionStatus.LIVE, SessionStatus.IDLE]
+                        )
+                    )
+                )
+            ).scalars().all()
+            moved = 0
+            for conv in rows:
+                if conv.id in self._sessions:
+                    continue  # this gateway already owns it — leave live
+                conv.status = SessionStatus.COLD
+                conv.status_reason = SessionStatusReason.GATEWAY_RESTART
+                moved += 1
+            if moved:
+                await db_session.commit()
+        if moved:
+            log.info(
+                "reconcile_stale_live: demoted %d orphaned LIVE/IDLE session(s) to COLD",
+                moved,
+            )
+        return moved
 
 
 # Module-level singleton (the gateway is single-process per node; multi-node

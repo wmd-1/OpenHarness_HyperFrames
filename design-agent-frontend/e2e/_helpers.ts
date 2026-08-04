@@ -76,16 +76,17 @@ export async function tryCreateWithFault(
   });
 }
 
-/** 不抛异常的创建：返回 { status, session_id? }，用于并发配额断言。 */
+/** 不抛异常的创建：返回 { status, session_id?, data? }，用于并发配额断言。 */
 export async function tryCreateSessionViaApi(title = 'e2e-real'): Promise<{
   status: number;
   session_id?: string;
+  data?: any;
 }> {
   const { status, data } = await api('POST', '/v1/sessions', {
     title,
     permission_policy: 'full_auto',
   });
-  return { status, session_id: data?.session_id };
+  return { status, session_id: data?.session_id, data };
 }
 
 export async function getSessionViaApi(sessionId: string): Promise<Json> {

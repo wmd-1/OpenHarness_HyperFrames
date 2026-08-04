@@ -202,17 +202,20 @@ async def session_ws(
                 code = int(fwc)
             except ValueError:
                 code = 4500
+            await websocket.accept()
             await websocket.close(code=code, reason="injected (e2e)")
             return
 
     # Rate limit WS connection establishment (same IP token bucket as POST).
     if not await check_rate_limit(_client_ip(websocket)):
+        await websocket.accept()
         await websocket.close(code=4429, reason="Rate limit exceeded")
         return
 
     try:
         sid_uuid = uuid.UUID(sid)
     except ValueError:
+        await websocket.accept()
         await websocket.close(code=4400, reason="Invalid session id")
         return
 
@@ -233,9 +236,11 @@ async def session_ws(
     async with db.async_session() as session:
         conv = await session.get(Conversation, sid_uuid)
     if conv is None or conv.tenant_id != tenant_id:
+        await websocket.accept()
         await websocket.close(code=4404, reason="Session not found")
         return
     if conv.status in (SessionStatus.CLOSED, SessionStatus.EXPIRED):
+        await websocket.accept()
         await websocket.close(code=4403, reason="Session is closed")
         return
 

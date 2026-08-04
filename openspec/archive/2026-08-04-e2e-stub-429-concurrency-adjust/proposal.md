@@ -1,7 +1,9 @@
 # E2E：stub 租户并发上限 429 调整
 
-> 状态：**DRAFT（仅提案，未实现）** · 日期：2026-08-04
+> 状态：**已归档（2026-08-04 验收通过）** · 原日期：2026-08-04
 > 独立 issue：stub profile 放宽 `OH_TENANT_MAX_CONCURRENT=12` 导致 E2E 并发断言前提不成立。不修改 stub profile 静默带过，作为后续 change 显式登记与决策。
+
+> ✅ **已归档**：2026-08-04 真实后端 E2E 验收通过（`OH_E2E_429_PROFILE=1 bash e2e/run-design-frontend-real-backend-tests.sh real-tenant-429` → C1 在 `docker-compose.stub.429.yml`(limit=2) 下稳定复现并发 429；默认 12 profile 未动、无回归）。
 
 ## Why
 

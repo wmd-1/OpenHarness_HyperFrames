@@ -56,6 +56,15 @@ class S3ArtifactStorage:
         except Exception:
             pass
 
+    def copy(self, src_key: str, dst_key: str) -> None:
+        """Deep-copy an artifact object within the same bucket (used by
+        read-only clones so the clone owns an independently-GC'd copy)."""
+        self._client.copy_object(
+            Bucket=self._bucket,
+            Key=dst_key,
+            CopySource={"Bucket": self._bucket, "Key": src_key},
+        )
+
     def exists(self, key: str) -> bool:
         try:
             self._client.head_object(Bucket=self._bucket, Key=key)

@@ -56,6 +56,11 @@ class SessionResponse(BaseModel):
     created_at: datetime
     last_active_at: datetime
     ws_url: str | None = None
+    # True for terminal (CLOSED/EXPIRED) sessions and for explicitly-cloned
+    # read-only sessions. Authoritative source: the persisted
+    # ``Conversation.read_only`` column, OR'd with the terminal-state
+    # derivation for legacy rows that predate the column.
+    read_only: bool = False
 
     model_config = {"from_attributes": True}
 

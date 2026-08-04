@@ -61,6 +61,7 @@ RUN npm run lint && npm run test
 # Testing), so no `playwright install` / browser download is required.
 FROM ${E2E_BASE_IMAGE} AS e2e
 ARG PW_CHROMIUM_PATH
+ARG INSTALL_FULL_CHROMIUM=0
 
 WORKDIR /app
 
@@ -69,6 +70,15 @@ COPY package.json package-lock.json* ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 COPY . .
+
+# BFCache 验证（test-infra change 2026-08-04-e2e-chromium-new-headless-bfcache）：
+# 在既有基础镜像之上安装完整 chromium（new headless 支持 BFCache）。默认关闭，
+# 不影响既有的 chrome-headless-shell 路径；非从零重建基础镜像。
+RUN if [ "${INSTALL_FULL_CHROMIUM}" = "1" ]; then \
+      npx playwright install chromium && \
+      (npx playwright install-deps chromium || true); \
+    fi
+
 RUN npm run build
 
 # playwright.config.ts uses PW_CHROMIUM_PATH as launchOptions.executablePath

@@ -123,6 +123,19 @@ async def lifespan(app: FastAPI):
         await get_supervisor().orphan_scan()
     except Exception as exc:
         logger.warning("orphan scan failed: %s", exc)
+    # Startup: converge orphaned LIVE/IDLE sessions (whose backend died with a
+    # prior gateway) to COLD so reconnect rehydrates them (spec
+    # session-lifecycle-convergence, part A).
+    try:
+        moved = await get_supervisor().reconcile_stale_live()
+        if moved:
+            logger.warning(
+                "startup converge: demoted %d stale LIVE/IDLE session(s) to COLD "
+                "(gateway_restart)",
+                moved,
+            )
+    except Exception as exc:
+        logger.warning("stale-live reconcile failed: %s", exc)
     yield
     # Graceful shutdown: tear down every live session.
     await get_supervisor().shutdown_all()

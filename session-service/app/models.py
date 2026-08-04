@@ -25,8 +25,11 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
 )
+
+sa_false = false
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -42,6 +45,18 @@ class SessionStatus(str, enum.Enum):
     CLOSED = "closed"
     EXPIRED = "expired"
     FAILED = "failed"
+
+
+class SessionStatusReason:
+    """Controlled vocabulary for ``Conversation.status_reason`` (String(64)).
+
+    New reasons MUST be added here as constants — never as bare string
+    literals at call sites — so the vocabulary stays reviewable and avoids
+    silent proliferation. The column is intentionally free-form (not a Postgres
+    enum) so future reasons (e.g. ``idle_eviction``, ``manual_close``) can be
+    added without a migration.
+    """
+    GATEWAY_RESTART = "gateway_restart"
 
 
 class TurnStatus(str, enum.Enum):
@@ -105,6 +120,18 @@ class Conversation(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # session-lifecycle-convergence (A): reason a session was demoted to a
+    # non-live state by the gateway (e.g. "gateway_restart"). NULL for normal
+    # live/terminal transitions.
+    status_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # session-lifecycle-convergence (B): true for read-only clones projected
+    # from another session's turns; such sessions never spawn a backend.
+    read_only: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
+    # session-lifecycle-convergence (B): source session a read-only clone was
+    # projected from (NULL for ordinary sessions).
+    source_session_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
 
 
 class ConversationTurn(Base):

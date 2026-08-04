@@ -36,6 +36,16 @@ class LocalArtifactStorage:
         if path.exists():
             path.unlink()
 
+    def copy(self, src_key: str, dst_key: str) -> None:
+        """Deep-copy an artifact object to a new key (used by read-only clones
+        so the clone owns an independently-GC'd copy of the source bytes)."""
+        src = self._root / src_key
+        if not src.exists():
+            raise FileNotFoundError(f"artifact not found: {src_key}")
+        dst = self._root / dst_key
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(src), str(dst))
+
     def exists(self, key: str) -> bool:
         return (self._root / key).exists()
 

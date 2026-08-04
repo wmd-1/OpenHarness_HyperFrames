@@ -15,13 +15,16 @@ from __future__ import annotations
 
 import base64
 import json
-import os
+import logging
 import mimetypes
+import os
 import re
 import time
 import uuid
 from datetime import datetime, time as dt_time, timezone
 from typing import AsyncGenerator
+
+log = logging.getLogger(__name__)
 
 from pathlib import Path
 
@@ -87,6 +90,8 @@ def _to_response(conv: Conversation, request: Request) -> SessionResponse:
         created_at=conv.created_at,
         last_active_at=conv.last_active_at,
         ws_url=ws_url,
+        read_only=conv.read_only
+        or conv.status in (SessionStatus.CLOSED, SessionStatus.EXPIRED),
     )
 
 
@@ -102,12 +107,19 @@ async def _business_fields(conv: Conversation) -> tuple[bool, bool]:
     """Centralized ``(resumable, read_only)`` mapping (session-history-switch
     D7/D8) — the single place internal status maps to the frontend contract.
 
-    ``read_only``: terminal states (closed/expired) are view-only.
+    ``read_only``: terminal states (closed/expired) are view-only. The
+    persisted ``Conversation.read_only`` column is the authoritative override
+    (set for cloned read-only sessions); it is OR'd with the terminal-state
+    derivation so legacy rows created before the column existed still read as
+    read-only. The two axes — lifecycle phase vs. mutability — stay decoupled.
     ``resumable``: not read-only, and for COLD/FAILED sessions the snapshot
     presence check must pass — except 0-turn sessions, which stay resumable
     because rehydrate falls back to a fresh spawn (no context to lose).
     """
-    read_only = conv.status in (SessionStatus.CLOSED, SessionStatus.EXPIRED)
+    read_only = conv.read_only or conv.status in (
+        SessionStatus.CLOSED,
+        SessionStatus.EXPIRED,
+    )
     resumable = not read_only
     if (
         resumable
@@ -175,15 +187,115 @@ async def list_sessions(
     return SessionListResponse(items=items, total=total, limit=limit, offset=offset)
 
 
+async def _create_readonly_clone(
+    source_id: UUID, request: Request, db: AsyncSession
+) -> SessionResponse:
+    """session-lifecycle-convergence (B): create a read-only projection of an
+    existing session. The new session is CLOSED, ``read_only=True``, carries a
+    copy of the source turns/artifacts, and never spawns a backend or supports
+    --resume.
+
+    Artifacts are DEEP-COPIED into a key namespaced under the clone's own
+    session id (``{new_id}/{turn_index}/{filename}``). This makes the clone a
+    durable, independently-GC'd projection: deleting/GC'ing the source session
+    deletes objects by *its* storage_key and can never orphan the clone's
+    artifacts (the naive read-only reference would have shared the source key
+    and broken under source deletion). See the change's design note.
+    """
+    tenant_id = tenant_from_request(request)
+    src = await db.get(Conversation, source_id)
+    if src is None or src.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail="source session not found")
+
+    new_id = uuid.uuid4()
+    conv = Conversation(
+        id=new_id,
+        tenant_id=tenant_id,
+        status=SessionStatus.CLOSED,
+        read_only=True,
+        source_session_id=source_id,
+        oh_session_id=None,
+        turn_count=src.turn_count or 0,
+    )
+    db.add(conv)
+
+    src_turns = (
+        await db.execute(
+            select(ConversationTurn)
+            .where(ConversationTurn.conversation_id == source_id)
+            .order_by(ConversationTurn.turn_index)
+        )
+    ).scalars().all()
+    for t in src_turns:
+        db.add(
+            ConversationTurn(
+                id=uuid.uuid4(),
+                conversation_id=new_id,
+                turn_index=t.turn_index,
+                prompt=t.prompt,
+                assistant_text=t.assistant_text,
+                status=t.status,
+                usage=t.usage,
+                error_message=t.error_message,
+                started_at=t.started_at,
+                finished_at=t.finished_at,
+            )
+        )
+
+    src_arts = (
+        await db.execute(
+            select(TurnArtifact).where(TurnArtifact.conversation_id == source_id)
+        )
+    ).scalars().all()
+    for a in src_arts:
+        clone_key = f"{new_id}/{a.turn_index}/{a.filename or a.id}"
+        try:
+            storage_for_kind(a.storage_kind).copy(a.storage_key, clone_key)
+        except Exception as exc:  # source object may be missing (e.g. GC'd) — clone still references the key
+            log.warning(
+                "readonly clone artifact copy failed (src=%s -> %s): %s",
+                a.storage_key,
+                clone_key,
+                exc,
+            )
+        db.add(
+            TurnArtifact(
+                id=uuid.uuid4(),
+                conversation_id=new_id,
+                turn_index=a.turn_index,
+                storage_kind=a.storage_kind,
+                storage_key=clone_key,
+                filename=a.filename,
+                file_size_bytes=a.file_size_bytes,
+                duration_seconds=a.duration_seconds,
+                resolution=a.resolution,
+                fps=a.fps,
+            )
+        )
+
+    await db.commit()
+    return _to_response(conv, request)
+
+
 @router.post("", response_model=SessionResponse, status_code=201)
 async def create_session(
     body: SessionCreateRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    clone_readonly: uuid.UUID | None = Query(
+        default=None,
+        description="session-lifecycle-convergence (B): project an existing "
+        "session's turns as a new read-only clone (no backend spawned)",
+    ),
 ) -> SessionResponse:
     # Rate limit (fail-open).
     if not await check_rate_limit(_client_ip(request)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    # session-lifecycle-convergence (B): read-only projection of another
+    # session's turns. No backend is spawned and --resume is not used.
+    if clone_readonly is not None:
+        return await _create_readonly_clone(clone_readonly, request, db)
 
     # E2E fault injection (gated, OFF in production). Lets the frontend E2E
     # exercise 403/503 create-failure paths without stressing shared capacity

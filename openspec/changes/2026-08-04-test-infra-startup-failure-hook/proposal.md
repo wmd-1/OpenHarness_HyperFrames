@@ -1,6 +1,6 @@
 # 测试基建：后端启动失败 hook（startup-failure hook）
 
-> 状态：**DRAFT（仅提案，未实现）** · 日期：2026-08-04
+> 状态：**Implemented（验收完成，待归档）** · 日期：2026-08-04
 > 本 change 由 Change3 收尾时列为「不阻塞的 test-infra 增强」；不扩展 Change3 验收范围，作为后续 change 登记。不影响任何产品/前端逻辑。
 
 ## Why

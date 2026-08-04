@@ -41,8 +41,14 @@ test('B3 特殊字符往返无注入', async ({ page }) => {
 });
 
 test('B4 并发建多个会话触发真实并发配额 429', async () => {
-  // OH_TENANT_MAX_CONCURRENT 默认 12；并发发起 15 个建会话，超出部分被真实拒绝为 429。
-  const N = 15;
+  // 429 验证已迁移到专用低并发 profile（real-tenant-429.spec.ts +
+  // docker-compose.stub.429.yml，OH_TENANT_MAX_CONCURRENT=2），默认 stub profile
+  // 保持 12 不变，避免脆弱断言。此处仅在 429 profile 下复跑以保活。
+  test.skip(
+    process.env.OH_E2E_429_PROFILE !== '1',
+    '429 仅在专用低并发 profile 验证（docker-compose.stub.429.yml）；默认 stub profile 不改',
+  );
+  const N = 5;
   const results = await Promise.all(
     Array.from({ length: N }, (_, i) => tryCreateSessionViaApi(`b4-${i}`)),
   );

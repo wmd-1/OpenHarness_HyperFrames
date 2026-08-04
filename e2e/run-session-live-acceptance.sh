@@ -21,6 +21,9 @@
 # =============================================================================
 set -uo pipefail
 
+# 启动失败早检测 hook（test-infra change 2026-08-04-test-infra-startup-failure-hook）
+source "$(dirname "${BASH_SOURCE[0]}")/startup-failure-hook.sh"
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
@@ -67,14 +70,11 @@ echo "=============================================="
 # upstream (guards the "stale upstream IP" failure mode from the manual run).
 "${COMPOSE[@]}" restart session-frontend >/dev/null 2>&1 || true
 
-for i in $(seq 1 60); do
-  if curl -fsS "${BASE_URL}/healthz" >/dev/null 2>&1; then break; fi
-  if [ "$i" -eq 60 ]; then
-    echo "!! session healthz did not become ready" | tee -a "${E2E_REPORT}"
-    exit 1
-  fi
-  sleep 2
-done
+echo "==> 等待 session-service ready（healthz 200，含启动失败早检测）"
+if ! wait_for_backend_ready session "${BASE_URL}/healthz" 8001 "${COMPOSE[@]}"; then
+  echo "!! session 后端启动失败，已打印诊断，终止。" | tee -a "${E2E_REPORT}"
+  exit 1
+fi
 
 HEALTH="$(curl -fsS "${BASE_URL}/healthz")"
 echo "healthz: ${HEALTH}" | tee -a "${E2E_REPORT}"

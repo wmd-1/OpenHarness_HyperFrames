@@ -1,0 +1,12 @@
+# test-infra change 2026-08-04-e2e-stub-429-concurrency-adjust
+#
+# 独立覆盖文件：仅用于「租户并发配额 429」专用验证。
+# 默认 stub profile（docker-compose.stub.yml）OH_TENANT_MAX_CONCURRENT=12 保持不变，
+# 此处仅把上限压到 2，供并发 429 用例在低并发下稳定复现，不影响其他 E2E。
+#
+# 启用方式：
+#   OH_E2E_429_PROFILE=1 bash e2e/run-design-frontend-real-backend-tests.sh real-tenant-429
+services:
+  session:
+    environment:
+      OH_TENANT_MAX_CONCURRENT: 2

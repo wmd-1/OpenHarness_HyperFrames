@@ -33,11 +33,23 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${PORT}`,
     trace: 'retain-on-failure',
-    // 既有的 chrome-headless-shell 由镜像内置，PW_CHROMIUM_PATH 指向它。
-    launchOptions: {
-      executablePath: process.env.PW_CHROMIUM_PATH || undefined,
-      args: ['--no-sandbox'],
-    },
+    // 浏览器模式（test-infra 控制，仅改运行模式、其余变量保持一致）：
+    //  - 默认：镜像内置 chrome-headless-shell（old headless），executablePath 指定。
+    //  - PW_USE_NEW_HEADLESS=1：完整 chromium + new headless（headless:true）。
+    //  - PW_HEADED=1：完整 chromium + 真实有头模式（headless:false），需配合 xvfb-run
+    //    提供虚拟显示；用于 BFCache 对照——仅翻转 headless/headed，二进制与 --no-sandbox 不变。
+    ...(process.env.PW_USE_NEW_HEADLESS === '1' || process.env.PW_HEADED === '1'
+      ? {
+          channel: 'chromium',
+          headless: process.env.PW_HEADED !== '1',
+          launchOptions: { args: ['--no-sandbox'] },
+        }
+      : {
+          launchOptions: {
+            executablePath: process.env.PW_CHROMIUM_PATH || undefined,
+            args: ['--no-sandbox'],
+          },
+        }),
   },
 
   projects: [
