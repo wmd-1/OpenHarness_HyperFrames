@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from hashlib import sha1
 from pathlib import Path
@@ -13,6 +14,21 @@ from openharness.api.usage import UsageSnapshot
 from openharness.config.paths import get_sessions_dir
 from openharness.engine.messages import ConversationMessage, sanitize_conversation_messages
 from openharness.utils.fs import atomic_write_text
+
+
+def resolve_session_id() -> str:
+    """Resolve the session identity used for snapshot persistence.
+
+    session-service injects ``OH_SESSION_ID`` (a stable cwd-derived id,
+    ``"<cwd.name>-<sha1(resolve(cwd))[:12]>"``) so that snapshots persist under
+    the same id used for ``oh --resume <id>``, keeping RESUME lossless.
+
+    Native ``oh`` users without the env var fall back to a random id, preserving
+    the original behavior exactly.
+
+    See openspec change ``2026-08-05-oh-session-id-resume-contract``.
+    """
+    return os.environ.get("OH_SESSION_ID") or uuid4().hex[:12]
 
 
 _PERSISTED_TOOL_METADATA_KEYS = (

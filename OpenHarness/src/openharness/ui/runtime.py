@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,6 +41,7 @@ from openharness.plugins import load_plugins
 from openharness.prompts import build_runtime_system_prompt
 from openharness.state import AppState, AppStateStore
 from openharness.services.session_backend import DEFAULT_SESSION_BACKEND, SessionBackend
+from openharness.services.session_storage import resolve_session_id
 from openharness.tools import ToolRegistry, create_default_tool_registry
 from openharness.keybindings import load_keybindings
 
@@ -372,9 +374,7 @@ async def build_runtime(
         extra_plugin_roots=normalized_plugin_roots,
         include_project_memory=include_project_memory,
     )
-    from uuid import uuid4
-
-    session_id = uuid4().hex[:12]
+    session_id = resolve_session_id()
 
     restored_metadata = {
         "permission_mode": settings.permission.mode.value,

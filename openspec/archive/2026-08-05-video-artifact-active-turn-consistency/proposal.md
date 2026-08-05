@@ -1,11 +1,11 @@
 # Proposal: 多轮产物预览轮次一致性（activeTurn 单一权威）
 
 - **Change:** `2026-08-05-video-artifact-active-turn-consistency`
-- **状态:** DRAFT（仅落 openspec，待用户确认后实现）
+- **状态:** DRAFT（openspec 已按评审更新，待实现）
 - **能力域:** `design-agent-video`（design-agent-frontend 视频模块）
 - **依赖：** `2026-08-05-ws-multiturn-submit-lifecycle`（session-service 后端修复，已落地）。本 change 不修改 session-service。
 
-## 背景
+## Why
 
 后端 change `2026-08-05-ws-multiturn-submit-lifecycle` 已修复 ws.py busy 守卫，J5 E2E 现可稳定产生**两个带产物轮次**（诊断探针 `real-multiturn-artifact-diag.spec.ts` 已证明：2×`turn_complete`、2 REST 轮、`secondTurnArrived=true`、0 busy 帧）。
 
@@ -18,13 +18,21 @@
 - 第 2 轮产物存在时，预览仍播第 1 轮（`turns/0/artifact`）；
 - 「默认选中最新轮」「tab selected 与 video src 一致」契约被破坏。
 
-根因见 `design.md` §2：`VideoModulePage.tsx:183-193` 的自动选中 effect 依赖 `[conversation.turnActive, latestArtifact]`，其 `else-if` 守卫 `latestArtifact !== turnStartArtifactRef.current` 在 `turnActive=false` 与 artifact 消息两笔提交顺序不确定时会被旧值「吃掉」，致 `activeTurn` 未推进到最新轮。
+根因见 `design.md` §2：`activeTurn` 是由 **turn lifecycle**（`conversation.turnActive`）与 **artifactTurns**（`latestArtifact`）两个异步来源共同推导的派生状态，当前 effect 对这两个来源的**到达时序敏感**，在更新不同步时导致 `activeTurn` 与 latest artifact 不一致、未收敛到最新轮（属派生状态对来源时序敏感的结构问题，非单纯的 React commit 顺序细节）。
 
-## IN scope（仅前端，最小）
+## activeTurn 派生优先级（设计契约）
 
-1. 修复 `activeTurn` 与预览产物源（`artifactStreamUrl(sid, activeTurn)`）不一致——确保 `activeTurn` 可靠指向最新产物轮。
+`activeTurn` 的解析 MUST 遵循以下明确优先级（高 → 低）：
+
+1. **用户主动选择历史轮次 > 自动跟随最新轮次**：当用户在切换条显式点击某历史轮次（pinned），`activeTurn` MUST 等于该轮，且不被后续自动逻辑覆盖，直到新 artifact 到达且按规则 #3 重新评估。
+2. **首次进入默认最新 artifact**：会话首屏（尚无任何手动钉选）预览 MUST 默认选中 `artifactTurns` 的最后一个元素（最新产物轮），不滞留首轮。
+3. **新 artifact 到达且用户未 pinned 时自动切换最新**：每当出现新的带产物轮次（`latestArtifact` 推进）且用户当前未钉选某历史轮次，`activeTurn` MUST 自动收敛到该最新轮；若用户已钉选旧轮，则保持钉选直到新轮完成（规则 #3 触发重评估）。
+
+## What Changes
+
+1. 修复 `activeTurn` 与预览产物源（`artifactStreamUrl(sid, activeTurn)`）不一致——确保 `activeTurn` 严格按上方「派生优先级」收敛到最新/被钉选轮。
 2. 多轮 artifact 切换时**默认选中最新轮**（首轮完成后默认第 1 轮；次轮完成后默认推进到第 2 轮；历史回显/切会话不强制重置）。
-3. 保证 tab `aria-selected`（第 N 轮）与 `video` `src`（`turns/{N}/artifact`）在任意时刻一致——二者本就同源于 `activeTurn`，故修复点为让 `activeTurn` 成为「单一权威且必然等于最新/被钉选轮」。
+3. 保证 tab `aria-selected`（第 N 轮）与 `video` `src`（`turns/{N}/artifact`）在任意时刻一致——二者 MUST 同源派生自 `activeTurn`（见 spec invariant）。
 
 ## OUT scope（明确不做）
 
@@ -36,8 +44,8 @@
 
 ## 受影响文件
 
-- `design-agent-frontend/src/modules/video/VideoModulePage.tsx`（activeTurn 自动选中逻辑；建议抽取纯函数便于单测）
-- `design-agent-frontend/src/modules/video/__tests__/videoPreviewActiveTurn.test.tsx`（**新增** 组件/单元回归）
+- `design-agent-frontend/src/modules/video/VideoModulePage.tsx`（activeTurn 自动选中逻辑；抽取纯函数 `resolveActiveTurn` 便于单测）
+- `design-agent-frontend/src/modules/video/__tests__/videoPreviewActiveTurn.test.tsx`（**新增** 组件/单元回归，含乱序到达收敛用例）
 - `design-agent-frontend/e2e/real-multiturn-artifact.spec.ts`（**复用** 作为 E2E 验收回归，修复后应 PASS）
 
 ## 验收目标（用户指定）

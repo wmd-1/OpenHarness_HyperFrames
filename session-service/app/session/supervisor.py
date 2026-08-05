@@ -564,8 +564,10 @@ class SessionSupervisor:
 
         ``OH_SESSION_ID`` is exposed so backend processes (incl. the stub, which
         faithfully emulates OpenHarness's post-turn snapshot write) can locate
-        the session's snapshot directory. Real OpenHarness ignores the extra
-        var; it is harmless to production."""
+        the session's snapshot directory. The real OpenHarness runtime honors
+        this var (opt-in) as the stable snapshot identity, so that snapshots
+        persist under the same id used for ``--resume`` (lossless RESUME).
+        See openspec change 2026-08-05-oh-session-id-resume-contract."""
         env = {
             "OPENHARNESS_CONFIG_DIR": str(tenant_store.local_config_dir(tenant_id)),
             "OPENHARNESS_DATA_DIR": str(tenant_store.local_data_dir(tenant_id)),
@@ -759,6 +761,25 @@ class SessionSupervisor:
             # OpenHarness sees the files from turn one. Best-effort.
             live.cwd.mkdir(parents=True, exist_ok=True)
             await workspace_store.stage_in(live.tenant_id, live.sid, live.cwd)
+            # Restore the in-memory turn cursor from the authoritative count.
+            # On gateway restart the orphaned LIVE session is demoted to COLD and
+            # rehydrated on WS reconnect, but LiveSession.__init__ resets
+            # ``_turn_index`` to 0. Without restoring it from ``conv.turn_count``
+            # the first resumed turn reuses index 0 and collides with the already
+            # committed turn under uq_turns_conv_idx (IntegrityError).
+            # ``create_session_from_existing`` already does this for the re-arm
+            # path; rehydrate must mirror it. See change
+            # 2026-08-05-rehydrate-turn-index-restore.
+            conv_row = (
+                await db.execute(
+                    select(Conversation).where(
+                        Conversation.id == live.sid,
+                        Conversation.tenant_id == live.tenant_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if conv_row is not None:
+                live._turn_index = conv_row.turn_count
             # Single decision entry point: snapshot presence + completed-turn
             # count. RECOVERY_FAILED raises RecoveryFailedError (no spawn); the
             # prior inline ``turn_count == 0`` fallback is subsumed here.

@@ -39,13 +39,16 @@ test('J5 多轮产物：轮次切换条出现且点击可切换播放轮次', as
   await expect(tabs).toHaveCount(2);
 
   // 默认选中最新轮（第 2 轮）：标题与视频源一致。
+  // 注意：聊天消息气泡也渲染各自轮次的视频（MessageBubble → VideoPlayer），
+  // 故必须限定到「视频预览面板」内的 video，避免 video.first() 误命中消息气泡视频。
+  const previewVideo = page.locator('aside[aria-label="视频预览面板"] video');
   await expect(page.getByText(/第 2 轮产物/)).toBeVisible();
   await expect(switcher.getByRole('tab', { name: '第 2 轮' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('video').first()).toHaveAttribute('src', /turns\/1\/artifact/);
+  await expect(previewVideo).toHaveAttribute('src', /turns\/1\/artifact/);
 
   // 点击第 1 轮：标题与视频源（turns/0/artifact）随之切换，且选中态更新。
   await switcher.getByRole('tab', { name: '第 1 轮' }).click();
   await expect(page.getByText(/第 1 轮产物/)).toBeVisible();
   await expect(switcher.getByRole('tab', { name: '第 1 轮' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('video').first()).toHaveAttribute('src', /turns\/0\/artifact/);
+  await expect(previewVideo).toHaveAttribute('src', /turns\/0\/artifact/);
 });

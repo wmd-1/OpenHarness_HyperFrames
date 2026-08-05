@@ -441,6 +441,48 @@ A DB session row MUST NOT remain in `CREATING` after its spawn attempt concludes
 
 ---
 
+### Requirement: Rehydration MUST restore the in-memory turn cursor
+
+When a `COLD` session is rehydrated (idle eviction reconnect or gateway-restart recovery), the supervisor MUST restore the in-memory `LiveSession._turn_index` from the authoritative `conversations.turn_count` before spawning the backend, so the next submitted turn uses a `turn_index` that does not collide with already-committed turns under the `(conversation_id, turn_index)` unique constraint (`uq_turns_conv_idx`).
+
+The rehydrate path MUST behave identically to `create_session_from_existing` with respect to the turn cursor: `live._turn_index = conv.turn_count`. If the conversation row cannot be located, the cursor MUST retain its default value (`0`) rather than raise, and rehydrate MUST proceed normally.
+
+#### Scenario: resumed turn does not reuse a committed index
+- **WHEN** a session has 1 committed turn (`turn_count=1`) and is rehydrated after a gateway restart
+- **THEN** the next submitted turn is persisted with `turn_index=1` (not `0`), and no `uq_turns_conv_idx` IntegrityError is raised
+
+#### Scenario: rehydrate mirrors the re-arm cursor restore
+- **WHEN** a `COLD` session is rehydrated via the WS reconnect path
+- **THEN** `live._turn_index` equals `conv.turn_count`, matching the `create_session_from_existing` re-arm path
+
+#### Scenario: missing conversation row does not raise
+- **WHEN** rehydrate runs but the conversation row is absent
+- **THEN** the cursor keeps its default value and rehydrate proceeds without raising
+
+---
+
+### Requirement: A native backend subprocess MUST persist its snapshot under the stable --resume identity
+
+The session-service derives a stable session identity `oh_session_id = "{cwd.name}-{sha1(resolve(cwd))[:12]}"` *before* spawning the backend, uses it both as the snapshot directory name and as the `--resume` argument, and injects it into the backend process environment as `OH_SESSION_ID`. The native `oh` backend MUST honor `OH_SESSION_ID` (when present) as the `session_id` it uses when persisting snapshots, so that the snapshot file identity and the `--resume` key live in the **same namespace** and RESUME resolves losslessly.
+
+When `OH_SESSION_ID` is unset (native `oh` used outside session-service), the backend MAY fall back to generating an ephemeral `session_id` (e.g. `uuid4().hex[:12]`); this opt-in contract only constrains behavior when the variable is provided.
+
+#### Scenario: snapshot is saved under the injected OH_SESSION_ID
+- **WHEN** `oh --backend-only` runs with `OH_SESSION_ID=410d1bc7-...-63c1c29565d3` and completes a turn
+- **THEN** the backend writes `sessions/410d1bc7-...-63c1c29565d3/session-410d1bc7-...-63c1c29565d3.json` and a `latest.json` whose `session_id` equals `410d1bc7-...-63c1c29565d3`
+
+#### Scenario: a resumed session loads without "Session not found"
+- **WHEN** the supervisor later spawns `oh --resume 410d1bc7-...-63c1c29565d3 --backend-only` for the same `cwd`
+- **THEN** the backend finds the snapshot by that id, emits `ready`, and does NOT exit with "Session not found"
+
+#### Scenario: native oh without OH_SESSION_ID keeps legacy behavior
+- **WHEN** `oh` runs with no `OH_SESSION_ID` set
+- **THEN** it persists snapshots under an ephemeral id (e.g. `session-<12-hex>.json`), behavior unchanged from before this contract
+
+#### Scenario: snapshot directory name always equals its session_id
+- **WHEN** any session snapshot exists under `OPENHARNESS_DATA_DIR/sessions/<dir>/`
+- **THEN** `<dir>` equals the `session_id` recorded in that directory's `latest.json` (the directory name IS the stable resume identity)
+
 ## Hardening Requirements (harden-session-service)
 
 > 来源：`session-service/` 代码审查 18 项发现（SS-1 至 SS-18）。SS-R1～R8 对上述基线 Requirement 进行加固，SS-R9～R12 为新增需求。所有变更均为增量修复，不改变现有 API 契约或协议行为。

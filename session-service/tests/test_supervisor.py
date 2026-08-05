@@ -298,6 +298,81 @@ async def test_rehydrate_resume_decision(
 
 
 @pytest.mark.asyncio
+async def test_rehydrate_restores_turn_index_from_conversation(db_session, monkeypatch):
+    """2026-08-05-rehydrate-turn-index-restore: a COLD session rehydrated on WS
+    reconnect MUST restore ``_turn_index`` from ``conv.turn_count`` so the next
+    submitted turn doesn't reuse an already-committed index (uq_turns_conv_idx).
+    This mirrors ``create_session_from_existing`` (supervisor.py:384).
+    """
+    sup = SessionSupervisor()
+    live = _make_live("cold", None)
+    live.process = None
+    live.state = SessionState.COLD
+    turn_count = 2
+    conv = Conversation(
+        id=live.sid,
+        tenant_id="default",
+        status=SessionStatus.COLD,
+        oh_session_id=live.oh_session_id,
+        turn_count=turn_count,
+        extra_oh_args="[]",
+    )
+    db_session.add(conv)
+    for i in range(turn_count):
+        db_session.add(
+            ConversationTurn(
+                conversation_id=live.sid,
+                turn_index=i,
+                prompt="x",
+                status=TurnStatus.COMPLETED,
+            )
+        )
+    await db_session.commit()
+
+    assert live._turn_index == 0  # default before rehydrate
+
+    monkeypatch.setattr("app.session.tenant_store.stage_in", AsyncMock())
+    monkeypatch.setattr("app.session.workspace_store.stage_in", AsyncMock())
+    monkeypatch.setattr(
+        "app.session.tenant_store.has_valid_snapshot",
+        AsyncMock(return_value=True),
+    )
+    spawn = AsyncMock()
+    monkeypatch.setattr(sup, "_spawn", spawn)
+
+    await sup.rehydrate(live, db=db_session)
+    spawn.assert_awaited_once()
+    assert live._turn_index == turn_count
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_missing_conversation_keeps_default_cursor(
+    db_session, monkeypatch
+):
+    """2026-08-05-rehydrate-turn-index-restore: when the conversation row is
+    absent, rehydrate must NOT raise and must keep the default cursor.
+    """
+    sup = SessionSupervisor()
+    live = _make_live("cold", None)
+    live.process = None
+    live.state = SessionState.COLD
+    # No Conversation row inserted on purpose.
+
+    monkeypatch.setattr("app.session.tenant_store.stage_in", AsyncMock())
+    monkeypatch.setattr("app.session.workspace_store.stage_in", AsyncMock())
+    monkeypatch.setattr(
+        "app.session.tenant_store.has_valid_snapshot",
+        AsyncMock(return_value=False),
+    )
+    spawn = AsyncMock()
+    monkeypatch.setattr(sup, "_spawn", spawn)
+
+    await sup.rehydrate(live, db=db_session)
+    spawn.assert_awaited_once()
+    assert live._turn_index == 0
+
+
+@pytest.mark.asyncio
 async def test_create_session_from_existing_spawns_with_resume(
     db_session, monkeypatch, tmp_path
 ):

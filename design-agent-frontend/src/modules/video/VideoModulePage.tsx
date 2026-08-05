@@ -28,6 +28,7 @@ import { HistoryPanel } from './HistoryPanel';
 import { ModelSelector } from './ModelSelector';
 import { VideoPreviewPanel } from './VideoPreviewPanel';
 import { extractArtifactTurns } from './videoArtifacts';
+import { resolveActiveTurn } from './videoActiveTurn';
 
 /** 终态提示文案（F2.6：closed 与 expired 区分语义，均只读可回看）。 */
 const TERMINAL_NOTICE: Partial<Record<SessionStatus, string>> = {
@@ -143,12 +144,18 @@ export function VideoModulePage() {
   const [filesOpen, setFilesOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [activeTurn, setActiveTurn] = useState<number | null>(null);
+  // 用户主动钉选某历史轮（在「当前 artifact 集合」下保持；新产物轮到达后由下方 effect 解除）
+  const pinnedRef = useRef(false);
+  // 上次已知 latestArtifact，用于检测「新产物轮到达」并解除钉选、自动跟随最新
+  const lastLatestRef = useRef<number | null>(null);
 
-  // 切会话：关闭文件抽屉与预览面板、清空预览轮次
+  // 切会话：关闭文件抽屉与预览面板、清空预览轮次与钉选态
   useEffect(() => {
     setFilesOpen(false);
     setPreviewOpen(false);
     setActiveTurn(null);
+    pinnedRef.current = false;
+    lastLatestRef.current = null;
   }, [currentId]);
 
   // F1.4：列表 summary 不含 permission_policy，选中后懒加载 detail 补齐
@@ -176,21 +183,28 @@ export function VideoModulePage() {
   );
   const latestArtifact = artifactTurns.length > 0 ? artifactTurns[artifactTurns.length - 1] : null;
 
-  // spec：turn_complete.has_artifact=true 自动展开预览并加载该轮产物。
-  // 以轮次边界判定（turnActive 起落），历史回显/切会话不触发自动展开。
-  const prevActiveRef = useRef(false);
-  const turnStartArtifactRef = useRef<number | null>(null);
+  // 多轮产物预览轮次（activeTurn 单一权威）：
+  // 仅由 artifactTurns/latestArtifact 推导，**不依赖 turnActive 与 artifact 的到达时序**
+  // （彻底消除原 effect 对两个异步来源到达顺序的耦合，见 design.md §2/§4）。
+  // 派生优先级（高→低）：用户钉选 > 首屏最新 > 新 artifact 自动最新。
   useEffect(() => {
-    if (!prevActiveRef.current && conversation.turnActive) {
-      turnStartArtifactRef.current = latestArtifact;
-    } else if (prevActiveRef.current && !conversation.turnActive) {
-      if (latestArtifact !== null && latestArtifact !== turnStartArtifactRef.current) {
-        setActiveTurn(latestArtifact);
-        setPreviewOpen(true);
-      }
+    const prevLatest = lastLatestRef.current;
+    // 用户钉选后若又产出新产物轮，则解除钉选、自动跟随最新（优先级规则 3）
+    if (prevLatest !== null && latestArtifact !== prevLatest) {
+      pinnedRef.current = false;
     }
-    prevActiveRef.current = conversation.turnActive;
-  }, [conversation.turnActive, latestArtifact]);
+    const newArtifactArrived = prevLatest === null || latestArtifact !== prevLatest;
+    lastLatestRef.current = latestArtifact;
+
+    const next = resolveActiveTurn(activeTurn, artifactTurns, pinnedRef.current);
+    if (next !== activeTurn) {
+      setActiveTurn(next);
+    }
+    // 首屏/新产物轮出现时展开预览面板（保持原 turn_complete 自动展开语义）
+    if (next !== null && newArtifactArrived && !previewOpen) {
+      setPreviewOpen(true);
+    }
+  }, [artifactTurns, latestArtifact, activeTurn, previewOpen]);
 
   const readonly = session ? isReadonlySession(session) : false;
   const wsStatus = conversation.ws.status;
@@ -298,7 +312,12 @@ export function VideoModulePage() {
         sid={sid}
         artifactTurns={artifactTurns}
         activeTurn={activeTurn}
-        onSelectTurn={(turn) => setActiveTurn(turn)}
+        onSelectTurn={(turn) => {
+          // 用户显式选择历史轮次 → 钉选（优先级规则 1，不被后续自动推进覆盖，
+          // 直到新产物轮到达由上方 effect 解除钉选）
+          pinnedRef.current = true;
+          setActiveTurn(turn);
+        }}
       />
 
       <CreateDialog />
