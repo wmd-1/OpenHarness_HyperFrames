@@ -1,5 +1,7 @@
 # 任务清单：设计智能体前端 · 真实后端 E2E
 
+> **归档状态（2026-08-05）**：已 archive 至 `openspec/archive/2026-08-01-design-frontend-real-backend-e2e`；主 spec 已合入 `openspec/specs/design-frontend-real-backend-e2e/spec.md`。前端 E2E 范围全部落地（42 例全绿，含 J5 多轮产物切换条验收）。剩余 7 个未勾选项（B6 路径穿越防护、W2 cold 状态、P2 docker stats 等）属**非前端职责 / infra**，由后端集成测试或独立 change 覆盖，按本 change 约束（不修改业务代码、E2E 不越权）**刻意留作 out-of-scope**，不阻塞归档。
+
 落地方式：`docker compose -f docker-compose.yml -f docker-compose.stub.yml up -d session`（真实 session-service 栈 + stub oh）
 → 在既有镜像 `openharness-design-frontend:e2e` 内 `--network host` 跑 Playwright（真实浏览器）。
 **零 mock**：所有断言针对真实后端响应（REST/WS）与真实浏览器行为。

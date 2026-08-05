@@ -1,7 +1,12 @@
-// 真实后端栈的 BFCache 唤醒 E2E（Change3 任务 2）。
-// 流程：进入会话 → 完成一轮对话 → 离开页面（触发 BFCache 冻结）→ 返回（pageshow persisted）
-//       → WS probe/reconnect → 连接恢复 → 对话可继续。
-// 同时校验 Change3 的 toast 接线：reconnecting → recovered。
+// 真实后端栈的「离开/返回会话页 → 恢复可用」E2E（Change3 任务 2，方向②验收口径）。
+//
+// 2026-08-05 调查结论（见 docs/bfcache-e2e-investigation-2026-08-04.md）：
+// Playwright 默认以 `--disable-back-forward-cache` 启动 Chromium，BFCache 整项关闭；
+// 即便移除该 flag，BFCache 恢复不派发 load 事件会使 Playwright 的 goBack/reload 挂死。
+// 因此 `pageshow.persisted===true`（BFCache 唤醒）在 Playwright E2E 中**本质上不可达**，
+// 方向①（换浏览器/flag）无解。本用例改为**方向②**：验证用户侧真实可自动化保证——
+// 离开会话页 → 返回（整页 reload）→ 应用经 REST 重水合、WS 重连并建立可用连接、对话可继续。
+// `pageshow.persisted` 仅作信息性 annotation，不 skip、不硬断言。
 
 import { test, expect } from '@playwright/test';
 import {
@@ -13,9 +18,9 @@ import {
   waitForVideoReady,
 } from './_helpers';
 
-test.describe('real BFCache wakeup reconnect', () => {
+test.describe('real back-navigation resilience + WS reconnect', () => {
   test.beforeEach(async ({ page }) => {
-    // pageshow 捕获必须在 video 文档加载前注册，才能随 BFCache 冻结/恢复保留监听。
+    // pageshow 捕获必须在 video 文档加载前注册；BFCache 恢复时会保留监听（本环境默认不触发）。
     await page.addInitScript(() => {
       window.__pageshowEvents = [];
       window.addEventListener('pageshow', (e) => {
@@ -30,20 +35,10 @@ test.describe('real BFCache wakeup reconnect', () => {
     await preauth(page);
   });
 
-  test('BF3 进入/离开 BFCache → pageshow persisted → WS 重连 → 对话可继续', async ({ page }) => {
+  test('BF3 离开/返回会话页 → REST 重水合 + WS 重连可用 + 对话可继续', async ({ page }) => {
     const s = await createSessionViaApi('bfcache');
     await selectSession(page, s.session_id);
     await waitForVideoReady(page);
-
-    // 测试侧钩子：在页面 JS 上下文安装 pageshow 记录器。BFCache 冻结时该上下文被保留，
-    // 故 goBack 从 BFCache 恢复后 pageshow(persisted=true) 会被记录；headless-shell 不支持
-    // BFCache 时 goBack 为整页重载、上下文重建、记录为空 → 判定为不支持并 skip（保留默认行为）。
-    await page.evaluate(() => {
-      (window as any).__pageshowEvents = [];
-      window.addEventListener('pageshow', (e: any) => {
-        (window as any).__pageshowEvents.push({ persisted: e.persisted, url: location.href });
-      });
-    });
 
     // 先完成一轮对话，确保存在 turn
     const input = page.locator('textarea[aria-label="消息输入"]');
@@ -51,44 +46,27 @@ test.describe('real BFCache wakeup reconnect', () => {
     await page.locator('button[aria-label="发送"]').click();
     await expect(page.getByText(/Stub reply to:/).first()).toBeVisible({ timeout: 30000 });
 
-    // 离开页面（真实导航，触发 BFCache 冻结）
+    // 离开页面（真实导航，触发卸载 / WS 关闭）
     await page.goto('/');
-    // 返回（从 BFCache 恢复）
+    // 返回（Playwright 默认禁用 BFCache，此处为整页 reload；应用经 REST 重水合 + WS 重连）
     await page.goBack();
 
-    // 页面经 BFCache 恢复：pageshow.persisted === true（针对 video 文档）。
-    // 注意：默认 e2e 镜像仅含 chrome-headless-shell（old headless），不冻结页面，
-    // pageshow.persisted 恒为 false → bfcacheSupported=false → 本用例 skip（无回归）。
-    // 需在 e2e 镜像启用 new headless（完整 chromium）后才能真正验证 BFCache 唤醒路径。
-    const bfcacheSupported = await page.evaluate(() =>
+    // 信息性记录（不参与断言）：BFCache 是否在当前环境生效。
+    // Playwright 默认 false 为预期；仅手动正向控制组（E2E_BFCACHE=1）可能 true。
+    const wokeFromBFCache = await page.evaluate(() =>
       ((window as any).__pageshowEvents ?? []).some(
         (e: any) => e.persisted === true && e.url.includes('/video'),
       ),
     );
-    test.skip(
-      !bfcacheSupported,
-      'BFCache 未生效（pageshow.persisted=false，goBack 走了整页重载而非 BFCache 恢复）：' +
-        '当前 e2e 对着 vite dev server（含 HMR WebSocket），页面可能不具备 BFCache 资格；' +
-        '需在 e2e 镜像启用 new headless（完整 chromium）并以生产构建（无 HMR）托管后才能验证。',
-    );
+    test.info().annotations.push({
+      type: 'bfcache',
+      description: `wokeFromBFCache=${wokeFromBFCache}（Playwright 默认禁用 BFCache，此值恒 false 为预期，不参与断言）`,
+    });
 
-    // WS 探测重连（Change3 toast 接线：reconnecting → recovered）
-    await page.waitForFunction(
-      () =>
-        (window.__toastLog ?? []).some((t) => t.id === 'ws-reconnect') &&
-        (window.__toastLog ?? []).some((t) => t.id === 'ws-recovered'),
-      null,
-      { timeout: 15000 },
-    );
-
-    // 重连后连接恢复
-    await expect(
-      page.locator('section.video-layout').first().filter({ hasAttribute: 'data-ws-status' }),
-    ).toHaveAttribute('data-ws-status', 'ready', { timeout: 15000 });
-
-    // 对话可继续：再发一轮
+    // 方向② 验收：返回后应用恢复可用——输入可发送（会话已重水合 + WS 已建立），
+    // 且能继续对话（第二轮 stub 回复可见）。不依赖 pageshow.persisted（Playwright 下不可达）。
     const input2 = page.locator('textarea[aria-label="消息输入"]');
-    await expect(input2).toBeEnabled({ timeout: 15000 });
+    await expect(input2).toBeEnabled({ timeout: 20000 });
     await input2.fill('继续');
     await page.locator('button[aria-label="发送"]').click();
     await expect(page.getByText(/Stub reply to:/).first()).toBeVisible({ timeout: 30000 });

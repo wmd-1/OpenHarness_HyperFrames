@@ -1,7 +1,10 @@
-## ADDED Requirements
+# design-frontend-real-backend-e2e Specification
 
+## Purpose
+设计智能体前端（design-agent-frontend）的 E2E 测试契约：以真实 `session-service` 栈（FastAPI + Postgres + Redis + WS + stub oh，经 `docker compose -f docker-compose.yml -f docker-compose.stub.yml up -d session` 拉起）为唯一后端，**禁止** `e2e/mock-backend.mjs` 假后端；错误/边界场景由真实后端或 stub oh 注入真实返回；所有 E2E 必须在既有 `oh-e2e-test:latest` 镜像内执行（宿主机仅跑 `docker compose` 与编排脚本）；覆盖正常流程、边界、错误处理、性能、浏览器兼容性五类真实场景（真实浏览器走真实通道）。
+## Requirements
 ### Requirement: 真实后端栈作为 E2E 唯一后端来源
-E2E 测试必须以 `docker compose -f docker-compose.yml -f docker-compose.stub.yml up -d session` 拉起的真实 `session-service` 栈（FastAPI + Postgres + Redis + WS + stub oh）为唯一后端，禁止使用 `e2e/mock-backend.mjs` 假后端驱动功能/错误类用例。
+E2E **SHALL** 以 `docker compose -f docker-compose.yml -f docker-compose.stub.yml up -d session` 拉起的真实 `session-service` 栈（FastAPI + Postgres + Redis + WS + stub oh）为唯一后端，且 **MUST NOT** 使用 `e2e/mock-backend.mjs` 假后端驱动功能/错误类用例。
 
 #### Scenario: 后端真实在线且可建会话
 - **WHEN** 编排脚本启动真实栈且 `session:8001/healthz` 返回 200
@@ -14,7 +17,7 @@ E2E 测试必须以 `docker compose -f docker-compose.yml -f docker-compose.stub
 - **AND** 报告中对每条用例标注真实后端 URL（非 `localhost:8001` 的 mock 桩标识）
 
 ### Requirement: 错误处理场景由真实后端返回
-429/503/403/500/401/404 与 WS 关闭码必须由真实 `session-service` 或 stub oh 注入真实返回，前端据此展示对应 banner / 重连 / 回 Welcome。
+429/503/403/500/401/404 与 WS 关闭码 **SHALL** 由真实 `session-service` 或 stub oh 注入真实返回，前端据此展示对应 banner / 重连 / 回 Welcome。
 
 #### Scenario: 限流 429 真实触发
 - **WHEN** 用例经真实后端提交携带 `fault=rate_limit` 的请求
@@ -30,7 +33,7 @@ E2E 测试必须以 `docker compose -f docker-compose.yml -f docker-compose.stub
 - **THEN** 前端依据 close code（4400–4503）真实重连，且在测试超时内恢复流式
 
 ### Requirement: 5 类真实场景覆盖
-E2E 必须覆盖正常流程、边界、错误处理、性能、浏览器兼容性五类，且均以真实浏览器走真实通道。
+E2E **SHALL** 覆盖正常流程、边界、错误处理、性能、浏览器兼容性五类，且均以真实浏览器走真实通道。
 
 #### Scenario: 正常流程真实闭环
 - **WHEN** 用例完成 Welcome → 建会话 → WS 流式 → turn_complete 真实产物 → 下载直链 → 历史切换 → 个人空间聚合
@@ -41,7 +44,7 @@ E2E 必须覆盖正常流程、边界、错误处理、性能、浏览器兼容�
 - **THEN** 报告记录页面加载 TTFB、API p95、容器 CPU/内存（docker stats）
 
 ### Requirement: 镜像内执行约束
-所有 E2E 必须在既有 `oh-e2e-test:latest` 镜像内执行，宿主机仅运行 `docker compose` 与编排脚本。
+所有 E2E **SHALL** 在既有 `oh-e2e-test:latest` 镜像内执行，宿主机仅运行 `docker compose` 与编排脚本。
 
 #### Scenario: 镜像内真实浏览器
 - **WHEN** 运行 `e2e/run-design-frontend-real-backend-tests.sh`
@@ -115,3 +118,4 @@ E2E SHALL 验证：主页模块卡片 / 路由 / 个人空间 tab 均派生自 A
 #### Scenario: 演示标识
 - **WHEN** ui-prototype 或 drawio-diagram（demo）数据出现在个人空间 tab 或卡片
 - **THEN** 该数据带「演示数据」角标；视频 tab 真实数据不带
+
