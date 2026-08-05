@@ -1,6 +1,6 @@
 # 任务清单：后端启动失败 hook
 
-> 状态：**In Progress（实现完成，验收待既有镜像内执行）** · 后续 change，不阻塞 Change3 归档。
+> 状态：**已归档（2026-08-05）** · 实现完成、验收已完成（既有镜像内隔离验证）；spec 已同步主 specs（`openspec/specs/test-infra-startup-failure-hook/spec.md`）。
 
 ## 1. 设计
 - [x] 1.1 明确「启动失败」判定：容器进入终态（exited/dead/removing）→ 立即失败；否则 healthz 在宽限 `STARTUP_READY_TIMEOUT`(默认120s) 内未 200 → 失败；容器仍 running 视为「启动慢」继续等，不误判。

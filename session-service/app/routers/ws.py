@@ -425,8 +425,12 @@ async def session_ws(
                         ),
                     })
                     continue
-                if turn_task is not None and not turn_task.done():
+                if live.busy:
                     # Single-writer: reject concurrent submit with a busy frame.
+                    # Use the supervisor's authoritative state (`live.busy`), not the
+                    # WS task lifecycle (`turn_task.done()`), so a submit arriving
+                    # after `turn_complete` (while the trailing `stage_out` still
+                    # runs) is accepted and can start the next turn.
                     await _safe_send({"type": "busy"})
                     continue
                 turn_task = asyncio.create_task(_run_turn(text))

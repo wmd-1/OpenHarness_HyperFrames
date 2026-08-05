@@ -62,10 +62,10 @@
 > 导致输入区永久停留「轮次执行中」只能刷新恢复。修复见 `src/ws/useWebSocket.ts`，
 > 回归单测 `src/ws/__tests__/useWebSocket.test.ts`「busy 帧回滚乐观 turnActive」。
 
-#### 类别三：实际上可以覆盖，但本轮未实现（可行，建议下一轮）
-- [ ] 1.6 J5 多轮产物切换条：低成本高价值，**建议下一轮**（预计 +1）。
-- [ ] 7.1 P1 ≤8 并发性能基线：中成本，建议作独立性能 job（预计 +1 套）。
-- [ ] 7.3 P3 100 turns 分页滚动：中成本，与 J5 同批（预计 +1）。
+#### 类别三：实际上可以覆盖，但本轮未实现（可行，建议下一轮 → 本轮 B 落地，2026-08-05）
+- [ ] 1.6 J5 多轮产物切换条：E2E `real-multiturn-artifact.spec.ts` 已落，但**BLOCKED**——证据闭环（诊断 harness `real-multiturn-artifact-diag.spec.ts`：Playwright 三方交叉 WS 收/发帧 + DOM 切换条 tab 数 + REST `/turns`）证明：前端正确发出两轮 submit（`sentFrames` 含两条），turn0 `turn_complete.has_artifact=true` 正常到达（stub 忠实、supervisor 注入正确），但后端在 turn0 完成后发 `busy` 帧并**静默丢弃第二轮 WS `submit`**（同 conn 收得到却无 `tool_start`/`turn_complete`/`turn_error`，`restTurnCount` 恒 1），单会话永远只有 1 轮 → 切换条（需 `artifactTurns.length>1`）不可能出现。根因属 **session-service 后端**（分类 E：后端忽略第二轮 submit），非 stub 保真、非前端 store/selector、非测试等待。修复需独立后端 change，与本业务 change 及「不修改业务代码」约束冲突 → 维持 BLOCKED；不在此 change 内改语义。
+- [x] 7.1 P1 ≤8 并发性能基线：中成本，补 E2E `real-concurrency-baseline.spec.ts`（已跑通）。
+- [x] 7.3 P3 100 turns 分页滚动：中成本，与 J5 同批，补 E2E `real-pagination-100turns.spec.ts`（已跑通；边界 ≥7 产物触发分页，完整 100 turns 浸没列入独立 perf soak）。
 
 > 覆盖率（第三轮后）：总需求点 45｜已覆盖 38（对应 41 测试全绿）｜后端阻断 1（P2，infra）｜非前端职责 3｜未实现 3。
 
@@ -84,7 +84,7 @@
 - [x] 1.3 J2b：`assistant_text` 不重复回归（对齐 rest.sh #6）：WS 完成的轮次，前端渲染消息文本恰等于单份 stub 全文（`Stub reply to: <prompt>` 恰出现一次），无双发拼接。
 - [x] 1.4 J3：关闭会话进入只读（`read_only=true` 会话输入禁用 + 「已关闭」徽标，对齐 platform 只读判定）。
 - [x] 1.5 J4：个人空间「视频」tab 真实聚合：分页拉会话→逐会话读 turns 筛 `has_artifact===true`→ 按 `finished_at` 倒序；聚合卡片下载链接指向真实后端产物端点。
-- [ ] 1.6 J5：单会话多轮产物 → 轮次切换条出现（未实现）。
+- [ ] 1.6 J5：单会话多轮产物 → 轮次切换条出现（前端已实现 `VideoPreviewPanel`，补 E2E `real-multiturn-artifact.spec.ts`；**BLOCKED**：后端在上一轮完成后丢弃第二轮 WS `submit`（证据见诊断 harness `real-multiturn-artifact-diag.spec.ts`），单会话只有 1 轮，切换条不出现；根因属 session-service 后端，需独立后端 change）。
 - [x] 1.7 J6：DELETE 软关闭 → `status=closed` 仍可查阅历史（turns 可读，对齐 ws.sh #5）——由 W4 覆盖。
 
 ## 2. 边界情况真实验证（B 类）

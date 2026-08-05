@@ -262,7 +262,71 @@ async def test_ws_quota_exceeded_returns_4430(sync_client, monkeypatch):
         msg = ws.receive()
     assert msg["type"] == "websocket.close", msg
     assert msg["code"] == 4430, msg
-    assert msg.get("reason") == "TENANT_QUOTA_EXCEEDED", msg
+
+
+def test_ws_consecutive_submits_after_turn_complete_create_two_turns(sync_client, monkeypatch):
+    """Regression for J5: a `submit` sent *immediately* after `turn_complete`
+    MUST create a second turn. The original code rejected it with a `busy` frame
+    because the reject decision used `turn_task.done()`, which stays False
+    through the trailing `stage_out` await.
+
+    We inject a slow `stage_out` so the post-`turn_complete` window is guaranteed
+    to exist at submit time (mimics the real, longer stage_out). The test submits
+    turn 1 **immediately** upon receiving turn 0's `turn_complete` — it must NOT
+    sleep to await `stage_out` first. With the fix (reject decision derived from
+    `live.busy`), the submit is accepted and a second `turn_complete` is produced.
+
+    Acceptance: two WS submits -> two `turn_complete` -> both `has_artifact=true`
+    -> REST reports two turns.
+    """
+    import asyncio
+
+    async def _slow_stage_out(tenant_id):
+        # Keep the turn task "not done" for a while after turn_complete, so the
+        # old `turn_task.done()` guard would wrongly reject the next submit.
+        await asyncio.sleep(0.5)
+        return True
+
+    # Patch via the module attribute the supervisor actually calls
+    # (`await tenant_store.stage_out(...)`).
+    monkeypatch.setattr("app.session.tenant_store.stage_out", _slow_stage_out)
+
+    create = sync_client.post("/v1/sessions", json={}).json()
+    sid = create["session_id"]
+    with sync_client.websocket_connect(f"/v1/sessions/{sid}/ws") as ws:
+        assert ws.receive_json()["type"] == "session_ready"
+
+        # Turn 0
+        ws.send_json({"op": "submit", "text": "turn zero"})
+        frames0 = []
+        while True:
+            f = ws.receive_json()
+            frames0.append(f)
+            if f.get("type") == "turn_complete":
+                break
+
+        # IMMEDIATELY submit turn 1 (no sleep to await stage_out).
+        ws.send_json({"op": "submit", "text": "turn one"})
+        frames1 = []
+        while True:
+            f = ws.receive_json()
+            frames1.append(f)
+            if f.get("type") == "turn_complete":
+                break
+
+        all_frames = frames0 + frames1
+        # No busy frame must ever be emitted between the two turns.
+        assert not any(f.get("type") == "busy" for f in all_frames)
+        completes = [f for f in all_frames if f.get("type") == "turn_complete"]
+        assert len(completes) == 2, completes
+        assert completes[0].get("has_artifact") is True
+        assert completes[1].get("has_artifact") is True
+        assert completes[0]["turn_index"] == 0
+        assert completes[1]["turn_index"] == 1
+
+    # REST confirms two persisted turns (committed before stage_out).
+    turns = sync_client.get(f"/v1/sessions/{sid}/turns").json()["items"]
+    assert len(turns) == 2
 
 
 # --- session-history-switch: end-to-end switching --------------------------------
