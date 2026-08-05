@@ -110,6 +110,9 @@ test.describe('真实 HTTP 静态页 BFCache 控制组', () => {
       await page.goBack();
       await expect(page.locator('h1')).toHaveText('Page A');
 
+      // 等待导航条目与 notRestoredReasons 填充完成（避免提前读取得到 null）。
+      await page.waitForTimeout(800);
+
       const events: PageshowEvent[] = await page.evaluate(
         () => (window as any).__ps ?? [],
       );
@@ -123,6 +126,40 @@ test.describe('真实 HTTP 静态页 BFCache 控制组', () => {
         return navs.map((n) => ({ type: n.type, name: n.name }));
       });
       verdict.navigationEntries = navType;
+
+      // 关键诊断（test-infra 2026-08-05 推进）：用 Chromium 原生 notRestoredReasons
+      // 拿到 BFCache 未恢复的确切阻塞原因，终结「版本 vs 启动参数/DevTools」的猜测。
+      // 注意：命中 BFCache 时该字段为 null（无未恢复原因）；未命中时才给出结构化原因。
+      const notRestored = await page.evaluate(() => {
+        const navs = performance.getEntriesByType(
+          'navigation',
+        ) as Array<
+          PerformanceNavigationTiming & {
+            notRestoredReasons?: {
+              children: unknown[];
+              reasons: Array<{
+                reason: string;
+                source?: string;
+                id?: string;
+                src?: string;
+              }>;
+              sameOrigin: boolean;
+              id: string;
+            } | null;
+          }
+        >;
+        return navs.map((n) => ({
+          type: n.type,
+          name: n.name,
+          notRestoredReasons: n.notRestoredReasons ?? null,
+        }));
+      });
+      verdict.notRestoredReasons = notRestored;
+      // 解析顶层阻塞原因（DevTools 附加 / WebSocket / 缓存策略 / masked 等），供结论使用。
+      const topReasons = (notRestored[0]?.notRestoredReasons?.reasons ?? []).map(
+        (r) => r.reason,
+      );
+      verdict.topReasons = topReasons;
 
       // 运行模式实证：headed 模式窗口有标题栏/边框，outerHeight - innerHeight > 0；
       // headless 无窗口装饰，差值≈0。用于确证本次是否真正以“有头”运行，
@@ -143,16 +180,44 @@ test.describe('真实 HTTP 静态页 BFCache 控制组', () => {
       verdict.pwHeadedEnv = process.env.PW_HEADED === '1';
       verdict.pwNewHeadlessEnv = process.env.PW_USE_NEW_HEADLESS === '1';
 
+      // 捕获真实 chromium 进程启动参数（test-infra 2026-08-05 推进）：直接坐实
+      // 「启动参数」假设——读取容器内 chromium 进程 argv，确认 Playwright 是否注入了
+      // 禁用 BFCache 的 flag（如 --disable-features=...BackForwardCache / 自动化开关）。
+      try {
+        const { execSync } = await import('node:child_process');
+        const ps = execSync('ps -eo pid,args', { encoding: 'utf8' });
+        const chromeLines = ps
+          .split('\n')
+          .filter((l) => /chrome|chromium|headless_shell/.test(l) && !/ps -eo/.test(l));
+        verdict.chromeProcessArgs = chromeLines;
+      } catch (e) {
+        verdict.chromeProcessArgs = `capture-failed: ${(e as Error).message}`;
+      }
+
       const backPersisted = events.some((e) => e.persisted === true);
       verdict.backPersisted = backPersisted;
 
       // 结论输出。
+      const reasonsTxt = topReasons.length
+        ? ` topReasons=${JSON.stringify(topReasons)}`
+        : '';
       const conclusion = backPersisted
         ? 'REAL-HTTP-HIT: 真实静态 HTTP 页命中 BFCache(persisted=true) => BF3 的 false 来自 E2E harness（vite/HMR/WS/缓存头等），非 Chromium 能力问题。'
-        : 'REAL-HTTP-MISS: 真实静态 HTTP 页仍未命中 BFCache(persisted=false) => 该浏览器/headless 启动参数下 BFCache 不可用，与实验方法无关。';
+        : `REAL-HTTP-MISS: 真实静态 HTTP 页仍未命中 BFCache(persisted=false) => 该浏览器/headless 启动参数下 BFCache 不可用，与实验方法无关。${reasonsTxt}`;
       verdict.conclusion = conclusion;
       verdict.launchArgs =
         (context as any)._options?.launchOptions?.args ?? 'n/a';
+      // 解析 chromium argv 中与 BFCache 相关的 flag（直接坐实启动参数假设）。
+      const argvBlob = JSON.stringify(verdict.chromeProcessArgs ?? '');
+      verdict.bfcacheRelatedFlags = [
+        '--disable-features',
+        '--enable-features',
+        '--headless',
+        '--remote-debugging',
+        '--no-sandbox',
+        '--enable-automation',
+        'BackForwardCache',
+      ].filter((f) => argvBlob.includes(f));
 
       console.log('=== BFCACHE-STATIC-CONTROL VERDICT ===');
       console.log(JSON.stringify(verdict, null, 2));

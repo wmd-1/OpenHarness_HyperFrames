@@ -4,12 +4,12 @@
 → 在既有镜像 `openharness-design-frontend:e2e` 内 `--network host` 跑 Playwright（真实浏览器）。
 **零 mock**：所有断言针对真实后端响应（REST/WS）与真实浏览器行为。
 
-总览：已实现 **41 例全绿**（首轮 23 + 类别二补齐 18）。
+总览：已实现 **42 例全绿**（首轮 23 + 类别二补齐 18 + J5 验收 1）。
 - 首轮 23：J1–J4 + B1–B5 + E1/E2 + C1–C3 + R1/R2/D1 + T1/M1/M2/M3/I1/W4。
 - 第三轮 18（`real-category2.spec.ts`）：A1a–A1d 审批流、I1 中断缩短、M2 `/model` 后端回执、
   E3 403、E5 503、E6 内联抑制、E9a–E9d（4400/4403/4404/4429/4430/4503/4500）、E1 后端崩溃、W3 重连 resume。
 
-仍未覆盖：类别一（非前端职责，后端集成测试已覆盖）3 点；类别三（可行但未排期）J5/P1/P3；P2（docker stats，infra）。
+仍未覆盖：类别一（非前端职责，后端集成测试已覆盖）3 点（B6/W2/E7 类）；P2（docker stats，infra，e2e 镜像无 docker.sock）。J5/P1/P3 已于 2026-08-05 落地（见 1.6 / 7.1 / 7.3）。
 
 ## 落地状态（2026-08-01，首轮）
 - [x] 0 编排脚本 `e2e/run-design-frontend-real-backend-tests.sh`：起真实栈 → 校验 stub → 签发 key → 镜像内 `--network host` 跑 Playwright → 清理。
@@ -63,11 +63,11 @@
 > 回归单测 `src/ws/__tests__/useWebSocket.test.ts`「busy 帧回滚乐观 turnActive」。
 
 #### 类别三：实际上可以覆盖，但本轮未实现（可行，建议下一轮 → 本轮 B 落地，2026-08-05）
-- [ ] 1.6 J5 多轮产物切换条：E2E `real-multiturn-artifact.spec.ts` 已落，但**BLOCKED**——证据闭环（诊断 harness `real-multiturn-artifact-diag.spec.ts`：Playwright 三方交叉 WS 收/发帧 + DOM 切换条 tab 数 + REST `/turns`）证明：前端正确发出两轮 submit（`sentFrames` 含两条），turn0 `turn_complete.has_artifact=true` 正常到达（stub 忠实、supervisor 注入正确），但后端在 turn0 完成后发 `busy` 帧并**静默丢弃第二轮 WS `submit`**（同 conn 收得到却无 `tool_start`/`turn_complete`/`turn_error`，`restTurnCount` 恒 1），单会话永远只有 1 轮 → 切换条（需 `artifactTurns.length>1`）不可能出现。根因属 **session-service 后端**（分类 E：后端忽略第二轮 submit），非 stub 保真、非前端 store/selector、非测试等待。修复需独立后端 change，与本业务 change 及「不修改业务代码」约束冲突 → 维持 BLOCKED；不在此 change 内改语义。
+- [x] 1.6 J5 多轮产物切换条：E2E `real-multiturn-artifact.spec.ts` 已落（**PASS**，2026-08-05）——原「后端 busy 帧静默丢弃第二轮 WS `submit`、单会话仅 1 轮」旧根因已消除（后端 single-writer 补丁 `2026-08-05-ws-multiturn-submit-lifecycle` 命中 `live.busy` 守卫 + 前端 `activeTurn` 修复 archive `2026-08-05-video-artifact-active-turn-consistency`）；J5 E2E 重跑 `2 passed`（EXIT=0，2×turn_complete + 2×REST 轮 + 0 busy 帧 + consoleErrors=[]），切换条出现、点击可切换播放轮次。详见第 1.6 节。
 - [x] 7.1 P1 ≤8 并发性能基线：中成本，补 E2E `real-concurrency-baseline.spec.ts`（已跑通）。
 - [x] 7.3 P3 100 turns 分页滚动：中成本，与 J5 同批，补 E2E `real-pagination-100turns.spec.ts`（已跑通；边界 ≥7 产物触发分页，完整 100 turns 浸没列入独立 perf soak）。
 
-> 覆盖率（第三轮后）：总需求点 45｜已覆盖 38（对应 41 测试全绿）｜后端阻断 1（P2，infra）｜非前端职责 3｜未实现 3。
+> 覆盖率（J5 落地后）：总需求点 45｜已覆盖 39（对应 42 测试全绿：41 + J5 验收 1）｜后端阻断 1（P2，infra）｜非前端职责 3｜未实现 0。
 
 ---
 
@@ -84,7 +84,7 @@
 - [x] 1.3 J2b：`assistant_text` 不重复回归（对齐 rest.sh #6）：WS 完成的轮次，前端渲染消息文本恰等于单份 stub 全文（`Stub reply to: <prompt>` 恰出现一次），无双发拼接。
 - [x] 1.4 J3：关闭会话进入只读（`read_only=true` 会话输入禁用 + 「已关闭」徽标，对齐 platform 只读判定）。
 - [x] 1.5 J4：个人空间「视频」tab 真实聚合：分页拉会话→逐会话读 turns 筛 `has_artifact===true`→ 按 `finished_at` 倒序；聚合卡片下载链接指向真实后端产物端点。
-- [ ] 1.6 J5：单会话多轮产物 → 轮次切换条出现（前端已实现 `VideoPreviewPanel`，补 E2E `real-multiturn-artifact.spec.ts`；**BLOCKED**：后端在上一轮完成后丢弃第二轮 WS `submit`（证据见诊断 harness `real-multiturn-artifact-diag.spec.ts`），单会话只有 1 轮，切换条不出现；根因属 session-service 后端，需独立后端 change）。
+- [x] 1.6 J5：单会话多轮产物 → 轮次切换条出现（前端已实现 `VideoPreviewPanel`，E2E `real-multiturn-artifact.spec.ts` 验收；**PASS**：后端 single-writer 补丁（`2026-08-05-ws-multiturn-submit-lifecycle`，`ws.py:428` 改 `live.busy` 守卫）已命中（无 busy 帧、两轮 submit 均接受）+ 前端 `activeTurn` 修复已 archive（`2026-08-05-video-artifact-active-turn-consistency`），双依赖解除；J5 E2E 重跑 `2 passed`（EXIT=0，2×turn_complete + 2×REST 轮 + 0 busy 帧 + consoleErrors=[]，2026-08-05）。
 - [x] 1.7 J6：DELETE 软关闭 → `status=closed` 仍可查阅历史（turns 可读，对齐 ws.sh #5）——由 W4 覆盖。
 
 ## 2. 边界情况真实验证（B 类）
@@ -129,9 +129,9 @@
   - [x] 6.4.3 4503 / 4500 → 不白屏、有界重连（`?force_ws_code` 受控注入）。
 
 ## 7. 性能测试（P 类）
-- [ ] 7.1 P1：≤8 并发浏览器上下文各连真实后端建会话+发消息；记录 TTFB、API p95（未实现）。
-- [ ] 7.2 P2：采集容器 `docker stats`（session/postgres/redis）CPU/内存峰值（e2e 镜像内无 docker.sock，**后端阻断**）。
-- [ ] 7.3 P3：真实 100 turns 空间分页滚动无卡死（未实现）。
+- [x] 7.1 P1：≤8 并发浏览器上下文各连真实后端建会话+发消息；记录 TTFB、API p95（E2E `real-concurrency-baseline.spec.ts` 已跑通，p95 指标由报告采集）。
+- [ ] 7.2 P2：采集容器 `docker stats`（session/postgres/redis）CPU/内存峰值（e2e 镜像内无 docker.sock，**后端阻断/infra**，不在前端 E2E 范围）。
+- [x] 7.3 P3：真实 100 turns 空间分页滚动无卡死（E2E `real-pagination-100turns.spec.ts` 已跑通；边界 ≥7 产物触发分页，完整 100 turns 浸没列入独立 perf soak）。
 
 ## 8. 浏览器兼容性（C 类，真实后端）
 - [x] 8.1 C1：新标签打开会话直链（真实 `session_id`）正常加载。
@@ -147,5 +147,5 @@
 - [x] 10.1 编排脚本产出 `design-agent-frontend/e2e/real_backend_report_2026-08-01.txt`；详细版见 `docs/design-frontend-real-backend-e2e-report-2026-08-01.md`。
 - [x] 10.2 `e2e/mock-backend.mjs` 已废弃：`playwright.config.ts` 不再启动它（旧 mock scenario 文件已删除），保留文件本身避免影响单测。
 - [x] 10.3 本地按编排脚本跑全绿（首轮 23 passed / 0 failed，~1.5m）。
-- [x] 10.4 第三轮（类别二）落地后全量回归：**41 passed / 0 failed（~3.7m）**；
+- [x] 10.4 第三轮（类别二）+ J5 落地后：J5 验收 spec `real-multiturn-artifact.spec.ts` 2026-08-05 实跑 **PASS**（10.2s），全量绿由 41 → **42**；其余 41 例维持 2026-08-01 实跑结论（41 passed / 0 failed，~3.7m）；前端单测 296 passed（含 `videoPreviewActiveTurn.test.tsx` 8/8）。
       前端单测 **296 passed**（含新增 busy 回滚回归用例，在 `openharness-design-frontend:e2e` 镜像内跑）。

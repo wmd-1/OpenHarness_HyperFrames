@@ -38,16 +38,27 @@ export default defineConfig({
     //  - PW_USE_NEW_HEADLESS=1：完整 chromium + new headless（headless:true）。
     //  - PW_HEADED=1：完整 chromium + 真实有头模式（headless:false），需配合 xvfb-run
     //    提供虚拟显示；用于 BFCache 对照——仅翻转 headless/headed，二进制与 --no-sandbox 不变。
+    //  - E2E_BFCACHE=1：移除 Playwright 默认注入的 `--disable-back-forward-cache`，
+    //    让 chromium 真正启用 BFCache（test-infra 2026-08-05 推进确认其为 BF3 未命中的根因）。
+    //    默认关闭，避免影响其余 E2E 用例（冻结页会干扰 Playwright 的 reload/inspect）。
     ...(process.env.PW_USE_NEW_HEADLESS === '1' || process.env.PW_HEADED === '1'
       ? {
           channel: 'chromium',
           headless: process.env.PW_HEADED !== '1',
-          launchOptions: { args: ['--no-sandbox'] },
+          launchOptions: {
+            args: ['--no-sandbox'],
+            ...(process.env.E2E_BFCACHE === '1'
+              ? { ignoreDefaultArgs: ['--disable-back-forward-cache'] }
+              : {}),
+          },
         }
       : {
           launchOptions: {
             executablePath: process.env.PW_CHROMIUM_PATH || undefined,
             args: ['--no-sandbox'],
+            ...(process.env.E2E_BFCACHE === '1'
+              ? { ignoreDefaultArgs: ['--disable-back-forward-cache'] }
+              : {}),
           },
         }),
   },
