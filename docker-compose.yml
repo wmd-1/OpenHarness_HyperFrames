@@ -278,6 +278,8 @@ services:
       - OH_DOCKER_HOST=${OH_DOCKER_HOST:-}
       # WS-D 池化调度：节点容量与有界 FIFO 准入队列（e2e 可调小）
       - OH_MAX_LIVE_SESSIONS=${OH_MAX_LIVE_SESSIONS:-16}
+      # 每租户并发 live 会话配额（默认 1：单用户单会话；调高接受租户数据 last-writer-wins）
+      - OH_TENANT_MAX_CONCURRENT=${OH_TENANT_MAX_CONCURRENT:-3}
       - OH_POOL_QUEUE_SIZE=${OH_POOL_QUEUE_SIZE:-32}
       - OH_POOL_QUEUE_TIMEOUT=${OH_POOL_QUEUE_TIMEOUT:-15}
     volumes:
