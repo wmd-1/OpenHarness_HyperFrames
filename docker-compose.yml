@@ -71,6 +71,21 @@ services:
       - QWENASR_MODEL=${QWENASR_MODEL:-}
       - QWENASR_TRANSCRIBE_PATH=${QWENASR_TRANSCRIBE_PATH:-}
       - QWENASR_TIMEOUT_MS=${QWENASR_TIMEOUT_MS:-}
+      # ---- OpenHarness provider/model 覆盖（镜像 ~/.openharness/settings.json 顶层字段）----
+      # OPENHARNESS_* 优先级高于 settings.json，并被 session-service 注入的 oh 子进程继承。
+      # 留空 = 不覆盖。改完执行：docker compose up -d --force-recreate <svc>
+      - OPENHARNESS_MODEL=${OPENHARNESS_MODEL:-}
+      - OPENHARNESS_BASE_URL=${OPENHARNESS_BASE_URL:-}
+      - OPENHARNESS_MAX_TOKENS=${OPENHARNESS_MAX_TOKENS:-}
+      - OPENHARNESS_TIMEOUT=${OPENHARNESS_TIMEOUT:-}
+      - OPENHARNESS_PROVIDER=${OPENHARNESS_PROVIDER:-}
+      - OPENHARNESS_API_FORMAT=${OPENHARNESS_API_FORMAT:-}
+      - OPENHARNESS_PROFILE=${OPENHARNESS_PROFILE:-}
+      # API Key：与 provider 对应。OPENHARNESS_ 前缀 > 原生前缀；session 网关级
+      # 最高优先级见 .env 的 OH_PROVIDER_API_KEY（由网关注入 oh 子进程）。
+      - OPENHARNESS_OPENAI_API_KEY=${OPENHARNESS_OPENAI_API_KEY:-}
+      - OPENHARNESS_ANTHROPIC_API_KEY=${OPENHARNESS_ANTHROPIC_API_KEY:-}
+      - OH_PROVIDER_API_KEY=${OH_PROVIDER_API_KEY:-}
     volumes:
       # 框架源码挂载（OpenHarness/ 子目录）— 修改宿主机代码，容器内立即生效
       # PYTHONPATH=/app/src 使 Python 优先从这里导入，覆盖 pip 安装的版本
@@ -183,6 +198,21 @@ services:
       - QWENASR_MODEL=${QWENASR_MODEL:-}
       - QWENASR_TRANSCRIBE_PATH=${QWENASR_TRANSCRIBE_PATH:-}
       - QWENASR_TIMEOUT_MS=${QWENASR_TIMEOUT_MS:-}
+      # ---- OpenHarness provider/model 覆盖（镜像 ~/.openharness/settings.json 顶层字段）----
+      # OPENHARNESS_* 优先级高于 settings.json，并被 session-service 注入的 oh 子进程继承。
+      # 留空 = 不覆盖。改完执行：docker compose up -d --force-recreate api
+      - OPENHARNESS_MODEL=${OPENHARNESS_MODEL:-}
+      - OPENHARNESS_BASE_URL=${OPENHARNESS_BASE_URL:-}
+      - OPENHARNESS_MAX_TOKENS=${OPENHARNESS_MAX_TOKENS:-}
+      - OPENHARNESS_TIMEOUT=${OPENHARNESS_TIMEOUT:-}
+      - OPENHARNESS_PROVIDER=${OPENHARNESS_PROVIDER:-}
+      - OPENHARNESS_API_FORMAT=${OPENHARNESS_API_FORMAT:-}
+      - OPENHARNESS_PROFILE=${OPENHARNESS_PROFILE:-}
+      # API Key：与 provider 对应。OPENHARNESS_ 前缀 > 原生前缀；session 网关级
+      # 最高优先级见 .env 的 OH_PROVIDER_API_KEY（由网关注入 oh 子进程）。
+      - OPENHARNESS_OPENAI_API_KEY=${OPENHARNESS_OPENAI_API_KEY:-}
+      - OPENHARNESS_ANTHROPIC_API_KEY=${OPENHARNESS_ANTHROPIC_API_KEY:-}
+      - OH_PROVIDER_API_KEY=${OH_PROVIDER_API_KEY:-}
     volumes:
       - ./OpenHarness/src:/app/src
       - ./OpenHarness/ohmo:/app/ohmo
@@ -282,6 +312,21 @@ services:
       - OH_TENANT_MAX_CONCURRENT=${OH_TENANT_MAX_CONCURRENT:-3}
       - OH_POOL_QUEUE_SIZE=${OH_POOL_QUEUE_SIZE:-32}
       - OH_POOL_QUEUE_TIMEOUT=${OH_POOL_QUEUE_TIMEOUT:-15}
+      # ---- OpenHarness provider/model 覆盖（镜像 ~/.openharness/settings.json 顶层字段）----
+      # OPENHARNESS_* 优先级高于 settings.json，并被本服务注入的 oh 子进程继承。
+      # 留空 = 不覆盖。改完执行：docker compose up -d --force-recreate session
+      - OPENHARNESS_MODEL=${OPENHARNESS_MODEL:-}
+      - OPENHARNESS_BASE_URL=${OPENHARNESS_BASE_URL:-}
+      - OPENHARNESS_MAX_TOKENS=${OPENHARNESS_MAX_TOKENS:-}
+      - OPENHARNESS_TIMEOUT=${OPENHARNESS_TIMEOUT:-}
+      - OPENHARNESS_PROVIDER=${OPENHARNESS_PROVIDER:-}
+      - OPENHARNESS_API_FORMAT=${OPENHARNESS_API_FORMAT:-}
+      - OPENHARNESS_PROFILE=${OPENHARNESS_PROFILE:-}
+      # API Key：与 provider 对应。OPENHARNESS_ 前缀 > 原生前缀；本服务网关级最高
+      # 优先级覆盖见 .env 的 OH_PROVIDER_API_KEY（由网关注入 oh 子进程）。
+      - OPENHARNESS_OPENAI_API_KEY=${OPENHARNESS_OPENAI_API_KEY:-}
+      - OPENHARNESS_ANTHROPIC_API_KEY=${OPENHARNESS_ANTHROPIC_API_KEY:-}
+      - OH_PROVIDER_API_KEY=${OH_PROVIDER_API_KEY:-}
     volumes:
       - ./OpenHarness/src:/app/src
       - ./OpenHarness/ohmo:/app/ohmo
