@@ -85,7 +85,6 @@ services:
       # 最高优先级见 .env 的 OH_PROVIDER_API_KEY（由网关注入 oh 子进程）。
       - OPENHARNESS_OPENAI_API_KEY=${OPENHARNESS_OPENAI_API_KEY:-}
       - OPENHARNESS_ANTHROPIC_API_KEY=${OPENHARNESS_ANTHROPIC_API_KEY:-}
-      - OH_PROVIDER_API_KEY=${OH_PROVIDER_API_KEY:-}
     volumes:
       # 框架源码挂载（OpenHarness/ 子目录）— 修改宿主机代码，容器内立即生效
       # PYTHONPATH=/app/src 使 Python 优先从这里导入，覆盖 pip 安装的版本
@@ -212,7 +211,6 @@ services:
       # 最高优先级见 .env 的 OH_PROVIDER_API_KEY（由网关注入 oh 子进程）。
       - OPENHARNESS_OPENAI_API_KEY=${OPENHARNESS_OPENAI_API_KEY:-}
       - OPENHARNESS_ANTHROPIC_API_KEY=${OPENHARNESS_ANTHROPIC_API_KEY:-}
-      - OH_PROVIDER_API_KEY=${OH_PROVIDER_API_KEY:-}
     volumes:
       - ./OpenHarness/src:/app/src
       - ./OpenHarness/ohmo:/app/ohmo
